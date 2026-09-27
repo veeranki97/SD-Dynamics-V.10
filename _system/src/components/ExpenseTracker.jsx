@@ -4,6 +4,7 @@ import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrder
 import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
+import { getExpenseCategories, addExpenseCategory } from '../utils/masterData';
 import { confirmAction } from './ConfirmModal';
 
 // Each category is tagged with its ITR (Income Tax Return) head so the
@@ -92,6 +93,9 @@ export default function ExpenseTracker() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
+  const [masterCats, setMasterCats] = useState(() => {
+    try { return getExpenseCategories(); } catch { return []; }
+  });
   const [woList, setWoList] = useState([]);
   const [billList, setBillList] = useState([]);
   useEffect(() => {
@@ -431,6 +435,8 @@ export default function ExpenseTracker() {
                   const next = [...new Set([...customCats, newCatName.trim()])];
                   setCustomCats(next);
                   localStorage.setItem('fgsb_expense_categories', JSON.stringify(next));
+                  addExpenseCategory(newCatName.trim());
+                  setMasterCats(getExpenseCategories());
                   setForm(f => ({ ...f, category: newCatName.trim() }));
                   setNewCatName('');
                   toast('Category added', 'success');

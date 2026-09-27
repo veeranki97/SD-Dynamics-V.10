@@ -132,7 +132,8 @@ export function journalFromTaxInvoice(bill) {
     party: bill.clientName || bill.data?.client?.name || '',
     clientName: bill.clientName || bill.data?.client?.name || '',
     costCenterId: bill.costCenterId || bill.data?.costCenterId || null,
-    site: bill.site || bill.data?.site || null,
+    site: bill.site || bill.data?.site || bill.data?.details?.site || null,
+    workOrderId: bill.workOrderId || bill.data?.workOrderId || null,
     entries,
   };
 }

@@ -14,6 +14,7 @@ import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
+import { getPrintSettings } from '../utils/printSettings';
 function downloadRowsCsv(filename, rows, cols) {
   const esc = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const headers = cols.map(c => c.label);
@@ -548,7 +549,7 @@ export default function PurchaseOrdersView() {
                 <ActionMenu items={[
                   { label: 'Edit', onClick: () => setForm({ ...po }) },
                   { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                  { label: 'Print / PDF', onClick: () => printPO(po, profile, po.fingerprint) },
+                  { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint) },
                   { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
                     { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
                     { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },

@@ -282,21 +282,27 @@ export default function CostCentersView() {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Units for line items (Nos, Hrs, Sqft, …).
+              Units for line items (Nos, Hrs, Sqft, …). Same list drives Invoice, WO and PO.
             </p>
             <button type="button" className="btn btn-primary btn-sm" onClick={addUnit}>＋ Add unit</button>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {unitList.map(u => (
-              <span key={u} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '6px 10px', borderRadius: 8, background: 'var(--surface-2, #f3f4f6)',
-                border: '1px solid var(--border, #e5e7eb)',
-              }}>
-                {u}
-                <button type="button" className="btn-icon" style={{ fontSize: 12 }} onClick={() => removeUnit(u)} title="Remove">×</button>
-              </span>
-            ))}
+          <div className="table-responsive">
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead><tr><th>UNIT</th><th style={{ width: 100 }}></th></tr></thead>
+              <tbody>
+                {unitList.map(u => (
+                  <tr key={u}>
+                    <td className="font-medium">{u}</td>
+                    <td>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeUnit(u)}>Remove</button>
+                    </td>
+                  </tr>
+                ))}
+                {!unitList.length && (
+                  <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No units yet</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </>
       )}

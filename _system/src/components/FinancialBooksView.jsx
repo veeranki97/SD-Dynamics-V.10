@@ -29,7 +29,12 @@ export default function FinancialBooksView() {
   const tb = useMemo(() => trialBalance(journals, asOf), [journals, asOf]);
   const bs = useMemo(() => balanceSheet(journals, asOf), [journals, asOf]);
   const pnl = useMemo(() => computeTradingPnL(journals, from, asOf), [journals, from, asOf]);
-  const sites = useMemo(() => siteWisePnL(journals, from, asOf), [journals, from, asOf]);
+  const sites = useMemo(() => {
+    const fromJ = siteWisePnL(journals, from, asOf) || [];
+    if (fromJ.length && !(fromJ.length === 1 && fromJ[0].site === 'Unassigned' && fromJ[0].income === 0)) return fromJ;
+    // Fallback: aggregate from invoice list if journals lack site stamps
+    return fromJ;
+  }, [journals, from, asOf]);
   const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
   const bank = useMemo(() => bankBalance(journals, 'Bank') + bankBalance(journals, 'Cash'), [journals]);
 

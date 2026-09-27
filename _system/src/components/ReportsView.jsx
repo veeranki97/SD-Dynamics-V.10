@@ -630,8 +630,16 @@ export default function ReportsView() {
                     {worstPayers.map((c, i) => (
                       <tr key={i}>
                         <td className="font-medium">{c.name}</td>
-                        <td style={{ textAlign: 'right', color: '#dc2626', fontWeight: 700 }}>{formatCurrency(c.outstanding, currencyFilter)}</td>
-                        <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{Math.round((c.outstanding / c.revenue) * 100)}%</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <span style={{ display: 'inline-block', minWidth: 88, padding: '4px 8px', borderRadius: 6, background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', color: '#dc2626', fontWeight: 700 }}>
+                            {formatCurrency(c.outstanding, currencyFilter)}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <span style={{ display: 'inline-block', minWidth: 52, padding: '4px 8px', borderRadius: 6, background: 'var(--surface-2, #f3f4f6)', border: '1px solid var(--border)' }}>
+                            {Math.round((c.outstanding / c.revenue) * 100)}%
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

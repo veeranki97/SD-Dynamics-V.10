@@ -628,16 +628,41 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
           }
         }
 
+        // CRITICAL: remove receipts so orphaned-payment reconcile in loadBills
+        // does not re-apply paidAmount and force status back to Paid/Partial.
+        let receiptsCleared = 0;
+        try {
+          const receipts = await getAllReceipts().catch(() => []);
+          const inv = String(bill.invoiceNumber || '');
+          const bid = String(bill.id || '');
+          for (const r of (receipts || [])) {
+            const key = String(r.billId || r.againstInvoice || '');
+            if (key && (key === bid || key === inv)) {
+              try {
+                await deleteReceipt(r.id);
+                receiptsCleared++;
+              } catch (e) { console.warn('delete receipt', e); }
+            }
+          }
+        } catch (e) { console.warn('receipt cleanup', e); }
+
+        // Optimistic UI — paid total becomes ₹0 before next full reload
+        setBills(prev => (prev || []).map(b =>
+          (b.id === bill.id || b.invoiceNumber === bill.invoiceNumber)
+            ? { ...b, status: 'unpaid', paidAmount: 0, payments: [] }
+            : b
+        ));
+
         if (reversed > 0) {
-          toast(`Marked unpaid (₹0). Reversed ${reversed} journal(s).`, 'success');
+          toast(`Marked unpaid (₹0). Reversed ${reversed} journal(s).${receiptsCleared ? ` Cleared ${receiptsCleared} receipt(s).` : ''}`, 'success');
         } else {
-          toast('Marked unpaid (₹0). No prior payment journals found to reverse.', 'info');
+          toast(`Marked unpaid (₹0).${receiptsCleared ? ` Cleared ${receiptsCleared} receipt(s).` : ' No payment journals found to reverse.'}`, 'info');
         }
       } catch (e) {
         console.warn('[ledger] unpaid reversal failed', e);
         toast('Marked unpaid (₹0) but journal reverse failed — check Books → Journals', 'warning');
       }
-      loadBills();
+      await loadBills();
       return; // avoid second "Marked as unpaid" toast below
 
 } else {
@@ -1281,7 +1306,6 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
             <button type="button" className="btn btn-secondary" onClick={() => {
               downloadSdExport('SD-Invoices-Export.csv', billsToSdCsv(bills));
             }}>SD Export CSV</button>
-            <button type="button" className="btn btn-secondary" onClick={() => exportInvoicesCsv(typeof filteredBills !== 'undefined' ? filteredBills : bills)}>Export CSV</button>
             <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
           </>
         ) : null}
