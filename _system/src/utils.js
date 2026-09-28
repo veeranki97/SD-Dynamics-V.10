@@ -1298,7 +1298,25 @@ export const removeCustomUnit = (label) => {
   try { localStorage.setItem(CUSTOM_UNITS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
 };
 
-export const getAllUnits = () => [...BUILTIN_UNITS, ...getCustomUnits()];
+export const getAllUnits = () => {
+  const fromBuiltin = [...BUILTIN_UNITS, ...getCustomUnits()];
+  // Merge Master Data units (Cost Centres → Units tab)
+  let master = [];
+  try {
+    for (const key of ['freegstbill_custom_units', 'fgsb_custom_units']) {
+      const arr = JSON.parse(localStorage.getItem(key) || '[]');
+      if (Array.isArray(arr)) master = master.concat(arr.map(x => String(x || '').trim()).filter(Boolean));
+    }
+  } catch { /* ignore */ }
+  const seen = new Set(fromBuiltin.map(u => (u.label || u).toLowerCase()));
+  for (const label of master) {
+    if (!seen.has(label.toLowerCase())) {
+      seen.add(label.toLowerCase());
+      fromBuiltin.push({ label, value: label, custom: true });
+    }
+  }
+  return fromBuiltin;
+};
 
 export const getUnitUQC = (label) => {
   const u = getAllUnits().find(x => x.label === label);

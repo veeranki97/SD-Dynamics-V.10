@@ -490,7 +490,10 @@
       { label: 'Restore a backup', run: function () { runScript('restore-windows.ps1'); } },
       { label: 'Move to another PC', run: function () { runScript('move-windows.ps1'); } },
       { label: 'Stop the app', run: function () { runScript('stop-windows.ps1'); } },
-      { label: 'Rebuild app (npm run build)', run: function () { runScript('rebuild-windows.ps1'); } }
+      { label: 'Rebuild app (npm run build)', run: function () {
+        setState('Rebuilding…', 'A PowerShell window will open. Wait for Build OK or Build failed, then press Enter.', 'info');
+        runScript('rebuild-windows.ps1');
+      } }
     ]);
   }
 

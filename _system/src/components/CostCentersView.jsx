@@ -1,5 +1,5 @@
 import { suggestGstRate } from '../utils/hsnRates';
-import { getHsnMaster, addHsnCode, removeHsnCode, getUnitMaster, addUnit, removeUnit, getExpenseCategories, addExpenseCategory, removeExpenseCategory } from '../utils/masterData';
+import { getHsnMaster, addHsnCode, removeHsnCode, getUnitMaster, addUnit as saveUnitMaster, removeUnit as deleteUnitMaster, getExpenseCategories, addExpenseCategory, removeExpenseCategory } from '../utils/masterData';
 import { useState, useEffect } from 'react';
 import { getAllCostCenters, saveCostCenter, deleteCostCenter } from '../store';
 import { toast } from './Toast';
@@ -110,14 +110,14 @@ export default function CostCentersView() {
     const t = String(v).trim();
     if (!t) return;
     if (unitList.includes(t)) { toast('Already in list', 'info'); return; }
-    setUnitList(addUnit(t));
+    setUnitList(saveUnitMaster(t));
     toast(`Unit "${t}" saved`, 'success');
   };
 
   const removeUnit = async (u) => {
     const ok = await confirmAction({ title: 'Remove unit?', message: u, confirmLabel: 'Remove', tone: 'danger' });
     if (!ok) return;
-    setUnitList(removeUnit(u));
+    setUnitList(deleteUnitMaster(u));
     toast('Removed', 'success');
   };
 

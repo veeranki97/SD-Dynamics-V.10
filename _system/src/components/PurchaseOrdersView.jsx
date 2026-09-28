@@ -70,6 +70,12 @@ async function sha256Hex(text) {
 }
 
 function printPO(po, profile, fingerprint) {
+  let sigSrc = '';
+  try {
+    const ps = (typeof getPrintSettings === 'function' ? getPrintSettings() : {}) || {};
+    sigSrc = (profile && (profile.signature || profile.signatureImage))
+      || ps.signatureImage || ps.signature || '';
+  } catch { sigSrc = (profile && (profile.signature || profile.signatureImage)) || ''; }
   const t = calcPOTotals(po.items, po.taxRate, po.vendorState, profile?.state);
   const terms = (po.terms || po.notes || profile?.defaultTerms ||
     '1. Please quote PO number on all invoices and delivery challans.\\n2. Goods/services subject to inspection and approval.\\n3. Payment as per agreed terms.').replace(/\\n/g, '<br/>');
@@ -184,7 +190,11 @@ function printPO(po, profile, fingerprint) {
       <div class="muted" style="margin-top:6px;line-height:1.45">${terms}</div>
     </td>
     <td class="cell sign" style="width:40%;text-align:center;vertical-align:bottom">
-      <div>For <b>${profile?.businessName || 'Company'}</b></div>
+      <div style="text-align:right">
+        ${sigSrc ? `<img src="${sigSrc}" alt="Signature" style="max-height:56px;max-width:160px;display:block;margin:0 0 6px auto;object-fit:contain"/>` : ''}
+        <div>For <b>${(profile?.businessName || 'Company').replace(/</g,'&lt;')}</b></div>
+        <div style="margin-top:28px;border-top:1px solid #000;display:inline-block;min-width:140px;padding-top:4px;font-size:10px">Authorized Signatory</div>
+      </div>
       <div style="height:48px"></div>
       <div style="border-top:1px solid #000;margin-top:8px;padding-top:4px">Authorised Signatory</div>
     </td>

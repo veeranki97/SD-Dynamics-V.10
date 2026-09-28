@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import DashboardCharts from './DashboardCharts';
 import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllBills, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber } from '../store';
+import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
 import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile } from '../utils';
 import { openWhatsAppShare } from '../utils/share';
@@ -179,6 +179,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   // Anything that cannot be attributed to a business is SHOWN, never hidden.
   // See belongsToProfile() in utils.js for why that matters here.
   const [allBills, setBills] = useState([]);
+  const [workOrderMap, setWorkOrderMap] = useState({}); // id -> display number
   const [profileState, setProfileState] = useState(null);
 
   // v1.10.65 — requested (#58 item 1, @sangwanmail-eng): "Dashboard should
@@ -264,7 +265,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     } catch { /* ignore */ }
     return {
       date: true, invoice: true, type: true, client: true, amount: true,
-      status: true, actions: true, printed: false, currency: false, dueDate: false, workOrder: false,
+      status: true, actions: true, printed: false, currency: false, dueDate: false, daysOverdue: false, workOrder: false,
     };
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -293,6 +294,16 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   const loadBills = async () => {
     try {
       const data = await getAllBills();
+      try {
+        const wos = await getAllWorkOrders().catch(() => []);
+        const map = {};
+        (wos || []).forEach(w => {
+          const label = w.woNumber || w.number || w.title || w.id;
+          if (w.id) map[w.id] = label;
+          if (w.woNumber) map[w.woNumber] = w.woNumber;
+        });
+        setWorkOrderMap(map);
+      } catch { /* ignore */ }
       const today = new Date().toISOString().split('T')[0];
 
       // v1.10.41 — Orphaned-payment reconciliation. Reported: user
@@ -1510,6 +1521,26 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
             <option value="all">All Years</option>
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
+          
+          <div className="type-quick-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%', marginBottom: 8 }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'tax-invoice', label: 'Tax Invoice' },
+              { id: 'proforma', label: 'Proforma' },
+              { id: 'quotation', label: 'Quotation' },
+              { id: 'credit-note', label: 'Credit Note' },
+              { id: 'debit-note', label: 'Debit Note' },
+              { id: 'delivery-challan', label: 'Delivery Challan' },
+            ].map(t => (
+              <button key={t.id} type="button"
+                className={typeFilter === t.id ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
+                onClick={() => setTypeFilter(t.id)}
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
           <select className="filter-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="all">All Types</option>
             {Object.entries(INVOICE_TYPES).map(([key, val]) => <option key={key} value={key}>{val.label}</option>)}
@@ -1544,7 +1575,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
               {[
                 ['date', 'Date'], ['invoice', 'Invoice #'], ['type', 'Type'],
                 ['client', 'Client'], ['amount', 'Amount'], ['currency', 'Currency'],
-                ['status', 'Status'], ['dueDate', 'Due date'], ['workOrder', 'Work Order'],
+                ['status', 'Status'], ['dueDate', 'Due date'], ['daysOverdue', 'Days Overdue'], ['workOrder', 'Work Order'],
                 ['printed', 'Print count'], ['actions', 'Actions'],
               ].map(([key, label]) => (
                 <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: 'pointer' }}>
@@ -1656,6 +1687,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                   {visibleColumns.amount && <th>Amount</th>}
                   {visibleColumns.currency && <th>Currency</th>}
                   {visibleColumns.dueDate && <th>Due Date</th>}
+                  {visibleColumns.daysOverdue && <th>Days Overdue</th>}
                   {visibleColumns.workOrder && <th>Work Order</th>}
                   {visibleColumns.printed && <th>Printed</th>}
                   <th>Paid</th>
@@ -1694,7 +1726,21 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                       </td>}
                       {visibleColumns.currency && <td className="text-muted">{billCurrency}</td>}
                       {visibleColumns.dueDate && <td className="text-muted">{bill.data?.details?.dueDate ? new Date(bill.data.details.dueDate).toLocaleDateString('en-IN') : <span className="cell-empty">—</span>}</td>}
-                      {visibleColumns.workOrder && <td className="text-muted">{bill.workOrderId || bill.data?.workOrderId || bill.data?.details?.workOrderNo || <span className="cell-empty">—</span>}</td>}
+                      {visibleColumns.daysOverdue && <td className="text-muted">{(() => {
+                        const st = bill.status || 'unpaid';
+                        if (st === 'paid') return <span className="cell-empty">—</span>;
+                        const due = bill.data?.details?.dueDate || bill.dueDate;
+                        if (!due) return <span className="cell-empty">—</span>;
+                        const days = Math.floor((new Date() - new Date(due)) / 86400000);
+                        if (days <= 0) return <span style={{ color: '#059669' }}>0</span>;
+                        return <span style={{ color: '#dc2626', fontWeight: 600 }}>{days}</span>;
+                      })()}</td>}
+                      {visibleColumns.workOrder && <td className="text-muted">{(() => {
+                        const id = bill.workOrderId || bill.data?.workOrderId || bill.data?.details?.workOrderId || '';
+                        const no = bill.data?.details?.workOrderNo || bill.workOrderNo || '';
+                        const label = no || workOrderMap[id] || (id && !String(id).startsWith('wo_') ? id : '') || workOrderMap[id];
+                        return label || (id ? String(id) : <span className="cell-empty">—</span>);
+                      })()}</td>}
                       {visibleColumns.printed && <td className="text-muted" style={{ textAlign: 'center' }}>{Number(bill.printedCount) || 0}×</td>}
                       <td className="text-muted">{(bill.paidAmount || 0) > 0 ? formatCurrency(bill.paidAmount, billCurrency) : <span className="cell-empty">—</span>}</td>
                       {visibleColumns.status && <td>

@@ -359,6 +359,11 @@ export default function ExpenseTracker() {
               <div className="form-group">
                 <label className="form-label">Category</label>
                 <select className="form-input" value={form.category} onChange={e => updateField('category', e.target.value)}>
+                  <option value="">Select category</option>
+                  {[...new Set([...(masterCats || []), 'Other', 'Travel', 'Office', 'Utilities', 'Professional Fees', 'Subcontract', 'Material', 'Labour'])].map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  {/* legacy options below if any */}
                   {CATEGORY_NAMES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
