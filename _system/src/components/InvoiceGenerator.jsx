@@ -1831,7 +1831,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         const allBillsNow = await getAllBills();
         const wo = allWOs.find(w => w.id === bill.workOrderId);
         if (wo) {
-          const check = canInvoiceAgainstWO(wo, bill.totalAmount, allBillsNow, items);
+          const check = canInvoiceAgainstWO(wo, bill.totalAmount, allBillsNow, items, {
+            excludeBillId: editingBill?.id || (shouldOverwrite ? bill.id : null),
+            excludeInvoiceNumber: editingBill?.invoiceNumber || details?.invoiceNumber || bill.invoiceNumber,
+          });
           if (!check.ok) {
             toast(check.reason, 'error');
             return;

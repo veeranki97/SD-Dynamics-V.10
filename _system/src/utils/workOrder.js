@@ -82,19 +82,26 @@ export function deriveWOStatus(wo, allBills) {
   return 'partial';
 }
 
-export function canInvoiceAgainstWO(wo, invoiceTotal, allBills, invoiceItems) {
+export function canInvoiceAgainstWO(wo, invoiceTotal, allBills, invoiceItems, opts = {}) {
   if (!wo) return { ok: false, reason: 'Work Order not found' };
   if (wo.status === 'cancelled' || wo.status === 'draft') {
     return { ok: false, reason: 'Work Order is not approved' };
   }
-  const usage = calcWOUsage(wo, allBills);
+  // When editing an existing invoice, exclude it from "already billed" so re-save is not treated as double-billing.
+  const excludeId = opts.excludeBillId || opts.editingBillId || null;
+  const excludeNum = opts.excludeInvoiceNumber || null;
+  const billsForUsage = (allBills || []).filter(b => {
+    if (excludeId && b.id === excludeId) return false;
+    if (excludeNum && (b.invoiceNumber === excludeNum || b.id === excludeNum)) return false;
+    return true;
+  });
+  const usage = calcWOUsage(wo, billsForUsage);
   if (Number(invoiceTotal) > usage.remaining + 5.0) {
     return {
       ok: false,
       reason: `Invoice ₹${Number(invoiceTotal).toFixed(2)} exceeds remaining WO budget ₹${usage.remaining.toFixed(2)} (₹5 tolerance)`,
     };
   }
-  // Qty guard when items present — hard stop on over-billing (e.g. WO 100, invoice 101)
   if (invoiceItems && invoiceItems.length && usage.remainingByItem.length) {
     for (const it of invoiceItems) {
       const key = (it.description || it.name || '').trim().toLowerCase();
@@ -109,7 +116,6 @@ export function canInvoiceAgainstWO(wo, invoiceTotal, allBills, invoiceItems) {
       }
     }
   }
-  // Also block if any line has no match but WO has a closed (0 remaining) line with same name
   return { ok: true };
 }
 

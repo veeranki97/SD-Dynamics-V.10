@@ -222,6 +222,7 @@ export function journalFromExpense(exp) {
     refId: exp.id,
     costCenterId: exp.costCenterId || null,
     site: exp.site || null,
+    workOrderId: exp.workOrderId || null,
     entries,
   };
 }

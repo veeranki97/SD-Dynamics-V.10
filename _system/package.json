@@ -1,7 +1,7 @@
 {
   "name": "sd-dynamics",
   "version": "2.0.0",
-  "description": "SD Dynamics \u2014 GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
+  "description": "SD Dynamics — GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
   "author": "DiceCodes <Contact@dicecodes.com>",
   "license": "MIT",
   "repository": {
@@ -127,5 +127,10 @@
   "homepage": "https://github.com/veeranki97/SD-Dynamics",
   "bugs": {
     "url": "https://github.com/veeranki97/SD-Dynamics/issues"
+  },
+  "allowScripts": {
+    "core-js@3.48.0": true,
+    "esbuild@0.28.2": true,
+    "tesseract.js@7.0.0": true
   }
 }

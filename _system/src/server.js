@@ -12,6 +12,9 @@ import { fileURLToPath } from 'url';
 // re-implemented totals inline and silently reintroduced every bug the
 // v1.10.1 extraction fixed. Same source of truth now.
 import { computeInvoiceTotals } from './src/utils.js';
+import { filterActiveRecords, softDeleteRecord, isSoftDeleted, isSubmitted } from './src/utils/softDelete.js';
+import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -41,6 +44,8 @@ const STARTING_PORT = persistedPort || DEFAULT_PORT;
 const MAX_PORT_SCAN = 50; // 47371 → 47420 is enough headroom for any conceivable collision
 
 const app = express();
+app.use(auditMiddleware());
+
 
 // v1.10.0 — CORS lockdown. Previously `app.use(cors())` echoed
 // Access-Control-Allow-Origin: *, which meant any site the user visited
@@ -164,19 +169,24 @@ const DIR_CACHE_TTL_MS = 5000;
 function invalidateCache(dir) { delete dirCache[dir]; }
 
 // Helper: read all JSON files from a directory (cached, 5s TTL)
-function readAllFromDir(dir) {
-  const entry = dirCache[dir];
+function readAllFromDir(dir, { includeDeleted = false } = {}) {
+  const cacheKey = includeDeleted ? dir + ':all' : dir;
+  const entry = dirCache[cacheKey];
   if (entry && (Date.now() - entry.at) < DIR_CACHE_TTL_MS) return entry.value;
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) return [];
-  const results = fs.readdirSync(dirPath)
+  let results = fs.readdirSync(dirPath)
     .filter(f => f.endsWith('.json'))
     .map(f => {
       try { return JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf-8')); }
       catch { return null; }
     })
     .filter(Boolean);
-  dirCache[dir] = { at: Date.now(), value: results };
+  // P1: hide soft-deleted records from normal list APIs
+  if (!includeDeleted) {
+    results = filterActiveRecords(results);
+  }
+  dirCache[cacheKey] = { at: Date.now(), value: results };
   return results;
 }
 
@@ -205,7 +215,9 @@ function deleteFile(filePath) {
   if (DIRS.includes(parentDir)) invalidateCache(parentDir);
 }
 
-
+// ========================
+// BILLS
+// ========================
 /**
  * Server-side GST recompute (Finding 12).
  * Never trust browser-only tax figures for books / GSTR.
@@ -313,9 +325,6 @@ function recomputeBillTax(bill) {
 }
 
 
-// ========================
-// BILLS
-// ========================
 app.get('/api/bills', (req, res) => {
   const bills = readAllFromDir('bills');
   bills.sort((a, b) => new Date(b.invoiceDate) - new Date(a.invoiceDate));
@@ -340,17 +349,45 @@ app.post('/api/bills', (req, res) => {
     });
   }
 
-  // Finding 12: recompute GST on server before persisting
+  // Finding 12 / 18: server-side GST recompute (never trust browser-only tax)
   let taxWarnings = [];
   try {
-    const result = recomputeBillTax(bill);
-    bill = result.bill;
-    taxWarnings = result.warnings || [];
+    if (typeof recomputeBillTax === 'function') {
+      const result = recomputeBillTax(bill);
+      bill = result.bill;
+      taxWarnings = result.warnings || [];
+    }
   } catch (e) {
     console.warn('[tax] recompute failed, storing client totals:', e.message);
   }
 
+  // P2: default docstatus for financial invoices
+  if (bill.docstatus == null) {
+    const t = String(bill.invoiceType || bill.data?.invoiceType || 'tax-invoice').toLowerCase();
+    const nonFin = /quotation|delivery|challan|bill-of-supply|composition|proforma/.test(t);
+    bill.docstatus = nonFin ? 0 : 1;
+  }
+  const beforeBill = fs.existsSync(filePath) ? readJSON(filePath, null) : null;
+  // P2: lock submitted docs against full overwrite unless ?force=1 or payment-only
+  if (beforeBill && isSubmitted(beforeBill) && req.query.force !== '1') {
+    const statusOnly = bill.status !== beforeBill.status || bill.paidAmount !== beforeBill.paidAmount;
+    // allow payment status updates; block other field rewrites by merging
+    if (!statusOnly && JSON.stringify({ ...beforeBill, status: bill.status, paidAmount: bill.paidAmount, payments: bill.payments }) !== JSON.stringify(bill)) {
+      // soft lock: still allow save but stamp
+      bill.docstatus = beforeBill.docstatus;
+    }
+  }
   writeJSON(filePath, bill);
+  try {
+    auditChange({
+      entityType: 'bill',
+      entityId: bill.id,
+      action: beforeBill ? 'update' : 'create',
+      before: beforeBill,
+      after: bill,
+      baseDir: path.join(DATA_DIR, 'activity-logs'),
+    });
+  } catch { /* ignore audit failures */ };
   res.json({ success: true, taxWarnings });
 });
 
@@ -453,8 +490,18 @@ app.delete('/api/bills/:id', (req, res) => {
   try {
     const trashDir = path.join(DATA_DIR, 'trash');
     if (!fs.existsSync(trashDir)) fs.mkdirSync(trashDir, { recursive: true });
-    fs.renameSync(filePath, path.join(trashDir, fname));
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const marked = softDeleteRecord(raw, 'user');
+      writeJSON(path.join(trashDir, fname), marked);
+      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    } catch {
+      fs.renameSync(filePath, path.join(trashDir, fname));
+    }
     trashInvoiceJournal(req.params.id, false);
+    try {
+      auditChange({ entityType: 'bill', entityId: req.params.id, action: 'soft_delete', before: { id: req.params.id }, after: { is_deleted: true }, baseDir: path.join(DATA_DIR, 'activity-logs') });
+    } catch { /* ignore */ }
     res.json({ success: true, trashed: true });
   } catch (err) {
     errRes(res, 500, 'server-error', err);
@@ -706,7 +753,16 @@ app.get('/api/journals', (req, res) => {
 
 app.post('/api/journals', (req, res) => {
   try {
-    const j = req.body;
+    const j = req.body || {};
+    // P0: reject unbalanced journals
+    {
+      const entries = j.entries || [];
+      const dr = entries.reduce((s, e) => s + (Number(e.debit) || 0), 0);
+      const cr = entries.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+      if (entries.length && Math.abs(dr - cr) > 0.05) {
+        return res.status(400).json({ error: 'unbalanced_journal', debit: dr, credit: cr });
+      }
+    }
     if (!j?.id) return res.status(400).json({ error: 'Missing id' });
     const dir = path.join(DATA_DIR, 'journals');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -1143,10 +1199,10 @@ app.get('/api/check-update', async (req, res) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
     const [pkgRes, relRes] = await Promise.all([
-      fetch('https://raw.githubusercontent.com/veeranki97/Bharatbill2/main/package.json', { signal: ctrl.signal }),
-      fetch('https://api.github.com/repos/veeranki97/Bharatbill2/releases/latest', {
+      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/package.json', { signal: ctrl.signal }),
+      fetch('https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest', {
         signal: ctrl.signal,
-        headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Bharatbill2-update-check' },
+        headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SD-Dynamics-update-check' },
       }).catch(() => null),
     ]);
     clearTimeout(t);
@@ -1616,7 +1672,7 @@ app.get('{*path}', (req, res) => {
 function servePlaceholder(req, res) {
     if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
     res.status(503).send(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Free GST Billing Software — building…</title>
+<html><head><meta charset="utf-8"><title>SD Dynamics — building…</title>
 <meta http-equiv="refresh" content="3">
 <style>
   body { font-family: -apple-system, Segoe UI, Inter, sans-serif; max-width: 560px;
@@ -1631,7 +1687,7 @@ function servePlaceholder(req, res) {
   .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px; margin-top: 1rem; }
 </style></head>
 <body>
-  <h1>Free GST Billing Software</h1>
+  <h1>SD Dynamics</h1>
   <p><span class="spinner"></span> The app is still building. This page refreshes every 3 seconds.</p>
   <div class="box">
     <p style="margin:0 0 0.5rem"><strong>Local install?</strong></p>
@@ -1725,7 +1781,7 @@ function startServer(port) {
     // we landed on 47372 instead, next launch tries 47372 first (cuts collision
     // scans in half on repeated reboots of whatever was holding 47371).
     try { fs.writeFileSync(PORT_FILE, String(port), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://localhost:${port}`);
+    console.log(`\n  SD Dynamics running at http://localhost:${port}`);
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {
@@ -1949,6 +2005,51 @@ async function processDueRecurring() {
     writeJSON(META_PATH, meta);
   }
 }
+
+
+// ---- Master data (HSN / Units / Expense categories) — survives port change (not localStorage) ----
+const MASTER_DATA_PATH = path.join(DATA_DIR, 'master-data.json');
+app.get('/api/master-data', (req, res) => {
+  try {
+    const data = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    res.json(data);
+  } catch (e) {
+    res.json({ hsn: [], units: [], expenseCategories: [] });
+  }
+});
+app.post('/api/master-data', (req, res) => {
+  try {
+    const body = req.body || {};
+    const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    const next = {
+      hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
+      units: Array.isArray(body.units) ? body.units : (prev.units || []),
+      expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(MASTER_DATA_PATH, next);
+    res.json({ success: true, ...next });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Activity / audit logs (read-only list) ----
+app.get('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 200);
+    const rows = files.map(f => {
+      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
+      catch { return { file: f }; }
+    });
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 startServer(STARTING_PORT);
 // Fire once after a short delay so the listener is up first; then once a day

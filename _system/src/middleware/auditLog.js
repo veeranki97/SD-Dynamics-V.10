@@ -46,10 +46,22 @@ export function writeAuditLog(logEntry, baseDir) {
 /**
  * Call after a successful write when you have before/after objects.
  */
-export function auditChange({ entityType, entityId, action, before, after, user }) {
+export function auditChange({ entityType, entityId, action, before, after, user, baseDir }) {
   try {
-    const diff = action === 'create' ? { created: true } : jsonDiff(before || {}, after || {});
-    if (action === 'update' && Object.keys(diff).length === 0) return null;
+    const diff = action === 'create' || action === 'soft_delete'
+      ? { note: action }
+      : jsonDiff(before || {}, after || {});
+    // Always log creates/deletes; for updates log even small changes to status/paid
+    if (action === 'update' && Object.keys(diff).length === 0) {
+      return writeAuditLog({
+        entityType,
+        entityId,
+        action: 'update',
+        user: user || 'local',
+        at: new Date().toISOString(),
+        diff: { touched: true },
+      }, baseDir);
+    }
     return writeAuditLog({
       entityType,
       entityId,
@@ -57,7 +69,7 @@ export function auditChange({ entityType, entityId, action, before, after, user 
       user: user || 'local',
       at: new Date().toISOString(),
       diff,
-    });
+    }, baseDir);
   } catch (e) {
     console.warn('[audit]', e.message);
     return null;
