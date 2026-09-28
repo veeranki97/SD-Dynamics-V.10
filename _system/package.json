@@ -1,12 +1,12 @@
 {
   "name": "sd-dynamics",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "SD Dynamics — GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
   "author": "DiceCodes <Contact@dicecodes.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/veeranki97/SD-Dynamics.git"
+    "url": "https://github.com/veeranki97/SD-Dynamics-V.10.git"
   },
   "keywords": [
     "gst",
