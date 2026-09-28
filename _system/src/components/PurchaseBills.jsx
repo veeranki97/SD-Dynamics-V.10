@@ -1,3 +1,4 @@
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
 import HelpButton from './HelpButton';
@@ -990,7 +991,8 @@ export default function PurchaseBills() {
                     const id = e.target.value;
                     const wo = (purchaseWOs || []).find(w => w.id === id);
                     updateField('workOrderId', id);
-                    if (wo?.costCenterId) updateField('costCenterId', wo.costCenterId);
+                    const cc = resolveWoCostCenter(wo); if (cc) updateField('costCenterId', cc);
+                    const st = resolveWoSite(wo); if (st) updateField('site', st);
                     if (wo?.site) updateField('site', wo.site);
                   }}>
                   <option value="">— Link Work Order —</option>

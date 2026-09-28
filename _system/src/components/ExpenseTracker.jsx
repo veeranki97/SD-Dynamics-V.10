@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Wallet, Plus, Edit3, Trash2, Search, X, Save, Download, Calendar } from 'lucide-react';
 import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients } from '../store';
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
@@ -472,7 +473,8 @@ export default function ExpenseTracker() {
                     setForm(f => ({
                       ...f,
                       workOrderId: id,
-                      costCenterId: wo?.costCenterId || f.costCenterId || '',
+                      costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
+                      site: resolveWoSite(wo) || f.site || '',
                       site: wo?.site || f.site || '',
                     }));
                   }}>

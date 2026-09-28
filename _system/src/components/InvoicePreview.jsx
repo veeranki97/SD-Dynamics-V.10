@@ -208,8 +208,11 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // saidurga = traditional Sai Durga style (classic layout + branded class)
   const pdfStyle = ['corporate', 'minimalist'].includes(pdfStyleRaw)
     ? (pdfStyleRaw === 'corporate' ? 'classic' : 'minimal')
-    : (pdfStyleRaw === 'saidurga' ? 'classic' : pdfStyleRaw);
-  const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga' : pdfStyleRaw;
+    : (pdfStyleRaw === 'saidurga' ? 'classic'
+      : ((pdfStyleRaw === 'tally-v2' || pdfStyleRaw === 'boxed-grid') ? 'tally' : pdfStyleRaw));
+  const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga'
+    : (pdfStyleRaw === 'tally-v2' ? 'tally-v2'
+      : (pdfStyleRaw === 'boxed-grid' ? 'boxed-grid' : pdfStyleRaw));
 
   // Check if any item has discount
   const hasAnyDiscount = showDiscount && items.some(item => (item.discount || 0) > 0);
@@ -930,7 +933,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
 
       {/* ===== SAI DURGA PIXEL LAYOUT (Print Settings → Sai Durga preset) ===== */}
       
-      {(pdfStyleVariant === 'tally' || pdfStyleVariant === 'saidurga') && (
+      {(pdfStyleVariant === 'tally' || pdfStyleVariant === 'tally-v2' || pdfStyleVariant === 'boxed-grid' || pdfStyleVariant === 'saidurga') && (
         <style>{`
           .inv-table-tally, .inv-table-tally th, .inv-table-tally td {
             border: 1px solid #000 !important;
@@ -938,12 +941,19 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           }
           .inv-table-tally th { background: #f1f5f9; font-weight: 700; }
           .template-tally .invoice-preview-container { font-family: Arial, sans-serif; }
+          .template-tally-v2 .inv-table-tally th, .template-tally-v2 .inv-table-tally td,
+          .template-boxed-grid .inv-table-tally th, .template-boxed-grid .inv-table-tally td {
+            border: 1px solid #000 !important; padding: 4px 6px !important;
+          }
+          .template-tally-v2 .tally-hdr-3 td, .template-boxed-grid .tally-hdr-3 td {
+            border: 1px solid #000 !important;
+          }
         `}</style>
       )}
 {(pdfStyleVariant === 'saidurga' || pdfStyleVariant === 'tally') && !isThermal && (
         <div className="sd-invoice" style={{ fontFamily: 'Helvetica, Arial, sans-serif', fontSize: '11px', color: '#111', border: '2px solid #111' }}>
           {/* Tally-style 3-box top band when template is tally */}
-          {pdfStyleVariant === 'tally' ? (
+          {(pdfStyleVariant === 'tally' || pdfStyleVariant === 'tally-v2' || pdfStyleVariant === 'boxed-grid') ? (
             <table className="tally-hdr-3" style={{ width: '100%', borderCollapse: 'collapse', borderBottom: '2px solid #111' }}>
               <tbody>
                 <tr>
@@ -1243,14 +1253,14 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         </div>
       )}
 
-      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyle === 'modern' && renderModernHeader()}
-      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyle === 'minimal' && renderMinimalHeader()}
-      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyle === 'classic' && renderClassicHeader()}
+      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyleVariant !== 'tally-v2' && pdfStyleVariant !== 'boxed-grid' && pdfStyle === 'modern' && renderModernHeader()}
+      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyleVariant !== 'tally-v2' && pdfStyleVariant !== 'boxed-grid' && pdfStyle === 'minimal' && renderMinimalHeader()}
+      {!hideHeaderBecauseLetterhead && pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyleVariant !== 'tally-v2' && pdfStyleVariant !== 'boxed-grid' && pdfStyle === 'classic' && renderClassicHeader()}
 
-      {(pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally') && renderParties()}
+      {(pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyleVariant !== 'tally-v2' && pdfStyleVariant !== 'boxed-grid') && renderParties()}
 
       {/* Items table — skipped for Sai Durga / Tally full layout above */}
-      {(pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally') && (
+      {(pdfStyleVariant !== 'saidurga' && pdfStyleVariant !== 'tally' && pdfStyleVariant !== 'tally-v2' && pdfStyleVariant !== 'boxed-grid') && (
       <>
       <table className={`inv-table ${(pdfStyleVariant==='tally')?'inv-table-tally':''}`} style={{ tableLayout: 'auto', ...(pdfStyle === 'modern' ? { margin: '0 2rem', width: 'calc(100% - 4rem)' } : pdfStyle === 'minimal' ? { margin: '0 2rem', width: 'calc(100% - 4rem)', borderTop: 'none' } : {}) }}>
         <thead>

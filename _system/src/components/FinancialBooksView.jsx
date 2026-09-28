@@ -6,11 +6,15 @@ import {
   woWisePnL,
   periodCloseJournal, bankBalance, lockMonth, unlockMonth, isMonthLocked,
 } from '../utils/ledger';
+import { getAllBills, getAllExpenses, getAllWorkOrders } from '../store';
 import { toast } from './Toast';
 import { downloadCsv, printHtmlTable } from '../utils/exportData';
 
 export default function FinancialBooksView() {
   const [journals, setJournals] = useState([]);
+  const [billRows, setBillRows] = useState([]);
+  const [expRows, setExpRows] = useState([]);
+  const [woRows, setWoRows] = useState([]);
   const [tab, setTab] = useState('tb'); // tb | bs | pnl | site | lock
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const [from, setFrom] = useState(() => {
@@ -25,16 +29,46 @@ export default function FinancialBooksView() {
 
   const load = () => getAllJournals().then(setJournals).catch(() => toast('Failed to load journals', 'error'));
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    getAllBills().then(setBillRows).catch(() => setBillRows([]));
+    getAllExpenses().then(setExpRows).catch(() => setExpRows([]));
+    getAllWorkOrders().then(setWoRows).catch(() => setWoRows([]));
+  }, []);
 
   const tb = useMemo(() => trialBalance(journals, asOf), [journals, asOf]);
   const bs = useMemo(() => balanceSheet(journals, asOf), [journals, asOf]);
   const pnl = useMemo(() => computeTradingPnL(journals, from, asOf), [journals, from, asOf]);
   const sites = useMemo(() => {
     const fromJ = siteWisePnL(journals, from, asOf) || [];
-    if (fromJ.length && !(fromJ.length === 1 && fromJ[0].site === 'Unassigned' && fromJ[0].income === 0)) return fromJ;
-    // Fallback: aggregate from invoice list if journals lack site stamps
-    return fromJ;
-  }, [journals, from, asOf]);
+    const hasReal = fromJ.some(s => s.site !== 'Unassigned' && ((s.income || 0) + (s.expense || 0) > 0.01));
+    if (hasReal) return fromJ;
+    const map = {};
+    (billRows || []).forEach(b => {
+      if (b.status === 'cancelled') return;
+      const d = b.invoiceDate || b.data?.details?.invoiceDate || '';
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const site = b.site || b.data?.site || b.data?.details?.site || b.data?.client?.site || 'Unassigned';
+      if (!map[site]) map[site] = { site, income: 0, expense: 0 };
+      const total = Number(b.totalAmount) || 0;
+      const tax = Number(b.totalTaxAmount) || 0;
+      map[site].income += Math.max(0, total - tax);
+    });
+    (expRows || []).forEach(e => {
+      const d = e.date || '';
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const site = e.site || e.costCenterId || 'Unassigned';
+      if (!map[site]) map[site] = { site, income: 0, expense: 0 };
+      map[site].expense += Number(e.amount) || 0;
+    });
+    return Object.values(map).map(s => ({
+      ...s,
+      income: Math.round(s.income * 100) / 100,
+      expense: Math.round(s.expense * 100) / 100,
+      profit: Math.round((s.income - s.expense) * 100) / 100,
+    }));
+  }, [journals, from, asOf, billRows, expRows]);
   const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
   const bank = useMemo(() => bankBalance(journals, 'Bank') + bankBalance(journals, 'Cash'), [journals]);
 
@@ -176,12 +210,12 @@ export default function FinancialBooksView() {
         <table className="data-table" style={{ width: '100%' }}>
           <thead><tr><th>Site</th><th className="text-end">Income</th><th className="text-end">Expense</th><th className="text-end">Profit</th></tr></thead>
           <tbody>
-            {(tab === 'wo' ? wos : sites).map(s => (
+            {(sites).map(s => (
               <tr key={s.site}>
                 <td>{s.site}</td>
                 <td className="text-end">{formatCurrency(s.income)}</td>
                 <td className="text-end">{formatCurrency(s.expense)}</td>
-                <td className="text-end">{formatCurrency(s.profit)}</td>
+                <td className="text-end">{formatCurrency(s.profit ?? (s.income - s.expense))}</td>
               </tr>
             ))}
             {sites.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: '#94a3b8' }}>Tag site on invoices/expenses to see site-wise P&L</td></tr>}
@@ -189,7 +223,40 @@ export default function FinancialBooksView() {
         </table>
       )}
 
-      {tab === 'lock' && (
+      
+      {tab === 'wo' && (
+        <table className="data-table" style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th>Work Order</th>
+              <th className="text-end">Income</th>
+              <th className="text-end">Expense</th>
+              <th className="text-end">Net</th>
+            </tr>
+          </thead>
+          <tbody>
+            {wos.map(s => (
+              <tr key={String(s.workOrderId)}>
+                <td>{s.workOrderId}</td>
+                <td className="text-end">{formatCurrency(s.income)}</td>
+                <td className="text-end">{formatCurrency(s.expense)}</td>
+                <td className="text-end" style={{ color: (s.net ?? 0) >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
+                  {formatCurrency(s.net ?? 0)}
+                </td>
+              </tr>
+            ))}
+            {wos.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', color: '#94a3b8' }}>
+                  No WO-linked invoices/expenses in this period.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
+
+{tab === 'lock' && (
         <div className="glass-panel p-4" style={{ maxWidth: 420 }}>
           <p style={{ fontSize: 14, color: '#64748b' }}>
             Lock a month to block edits (uses local period lock). Combine with freeze-days for audit control.

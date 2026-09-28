@@ -148,3 +148,24 @@ export function woItemsToInvoiceItems(woItems, allBills, wo) {
     };
   }).filter(it => Number(it.quantity) > 0);
 }
+
+/**
+ * Resolve cost center / site from a Work Order document.
+ * WO may store costCenterId on the header OR only on line items.
+ */
+export function resolveWoCostCenter(wo) {
+  if (!wo) return '';
+  const header = wo.costCenterId || wo.costCentreId || wo.costCenter || '';
+  if (header) return String(header);
+  const items = wo.items || [];
+  for (const it of items) {
+    const c = it.costCenterId || it.costCentreId || it.costHead || '';
+    if (c) return String(c);
+  }
+  return '';
+}
+
+export function resolveWoSite(wo) {
+  if (!wo) return '';
+  return wo.site || wo.siteName || wo.deliverySite || '';
+}

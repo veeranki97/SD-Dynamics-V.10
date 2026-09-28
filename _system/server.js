@@ -385,6 +385,7 @@ app.post('/api/bills', (req, res) => {
       action: beforeBill ? 'update' : 'create',
       before: beforeBill,
       after: bill,
+      baseDir: path.join(DATA_DIR, 'activity-logs'),
     });
   } catch { /* ignore audit failures */ };
   res.json({ success: true, taxWarnings });
@@ -1198,8 +1199,8 @@ app.get('/api/check-update', async (req, res) => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
     const [pkgRes, relRes] = await Promise.all([
-      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics/main/package.json', { signal: ctrl.signal }),
-      fetch('https://api.github.com/repos/veeranki97/SD-Dynamics/releases/latest', {
+      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/package.json', { signal: ctrl.signal }),
+      fetch('https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest', {
         signal: ctrl.signal,
         headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SD-Dynamics-update-check' },
       }).catch(() => null),
@@ -2049,6 +2050,30 @@ app.get('/api/activity-logs', (req, res) => {
   }
 });
 
+
+
+app.post('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    fs.mkdirSync(dir, { recursive: true });
+    const body = req.body || {};
+    const entry = {
+      entityType: body.entityType || 'app',
+      entityId: body.entityId || 'n/a',
+      action: body.action || 'event',
+      user: body.user || 'local',
+      at: new Date().toISOString(),
+      diff: body.diff || body.note || {},
+    };
+    const ts = entry.at.replace(/[:.]/g, '-');
+    const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
+    const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
+    fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
+    res.json({ success: true, file: path.basename(fp) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 startServer(STARTING_PORT);
 // Fire once after a short delay so the listener is up first; then once a day

@@ -177,6 +177,15 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
 // to refuse silent overwrites — server returns 409 with an actionable
 // message that the UI can show as "Invoice number already exists".
 export const saveBill = async (bill, { overwrite = false } = {}) => {
+  try {
+    await logActivity({
+      entityType: 'bill',
+      entityId: bill?.id || bill?.invoiceNumber,
+      action: overwrite ? 'update' : 'create',
+      diff: { invoiceNumber: bill?.invoiceNumber, totalAmount: bill?.totalAmount },
+    });
+  } catch { /* ignore */ }
+
   const qs = overwrite ? '?overwrite=1' : '';
   return apiFetch(`${API}/bills${qs}`, { method: 'POST', body: JSON.stringify(bill) });
 };
@@ -521,3 +530,13 @@ export const deleteCostCenter = async (id) =>
 export const getAllAccounts = async () => apiFetch(`${API}/accounts`);
 export const saveAccount = async (a) =>
   apiFetch(`${API}/accounts`, { method: 'POST', body: JSON.stringify(a) });
+
+
+export async function logActivity({ entityType, entityId, action, diff }) {
+  try {
+    await apiFetch('/api/activity-logs', {
+      method: 'POST',
+      body: JSON.stringify({ entityType, entityId, action, diff }),
+    });
+  } catch { /* ignore */ }
+}

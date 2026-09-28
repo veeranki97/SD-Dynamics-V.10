@@ -1,3 +1,4 @@
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useRef } from 'react';
 import { Receipt, Plus, Trash2, Search, Printer, Pencil, Layers } from 'lucide-react';
 import { getAllReceipts, saveReceipt, deleteReceipt, getAllBills, getProfile, getNextInvoiceNumber, saveBill, saveJournal, getAllWorkOrders, getAllCostCenters, getAllClients } from '../store';
@@ -576,7 +577,8 @@ export default function ReceiptVoucher() {
                         const id = e.target.value;
                         const wo = workOrders.find(w => w.id === id);
                         updateField('workOrderId', id);
-                        if (wo?.costCenterId) updateField('costCenterId', wo.costCenterId);
+                        const cc = resolveWoCostCenter(wo); if (cc) updateField('costCenterId', cc);
+                        const st = resolveWoSite(wo); if (st) updateField('site', st);
                         if (wo?.site) updateField('site', wo.site);
                         if (wo?.woNumber) updateField('workOrderNo', wo.woNumber);
                       }}>

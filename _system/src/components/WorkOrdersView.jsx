@@ -73,6 +73,7 @@ export default function WorkOrdersView() {
   const openNew = () =>
     setForm({
       id: 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      costCenterId: '',
       woNumber: '',
       clientName: '',
       clientState: '',
