@@ -1,5 +1,10 @@
 import { suggestGstRate } from '../utils/hsnRates';
-import { getHsnMaster, addHsnCode, removeHsnCode, getUnitMaster, addUnit as saveUnitMaster, removeUnit as deleteUnitMaster, getExpenseCategories, addExpenseCategory, removeExpenseCategory } from '../utils/masterData';
+import {
+  getHsnMaster, addHsnCode, removeHsnCode,
+  getUnitMaster, addUnit as saveUnitMaster, removeUnit as deleteUnitMaster,
+  getExpenseCategories, addExpenseCategory, removeExpenseCategory,
+  loadMasterDataFromServer, syncMasterDataToServer,
+} from '../utils/masterData';
 import { useState, useEffect } from 'react';
 import { getAllCostCenters, saveCostCenter, deleteCostCenter } from '../store';
 import { toast } from './Toast';
@@ -38,6 +43,16 @@ export default function CostCentersView() {
   const [hsnList, setHsnList] = useState(() => getHsnMaster());
   const [unitList, setUnitList] = useState(() => getUnitMaster());
   const [expList, setExpList] = useState(() => getExpenseCategories());
+
+  useEffect(() => {
+    loadMasterDataFromServer().then(() => {
+      try {
+        setHsnList(getHsnMaster());
+        setUnitList(getUnitMaster());
+        setExpList(getExpenseCategories());
+      } catch (e) { /* ignore */ }
+    }).catch(() => {});
+  }, []);
 
   const load = () => getAllCostCenters().then(setList).catch(() => toast('Failed to load cost centres', 'error'));
   useEffect(() => { load(); }, []);
@@ -89,6 +104,7 @@ export default function CostCentersView() {
     }
     if (hsnList.includes(t)) { toast('Already in list', 'info'); return; }
     setHsnList(addHsnCode(t));
+    try { syncMasterDataToServer(); } catch (e) {}
     toast(`HSN/SAC ${t} saved — available on Invoice, WO, PO`, 'success');
   };
 
@@ -96,6 +112,7 @@ export default function CostCentersView() {
     const ok = await confirmAction({ title: 'Remove HSN/SAC?', message: code, confirmLabel: 'Remove', tone: 'danger' });
     if (!ok) return;
     setHsnList(removeHsnCode(code));
+    try { syncMasterDataToServer(); } catch (e) {}
     toast('Removed', 'success');
   };
 
@@ -111,6 +128,7 @@ export default function CostCentersView() {
     if (!t) return;
     if (unitList.includes(t)) { toast('Already in list', 'info'); return; }
     setUnitList(saveUnitMaster(t));
+    try { syncMasterDataToServer(); } catch (e) {}
     toast(`Unit "${t}" saved`, 'success');
   };
 
@@ -118,6 +136,7 @@ export default function CostCentersView() {
     const ok = await confirmAction({ title: 'Remove unit?', message: u, confirmLabel: 'Remove', tone: 'danger' });
     if (!ok) return;
     setUnitList(deleteUnitMaster(u));
+    try { syncMasterDataToServer(); } catch (e) {}
     toast('Removed', 'success');
   };
 

@@ -2005,6 +2005,51 @@ async function processDueRecurring() {
   }
 }
 
+
+// ---- Master data (HSN / Units / Expense categories) — survives port change (not localStorage) ----
+const MASTER_DATA_PATH = path.join(DATA_DIR, 'master-data.json');
+app.get('/api/master-data', (req, res) => {
+  try {
+    const data = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    res.json(data);
+  } catch (e) {
+    res.json({ hsn: [], units: [], expenseCategories: [] });
+  }
+});
+app.post('/api/master-data', (req, res) => {
+  try {
+    const body = req.body || {};
+    const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    const next = {
+      hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
+      units: Array.isArray(body.units) ? body.units : (prev.units || []),
+      expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(MASTER_DATA_PATH, next);
+    res.json({ success: true, ...next });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Activity / audit logs (read-only list) ----
+app.get('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 200);
+    const rows = files.map(f => {
+      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
+      catch { return { file: f }; }
+    });
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 startServer(STARTING_PORT);
 // Fire once after a short delay so the listener is up first; then once a day
 // for users whose server stays up >24h.

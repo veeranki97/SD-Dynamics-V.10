@@ -1,3 +1,4 @@
+import ActivityLogView from './components/ActivityLogView';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag , Banknote} from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
@@ -543,6 +544,7 @@ function App() {
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
+    { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
     { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'System' },
@@ -1054,7 +1056,8 @@ function App() {
         {currentView === 'workflows' && (
           <Suspense fallback={<ViewLoading />}><WorkflowRulesView key={businessKey} /></Suspense>
         )}
-        {currentView === 'settings' && (
+        {currentView === 'activity-log' ? <ActivityLogView />
+        : currentView === 'settings' && (
           <SettingsView onSaved={(p) => setProfile(p)} />
         )}
         {currentView === 'controlpanel' && (

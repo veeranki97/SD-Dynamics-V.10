@@ -99,8 +99,16 @@ export default function ExpenseTracker() {
   const [woList, setWoList] = useState([]);
   const [billList, setBillList] = useState([]);
   useEffect(() => {
-    getAllWorkOrders().then(setWoList).catch(() => {});
+    getAllWorkOrders().then(rows => {
+      setWoList(rows || []);
+      setWorkOrders(rows || []);
+    }).catch(() => {});
     getAllBills().then(setBillList).catch(() => {});
+    getAllCostCenters().then(setCostCenters).catch(() => {});
+    getAllClients().then(all => {
+      setExpenseVendors((all || []).filter(c => c.isVendor || c.type === 'vendor' || c.partyType === 'vendor'));
+    }).catch(() => {});
+    try { setMasterCats(getExpenseCategories()); } catch { /* ignore */ }
   }, []);
 
   const fyOptions = getFYOptions();
@@ -408,16 +416,21 @@ export default function ExpenseTracker() {
               </div>
               <div className="form-group">
                 <label className="form-label">Vendor Name</label>
-                <input type="text" className="form-input" value={form.vendorName}
-                  list="expense-vendor-list"
+                <select className="form-input" value={form.vendorName || ''}
                   onChange={e => {
-                    updateField('vendorName', e.target.value);
-                    const v = (expenseVendors || []).find(x => x.name === e.target.value);
+                    const name = e.target.value;
+                    updateField('vendorName', name);
+                    const v = (expenseVendors || []).find(x => x.name === name);
                     if (v?.gstin) updateField('vendorGstin', v.gstin);
-                  }} placeholder="Select from vendors or type" />
-                <datalist id="expense-vendor-list">
-                  {(expenseVendors || []).map(v => <option key={v.id} value={v.name} />)}
-                </datalist>
+                  }}>
+                  <option value="">— Select vendor —</option>
+                  {(expenseVendors || []).map(v => (
+                    <option key={v.id || v.name} value={v.name}>{v.name}{v.gstin ? ` (${v.gstin})` : ''}</option>
+                  ))}
+                </select>
+                <input type="text" className="form-input" style={{ marginTop: 6 }} value={form.vendorName}
+                  onChange={e => updateField('vendorName', e.target.value)}
+                  placeholder="Or type vendor name if not in list" />
               </div>
               <div className="form-group">
                 <label className="form-label">Vendor GSTIN</label>
@@ -449,6 +462,9 @@ export default function ExpenseTracker() {
               </div>
               <div className="form-group">
                 <label className="form-label">Work Order</label>
+                <span className="field-hint" style={{ display: 'block', marginBottom: 4, fontSize: '0.75rem' }}>
+                  Client WO + this expense = subcontract cost against that job / site for WO-wise P&amp;L.
+                </span>
                 <select className="form-input" value={form.workOrderId || ''}
                   onChange={e => {
                     const id = e.target.value;

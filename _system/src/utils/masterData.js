@@ -87,3 +87,42 @@ export function removeExpenseCategory(cat) {
   writePrimary(EXP_KEYS, arr);
   return arr;
 }
+
+
+export async function syncMasterDataToServer() {
+  try {
+    const body = {
+      hsn: getHsnMaster(),
+      units: getUnitMaster().filter((u) => !['Nos', 'Hrs', 'Days', 'Kg', 'Ltr', 'Mtr', 'Sqft', 'Job', 'Pcs', 'Set'].includes(u)),
+      expenseCategories: getExpenseCategories(),
+    };
+    await fetch('/api/master-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e) { /* offline */ }
+}
+
+export async function loadMasterDataFromServer() {
+  try {
+    const res = await fetch('/api/master-data');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (Array.isArray(data.hsn) && data.hsn.length) {
+      localStorage.setItem('freegstbill_custom_sac', JSON.stringify(data.hsn));
+      localStorage.setItem('fgsb_custom_sac', JSON.stringify(data.hsn));
+    }
+    if (Array.isArray(data.units) && data.units.length) {
+      localStorage.setItem('freegstbill_custom_units', JSON.stringify(data.units));
+      localStorage.setItem('fgsb_custom_units', JSON.stringify(data.units));
+    }
+    if (Array.isArray(data.expenseCategories) && data.expenseCategories.length) {
+      localStorage.setItem('freegstbill_expense_categories', JSON.stringify(data.expenseCategories));
+      localStorage.setItem('fgsb_expense_categories', JSON.stringify(data.expenseCategories));
+    }
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
