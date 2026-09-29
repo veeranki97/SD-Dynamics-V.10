@@ -1852,11 +1852,6 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                             </button>
                           )}
                           <button className="icon-btn icon-btn-blue" onClick={() => shareEmail(bill)} title="Email"><Mail size={15} /></button>
-                          <button type="button" className="btn btn-ghost btn-sm" title="Cancel invoice"
-                      onClick={() => cancelInvoice(bill)}
-                      disabled={bill.status === 'cancelled'}>
-                      <X size={14} /> Cancel
-                    </button>
                     <button className="icon-btn icon-btn-red" onClick={() => handleDelete(bill)}
                     /* cancel via title-attr button nearby */ title="Delete"><Trash2 size={15} /></button>
                         </div>

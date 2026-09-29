@@ -404,6 +404,24 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // renders a proper single-column receipt.
   const paperCfg = getPaperSize(options.paperSize, options);
   const isThermal = paperCfg.kind === 'thermal';
+
+  // Dynamic PDF header title from document type (INVOICE_TYPES.title)
+  const pdfDocTitle = (() => {
+    const t = String(invoiceType || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+    if (INVOICE_TYPES && INVOICE_TYPES[t]?.title) return INVOICE_TYPES[t].title;
+    if (t.includes('credit')) return 'CREDIT NOTE';
+    if (t.includes('debit')) return 'DEBIT NOTE';
+    if (t.includes('quot') || t === 'quotation' || t === 'quote') return 'QUOTATION';
+    if (t.includes('proforma') || t.includes('estimate')) return 'PROFORMA INVOICE';
+    if (t.includes('challan') || t.includes('delivery')) return 'DELIVERY CHALLAN';
+    if (t.includes('bos') || t.includes('bill-of-supply') || t.includes('composition')) return 'BILL OF SUPPLY';
+    if (t.includes('purchase') && t.includes('order')) return 'PURCHASE ORDER';
+    if (t.includes('work') && t.includes('order')) return 'WORK ORDER';
+    if (INVOICE_TYPES && INVOICE_TYPES[invoiceType]?.title) return INVOICE_TYPES[invoiceType].title;
+    // fallback: capitalize words of type
+    return String(invoiceType || 'TAX INVOICE').replace(/[-_]/g, ' ').toUpperCase();
+  })();
+
   const containerStyle = {
     width: `${paperCfg.widthMm}mm`,
     minHeight: paperCfg.kind === 'sheet' ? `${paperCfg.heightMm}mm` : undefined,
@@ -968,10 +986,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                       fontWeight: 800, fontSize: '14px', letterSpacing: '0.08em',
                       color: (String(invoiceType).toLowerCase().includes('credit') ? '#b91c1c' : '#111'),
                     }}>
-                      {String(invoiceType).toLowerCase().includes('credit') ? 'CREDIT NOTE'
-                        : String(invoiceType).toLowerCase().includes('challan') ? 'DELIVERY CHALLAN'
-                        : String(invoiceType).toLowerCase().includes('proforma') ? 'PROFORMA'
-                        : 'TAX INVOICE'}
+                      {pdfDocTitle}
                     </div>
                   </td>
                   <td style={{ width: '34%', padding: 8, verticalAlign: 'top', fontSize: '10px' }}>
@@ -1000,10 +1015,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               padding: (invoiceType === 'credit-note' || String(invoiceType).toLowerCase().includes('credit')) ? '4px 16px' : '0',
               borderRadius: 2,
             }}>
-              {invoiceType === 'credit-note' || invoiceType === 'Credit Note' || String(invoiceType).toLowerCase().includes('credit') ? 'CREDIT NOTE'
-                : invoiceType === 'delivery-challan' || invoiceType === 'Delivery Challan' || String(invoiceType).toLowerCase().includes('challan') ? 'DELIVERY CHALLAN'
-                : invoiceType === 'proforma' || String(invoiceType).toLowerCase().includes('proforma') ? 'PROFORMA INVOICE'
-                : 'TAX INVOICE'}
+              {pdfDocTitle}
             </div>
           </div>
                     )}
