@@ -1,0 +1,79 @@
+========================================================
+  SD Dynamics — Windows Install (launcher only)
+========================================================
+
+This pack does NOT change your invoices, ledger, Work Orders,
+or any business code. It only improves how you START the app
+on Windows.
+
+1. WHAT TO DO
+-------------
+  A. Copy these files into your existing SD Dynamics project
+     folder (the one that already has package.json and server.js):
+
+       - "SD Dynamics - WINDOWS.hta"
+       - "Update FreeGSTBill.bat"  (points at YOUR GitHub)
+       - README_BAT_FILES.txt (optional)
+
+  B. Double-click:  SD Dynamics - WINDOWS.hta
+
+  C. Use Install / Open / Update from that window.
+
+2. IF SMARTSCREEN APPEARS
+-------------------------
+  More info → Run anyway
+  (Unsigned open-source apps often trigger this once.)
+
+3. DATA SAFETY
+--------------
+  Your data/ folder is never deleted by the launcher or updater.
+  Always keep a backup before major updates:
+    BACKUP_MY_CUSTOM_CHANGES.bat
+
+4. IN-APP "Update available"
+----------------------------
+  The app checks GitHub for a NEWER version string than the one
+  in your local package.json.
+
+  It will ONLY show a banner when:
+    - Internet works
+    - https://raw.githubusercontent.com/veeranki97/SD-Dynamics/main/package.json
+      has a version HIGHER than your local version
+    - Optionally: a GitHub Release exists for notes
+
+  Just pushing code to main with the SAME version (2.0.0)
+  does NOT show a notification.
+
+5. HOW TO RELEASE A NEW VERSION (so users get the banner)
+---------------------------------------------------------
+  On your PC in the project folder:
+
+    1) Edit package.json → "version": "2.1.0"
+    2) Update CHANGELOG.md (see CHANGELOG_SNIPPET.md in this ZIP)
+    3) git add -A
+       git commit -m "release: v2.1.0"
+       git push origin main
+    4) On GitHub → SD-Dynamics → Releases → Draft a new release
+         Tag: v2.1.0
+         Title: SD Dynamics v2.1.0
+         Paste release notes from CHANGELOG
+         Publish release
+
+  After that, any running app that still has 2.0.0 will see
+  "Update available — v2.1.0" (after a short network check).
+
+6. REPO URL FIX (required for notifications)
+--------------------------------------------
+  Your current server still checks Bharatbill2 in some builds.
+  Apply the small patch in patches/update-check-SD-Dynamics.patch
+  OR set both URLs in server.js /api/check-update to:
+
+    https://raw.githubusercontent.com/veeranki97/SD-Dynamics/main/package.json
+    https://api.github.com/repos/veeranki97/SD-Dynamics/releases/latest
+
+  And package.json "repository.url" to:
+    https://github.com/veeranki97/SD-Dynamics.git
+
+========================================================
+  Source: https://github.com/veeranki97/SD-Dynamics
+========================================================

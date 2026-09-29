@@ -1,0 +1,54 @@
+===========================================================
+  SD DYNAMICS
+  One-click Windows install (same structure as Free GST Billing)
+===========================================================
+
+WHY THE ORIGINAL WORKS
+----------------------
+Their ZIP looks like this:
+
+  Free-GST-Billing/
+    Free GST Billing - WINDOWS.hta     ← you double-click this
+    READ ME FIRST.txt
+    _system/                           ← REQUIRED next to the HTA
+      package.json
+      server.js
+      dist/          (pre-built UI)
+      install-windows.ps1
+      start-windows.ps1
+      ...
+
+When _system is present, the launcher shows green Ready / Install.
+When _system is missing (flat GitHub source only), it opens the website.
+
+YOUR SD-DYNAMICS SOURCE FOLDER IS NOT THAT LAYOUT.
+GitHub "Code → Download ZIP" is source code, not a release ZIP.
+
+-----------------------------------------------------------
+  BUILD A REAL RELEASE ZIP ON YOUR PC (one time)
+-----------------------------------------------------------
+
+1. Open PowerShell in your SD Dynamics project folder
+   (the folder that has package.json).
+
+2. Run:
+
+     npm install
+     npm run build
+     powershell -ExecutionPolicy Bypass -File .\Build-Release-ZIP.ps1
+
+3. You get:  Desktop\SD-Dynamics-Release\SD-Dynamics\
+   with the same layout as the original author.
+
+4. Double-click:  SD Dynamics - WINDOWS.hta
+5. Click Install (first time), then Open App.
+
+-----------------------------------------------------------
+  OR USE THIS TEMPLATE FOLDER
+-----------------------------------------------------------
+
+Copy the files from this pack into place, then run Build-Release-ZIP.ps1
+so _system gets your built app.
+
+GitHub: https://github.com/veeranki97/SD-Dynamics
+===========================================================
