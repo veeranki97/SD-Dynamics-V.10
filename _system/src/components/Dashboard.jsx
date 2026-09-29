@@ -469,6 +469,17 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     setFiltered(result);
   }, [bills, search, typeFilter, statusFilter, fyFilter, dateFrom, dateTo]);
 
+  const typeCounts = useMemo(() => {
+    const counts = { all: 0 };
+    for (const b of bills || []) {
+      const t = b.invoiceType || 'tax-invoice';
+      counts[t] = (counts[t] || 0) + 1;
+      counts.all += 1;
+    }
+    return counts;
+  }, [bills]);
+
+
   const handleDelete = async (bill) => {
     // No hard delete for GST documents — cancel keeps number + audit trail
     if ((bill.status || '') === 'cancelled') {
@@ -1352,7 +1363,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       <PageHeader
         icon={listMode ? "📄" : "📊"}
         title={listMode ? "Invoices" : "Dashboard"}
-        subtitle={listMode ? "All tax invoices, proformas, credit notes & challans" : "Overview of your invoices"}
+        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "Overview of your invoices"}
         meta={`${bills.length} invoice${bills.length === 1 ? '' : 's'}`}>
         <HelpButton title="Dashboard — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
@@ -1589,7 +1600,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                 className={typeFilter === t.id ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
                 onClick={() => setTypeFilter(t.id)}
                 style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}>
-                {t.label}
+                {t.label}{typeCounts ? ` (${typeCounts[t.id] || 0})` : ''}
               </button>
             ))}
           </div>

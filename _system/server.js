@@ -1647,6 +1647,74 @@ function purgeOldTrash() {
 setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
 
 // v1.10.0 — Health-check endpoint moved here (was registered AFTER the
+
+// ---- Master data (HSN / Units / Expense categories) — survives port change ----
+const MASTER_DATA_PATH = path.join(DATA_DIR, 'master-data.json');
+app.get('/api/master-data', (req, res) => {
+  try {
+    const data = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    res.json(data);
+  } catch (e) {
+    res.json({ hsn: [], units: [], expenseCategories: [] });
+  }
+});
+app.post('/api/master-data', (req, res) => {
+  try {
+    const body = req.body || {};
+    const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    const next = {
+      hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
+      units: Array.isArray(body.units) ? body.units : (prev.units || []),
+      expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(MASTER_DATA_PATH, next);
+    res.json({ success: true, ...next });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Activity / audit logs (MUST be before SPA catch-all or GET returns 404) ----
+app.get('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 300);
+    const rows = files.map(f => {
+      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
+      catch { return { file: f }; }
+    });
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    fs.mkdirSync(dir, { recursive: true });
+    const body = req.body || {};
+    const entry = {
+      entityType: body.entityType || 'app',
+      entityId: body.entityId || 'n/a',
+      action: body.action || 'event',
+      user: body.user || 'local',
+      at: body.at || new Date().toISOString(),
+      diff: body.diff || body.note || {},
+    };
+    const ts = String(entry.at).replace(/[:.]/g, '-');
+    const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
+    const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
+    fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
+    res.json({ success: true, file: path.basename(fp) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // SPA catch-all → every GET /api/health returned "No such endpoint" →
 // the UI's health-banner was permanently broken). Now registered
 // before the catch-all so it actually serves.
@@ -2021,73 +2089,6 @@ async function processDueRecurring() {
 }
 
 
-// ---- Master data (HSN / Units / Expense categories) — survives port change (not localStorage) ----
-const MASTER_DATA_PATH = path.join(DATA_DIR, 'master-data.json');
-app.get('/api/master-data', (req, res) => {
-  try {
-    const data = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
-    res.json(data);
-  } catch (e) {
-    res.json({ hsn: [], units: [], expenseCategories: [] });
-  }
-});
-app.post('/api/master-data', (req, res) => {
-  try {
-    const body = req.body || {};
-    const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
-    const next = {
-      hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
-      units: Array.isArray(body.units) ? body.units : (prev.units || []),
-      expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
-      updatedAt: new Date().toISOString(),
-    };
-    writeJSON(MASTER_DATA_PATH, next);
-    res.json({ success: true, ...next });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ---- Activity / audit logs (read-only list) ----
-app.get('/api/activity-logs', (req, res) => {
-  try {
-    const dir = path.join(DATA_DIR, 'activity-logs');
-    if (!fs.existsSync(dir)) return res.json([]);
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 200);
-    const rows = files.map(f => {
-      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
-      catch { return { file: f }; }
-    });
-    res.json(rows);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-
-
-app.post('/api/activity-logs', (req, res) => {
-  try {
-    const dir = path.join(DATA_DIR, 'activity-logs');
-    fs.mkdirSync(dir, { recursive: true });
-    const body = req.body || {};
-    const entry = {
-      entityType: body.entityType || 'app',
-      entityId: body.entityId || 'n/a',
-      action: body.action || 'event',
-      user: body.user || 'local',
-      at: new Date().toISOString(),
-      diff: body.diff || body.note || {},
-    };
-    const ts = entry.at.replace(/[:.]/g, '-');
-    const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
-    const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
-    fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
-    res.json({ success: true, file: path.basename(fp) });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 startServer(STARTING_PORT);
 // Fire once after a short delay so the listener is up first; then once a day

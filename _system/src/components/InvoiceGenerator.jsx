@@ -1186,10 +1186,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     const rawOverride = _psForPrefix.customPrefixes?.[type];
     const overridePrefix = rawOverride && rawOverride.trim();
     const prefix = overridePrefix || config?.prefix || 'INV';
-    // Peek — actual reservation happens on save.
-    const num = await getNextInvoiceNumber(prefix, { peek: true, explicitPrefix: !!overridePrefix });
+    // Always next free number for THIS type series (DC never keeps INV/SD digits).
     numberReserved.current = false;
-    setDetails(prev => ({ ...prev, invoiceNumber: num }));
+    try {
+      const num = await getNextInvoiceNumber(prefix, { peek: true, explicitPrefix: true });
+      setDetails(prev => ({ ...prev, invoiceNumber: num || '' }));
+    } catch {
+      setDetails(prev => ({ ...prev, invoiceNumber: '' }));
+    }
 
     // Auto-set options based on type
     if (type === 'bill-of-supply') {

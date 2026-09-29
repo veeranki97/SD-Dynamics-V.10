@@ -133,35 +133,28 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
     const inc = await apiFetch(`${API}/meta/${key}/increment`, { method: 'POST', body: JSON.stringify({}) });
     next = inc.value;
   }
-  // Collision guard: if bills already use this or higher sequence for same prefix, jump past max
+
+  // Collision guard: count only numbers for THIS type prefix (INV / QUO / DC / …)
   try {
     const bills = await apiFetch(`${API}/bills`);
     let maxUsed = 0;
-    const pfxUpper = String(prefix || '').toUpperCase();
+    const pfxU = String(prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     for (const b of (bills || [])) {
       const num = String(b.invoiceNumber || b.data?.details?.invoiceNumber || '');
       if (!num) continue;
-      // Match trailing digits; prefer numbers that share prefix family
       const m = num.match(/(\d+)\s*$/);
       if (!m) continue;
       const n = parseInt(m[1], 10);
       if (!Number.isFinite(n)) continue;
-      const numU = num.toUpperCase();
-      if (pfxUpper && (numU.includes(pfxUpper) || numU.startsWith(pfxUpper.replace(/[^A-Z0-9]/g, '')))) {
-        maxUsed = Math.max(maxUsed, n);
-      } else if (!pfxUpper) {
-        maxUsed = Math.max(maxUsed, n);
-      }
-    }
-    // Also scan all trailing digits if prefix-scoped max is still behind global counter drift
-    if (maxUsed === 0) {
-      for (const b of (bills || [])) {
-        const m = String(b.invoiceNumber || '').match(/(\d+)\s*$/);
-        if (m) maxUsed = Math.max(maxUsed, parseInt(m[1], 10) || 0);
-      }
+      const numU = num.toUpperCase().replace(/\s/g, '');
+      const tokenOk = !pfxU || numU.includes('/' + pfxU + '/') || numU.includes('-' + pfxU + '-')
+        || numU.startsWith(pfxU + '/') || numU.startsWith(pfxU + '-') || numU.includes(pfxU + '/');
+      if (tokenOk) maxUsed = Math.max(maxUsed, n);
     }
     if (maxUsed >= next) next = maxUsed + 1;
-  } catch { /* offline / API down — keep counter value */ }
+  } catch { /* offline */ }
+
+  
 
   // v1.10.10 — When `explicitPrefix` is true, the caller (per-type
   // prefix override from Print Settings) wants THEIR prefix used as-is
