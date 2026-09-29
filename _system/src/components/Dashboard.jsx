@@ -470,35 +470,34 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   }, [bills, search, typeFilter, statusFilter, fyFilter, dateFrom, dateTo]);
 
   const handleDelete = async (bill) => {
+    // No hard delete for GST documents — cancel keeps number + audit trail
+    if ((bill.status || '') === 'cancelled') {
+      toast('Invoice is already cancelled', 'info');
+      return;
+    }
     const ok = await confirmAction({
-      title: 'Delete this invoice?',
-      message: `Invoice ${bill.invoiceNumber} for ${bill.clientName} will be soft-deleted (moved to Trash for 30 days). Stock will be restored for any products in this invoice.`,
-      confirmLabel: 'Delete',
-      tone: 'danger',
+      title: 'Cancel this invoice?',
+      message: `Invoice ${bill.invoiceNumber} will be marked Cancelled (kept for GST audit). Numbers are never reused. Stock will be restored for linked products.`,
+      confirmLabel: 'Mark Cancelled',
+      tone: 'warning',
     });
-    if (ok) {
-      try {
-        // Restore stock for products used in this invoice
-        if (bill.data?.items) {
-          const products = await getAllProducts();
-          for (const item of bill.data.items) {
-            if (!item.productId) continue;
-            const product = products.find(p => p.id === item.productId);
-            if (!product) continue;
-            await saveProduct({ ...product, stock: (product.stock || 0) + (item.quantity || 0) });
-          }
+    if (!ok) return;
+    try {
+      if (bill.data?.items) {
+        const products = await getAllProducts();
+        for (const item of bill.data.items) {
+          if (!item.productId) continue;
+          const product = products.find(p => p.id === item.productId);
+          if (!product) continue;
+          await saveProduct({ ...product, stock: (product.stock || 0) + (item.quantity || 0) });
         }
-        await deleteBill(bill.id);
-
-        // Move saved PDF to Trash folder
-        const prefix = { 'tax-invoice': 'INV', 'proforma': 'PRO', 'credit-note': 'CN', 'bill-of-supply': 'BOS', 'delivery-challan': 'DC' }[bill.invoiceType || 'tax-invoice'] || 'INV';
-        const pdfName = `${prefix}_${(bill.invoiceNumber || '').replace(/\//g, '-')}.pdf`;
-        const clientName = bill.clientName || bill.data?.client?.name || 'General';
-        fetch('/api/trash-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileName: pdfName, clientName }) }).catch(err => console.warn('Could not trash PDF:', err));
-
-        toast('Invoice deleted & stock restored', 'success');
-        loadBills();
-      } catch { toast('Failed to delete', 'error'); }
+      }
+      const updated = { ...bill, status: 'cancelled', cancelledAt: new Date().toISOString() };
+      await saveBill(updated, { overwrite: true });
+      toast('Invoice cancelled (GST-safe). Number retained.', 'success');
+      loadBills();
+    } catch (e) {
+      toast(e?.message || 'Failed to cancel', 'error');
     }
   };
 
@@ -1015,7 +1014,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     })) return;
     setBulkBusy(true);
     try {
-      const results = await Promise.allSettled(sel.map(b => deleteBill(b.id)));
+      const results = await Promise.allSettled(sel.map(b => saveBill({ ...b, status: 'cancelled', cancelledAt: new Date().toISOString() }, { overwrite: true })));
       const failed = results.filter(r => r.status === 'rejected').length;
       if (failed > 0) toast(`${sel.length - failed} deleted, ${failed} failed`, 'warning');
       else toast(`Deleted ${sel.length} invoice${sel.length !== 1 ? 's' : ''}`, 'success');
@@ -1725,8 +1724,9 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
           </div>
         ) : (
           <div className="table-scroll">
-            <table className="data-table">
-              <thead>
+            <div className="invoice-list-scroll" style={{ maxHeight: 'calc(100vh - 220px)', overflow: 'auto', position: 'relative' }}>
+            <table className="data-table invoice-list-table">
+              <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface, #fff)', boxShadow: '0 1px 0 rgba(0,0,0,0.08)' }}>
                 <tr>
                   <th style={{ width: '32px', padding: '0.5rem 0.25rem 0.5rem 0.75rem' }}>
                     <input type="checkbox"
@@ -1754,8 +1754,28 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                 {filtered.map(bill => {
                   const status = bill.status || 'unpaid';
                   const sc = STATUS_CONFIG[status] || STATUS_CONFIG.unpaid;
-                  const isOverdue = status !== 'paid' && bill.data?.details?.dueDate && new Date(bill.data.details.dueDate) < new Date();
-                  const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(bill.data.details.dueDate)) / 86400000) : 0;
+                  const parseYmd = (s) => {
+                    if (!s) return null;
+                    const m = String(s).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})/);
+                    if (!m) { const d = new Date(s); return Number.isNaN(d.getTime()) ? null : d; }
+                    return new Date(+m[1], +m[2] - 1, +m[3]);
+                  };
+                  const dueRaw = bill.data?.details?.dueDate || bill.dueDate;
+                  const invRaw = bill.invoiceDate || bill.data?.details?.invoiceDate;
+                  const dueD = parseYmd(dueRaw);
+                  const invD = parseYmd(invRaw);
+                  const todayD = new Date(); todayD.setHours(0,0,0,0);
+                  // Days Overdue = whole calendar days past due date (unpaid/partial only)
+                  let daysOverdue = 0;
+                  if (status !== 'paid' && status !== 'cancelled' && dueD) {
+                    const due0 = new Date(dueD); due0.setHours(0,0,0,0);
+                    daysOverdue = Math.max(0, Math.floor((todayD - due0) / 86400000));
+                  } else if (status !== 'paid' && status !== 'cancelled' && !dueD && invD) {
+                    // No due date: show days since invoice date as aging hint
+                    const inv0 = new Date(invD); inv0.setHours(0,0,0,0);
+                    daysOverdue = Math.max(0, Math.floor((todayD - inv0) / 86400000));
+                  }
+                  const isOverdue = daysOverdue > 0 && status !== 'paid' && status !== 'cancelled';
                   const billCurrency = bill.currency || bill.data?.invoiceOptions?.currency || 'INR';
                   return (
                     <tr key={bill.id} className={isOverdue || status === 'overdue' ? 'row-overdue' : ''}
@@ -1781,15 +1801,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                       </td>}
                       {visibleColumns.currency && <td className="text-muted">{billCurrency}</td>}
                       {visibleColumns.dueDate && <td className="text-muted">{bill.data?.details?.dueDate ? new Date(bill.data.details.dueDate).toLocaleDateString('en-IN') : <span className="cell-empty">—</span>}</td>}
-                      {visibleColumns.daysOverdue && <td className="text-muted">{(() => {
-                        const st = bill.status || 'unpaid';
-                        if (st === 'paid') return <span className="cell-empty">—</span>;
-                        const due = bill.data?.details?.dueDate || bill.dueDate;
-                        if (!due) return <span className="cell-empty">—</span>;
-                        const days = Math.floor((new Date() - new Date(due)) / 86400000);
-                        if (days <= 0) return <span style={{ color: '#059669' }}>0</span>;
-                        return <span style={{ color: '#dc2626', fontWeight: 600 }}>{days}</span>;
-                      })()}</td>}
+                      {visibleColumns.daysOverdue && <td className="text-muted" style={{ color: daysOverdue > 0 ? '#dc2626' : undefined, fontWeight: daysOverdue > 0 ? 600 : undefined }}>{daysOverdue > 0 ? daysOverdue : '—'}</td>}
                       {visibleColumns.workOrder && <td className="text-muted">{(() => {
                         const id = bill.workOrderId || bill.data?.workOrderId || bill.data?.details?.workOrderId || '';
                         const no = bill.data?.details?.workOrderNo || bill.workOrderNo || '';
@@ -1827,7 +1839,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                             }
                           }} title="Download PDF"><Download size={15} /></button>
                           <button className="icon-btn icon-btn-blue" onClick={() => onDuplicate(bill)} title="Duplicate"><Copy size={15} /></button>
-                          {(bill.invoiceType === 'proforma' || bill.invoiceType === 'delivery-challan') && (
+                          {(bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan' || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot') || String(bill.invoiceType||'').includes('challan')) && (bill.status || '') !== 'cancelled' && !String(bill.status||'').toUpperCase().includes('CONVERT') && (
                             <button className="icon-btn icon-btn-green" onClick={() => onConvert(bill)} title="Convert to Tax Invoice"><FileText size={15} /></button>
                           )}
                           {(status || bill.status) !== 'cancelled' && (
@@ -1853,7 +1865,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                           )}
                           <button className="icon-btn icon-btn-blue" onClick={() => shareEmail(bill)} title="Email"><Mail size={15} /></button>
                     <button className="icon-btn icon-btn-red" onClick={() => handleDelete(bill)}
-                    /* cancel via title-attr button nearby */ title="Delete"><Trash2 size={15} /></button>
+                    /* cancel via title-attr button nearby */ title="Cancel invoice (GST-safe)"><Trash2 size={15} /></button>
                         </div>
                       </td>}
                     </tr>
@@ -1861,6 +1873,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

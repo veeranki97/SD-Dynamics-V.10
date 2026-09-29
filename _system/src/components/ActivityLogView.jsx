@@ -10,10 +10,14 @@ export default function ActivityLogView() {
     setLoading(true);
     try {
       const res = await fetch('/api/activity-logs');
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${t || ''}`.trim());
+      }
       const data = await res.json();
       setRows(Array.isArray(data) ? data : []);
-    } catch {
-      toast('Could not load activity logs', 'error');
+    } catch (e) {
+      toast(e?.message || 'Could not load activity logs — is node server.js running?', 'error');
       setRows([]);
     }
     setLoading(false);

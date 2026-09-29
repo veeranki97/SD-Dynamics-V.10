@@ -133,6 +133,35 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
     const inc = await apiFetch(`${API}/meta/${key}/increment`, { method: 'POST', body: JSON.stringify({}) });
     next = inc.value;
   }
+  // Collision guard: if bills already use this or higher sequence for same prefix, jump past max
+  try {
+    const bills = await apiFetch(`${API}/bills`);
+    let maxUsed = 0;
+    const pfxUpper = String(prefix || '').toUpperCase();
+    for (const b of (bills || [])) {
+      const num = String(b.invoiceNumber || b.data?.details?.invoiceNumber || '');
+      if (!num) continue;
+      // Match trailing digits; prefer numbers that share prefix family
+      const m = num.match(/(\d+)\s*$/);
+      if (!m) continue;
+      const n = parseInt(m[1], 10);
+      if (!Number.isFinite(n)) continue;
+      const numU = num.toUpperCase();
+      if (pfxUpper && (numU.includes(pfxUpper) || numU.startsWith(pfxUpper.replace(/[^A-Z0-9]/g, '')))) {
+        maxUsed = Math.max(maxUsed, n);
+      } else if (!pfxUpper) {
+        maxUsed = Math.max(maxUsed, n);
+      }
+    }
+    // Also scan all trailing digits if prefix-scoped max is still behind global counter drift
+    if (maxUsed === 0) {
+      for (const b of (bills || [])) {
+        const m = String(b.invoiceNumber || '').match(/(\d+)\s*$/);
+        if (m) maxUsed = Math.max(maxUsed, parseInt(m[1], 10) || 0);
+      }
+    }
+    if (maxUsed >= next) next = maxUsed + 1;
+  } catch { /* offline / API down — keep counter value */ }
 
   // v1.10.10 — When `explicitPrefix` is true, the caller (per-type
   // prefix override from Print Settings) wants THEIR prefix used as-is
@@ -570,19 +599,27 @@ export const saveAccount = async (a) =>
 export async function logActivity({ entityType, entityId, action, diff }) {
   try {
     const base = (typeof API !== 'undefined' ? API : '/api');
+    const payload = {
+      entityType: entityType || 'app',
+      entityId: String(entityId || 'n/a'),
+      action: action || 'event',
+      diff: diff || {},
+      at: new Date().toISOString(),
+    };
     const res = await fetch(`${base}/activity-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        entityType: entityType || 'app',
-        entityId: entityId || 'n/a',
-        action: action || 'event',
-        diff: diff || {},
-        at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) console.warn('[activity] HTTP', res.status);
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.warn('[activity] HTTP', res.status, t);
+    }
   } catch (e) {
     console.warn('[activity]', e?.message || e);
   }
+}
+
+export async function getActivityLogs() {
+  return apiFetch(`${API}/activity-logs`);
 }

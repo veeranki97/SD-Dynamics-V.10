@@ -17,6 +17,7 @@ import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+try { /* ensure activity dir early */ } catch {}
 const DATA_DIR = path.join(__dirname, 'data');
 
 // Port choice — we deliberately default to a high, unusual number rather than

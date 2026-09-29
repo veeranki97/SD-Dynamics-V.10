@@ -185,14 +185,8 @@ export default function ReportsView() {
           onClick={() => setActiveTab('clients')}>
           <Users size={16} /> Client Analytics
         </button>
-        <button className={`btn ${activeTab === 'sitepl' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('sitepl')}>
-          Site-wise P&L
-        </button>
-        <button className={`btn ${activeTab === 'wopl' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setActiveTab('wopl')}>
-          WO-wise P&L
-        </button>
+        
+        
         <button className={`btn $
       {activeTab === 'sitepl' && (() => {
         const bySite = {};

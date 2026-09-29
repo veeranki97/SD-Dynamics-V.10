@@ -502,11 +502,44 @@ function App() {
   const handleConvertToInvoice = (bill) => {
     sessionStorage.removeItem('gst_invoiceDraft');
     const clone = JSON.parse(JSON.stringify(bill));
+    const srcType = (bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
     clone._isDuplicate = true;
     clone._convertToType = 'tax-invoice';
+    clone._sourceDocId = bill.id;
+    clone._sourceDocNumber = bill.invoiceNumber || bill.id;
+    clone._sourceDocType = srcType;
+    // legacy aliases used by generator
     clone._sourceProformaId = bill.id;
     clone._sourceProformaNumber = bill.invoiceNumber || bill.id;
     clone.id = undefined;
+    clone.invoiceNumber = '';
+    clone.invoiceType = 'tax-invoice';
+    if (clone.data) {
+      clone.data = { ...clone.data, invoiceType: 'tax-invoice' };
+      if (clone.data.details) {
+        clone.data.details = {
+          ...clone.data.details,
+          invoiceNumber: '',
+          invoiceDate: new Date().toISOString().slice(0, 10),
+          convertedFrom: bill.invoiceNumber || bill.id,
+          convertedFromType: srcType,
+        };
+      }
+    }
+    // Keep advances/payments from PI/Quotation so Tax Invoice shows received/partial/pending
+    const paid = Number(clone.paidAmount) || (clone.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || 0;
+    const total = Number(clone.totalAmount) || 0;
+    if (paid <= 0.009) clone.status = 'unpaid';
+    else if (paid + 0.009 >= total) clone.status = 'paid';
+    else clone.status = 'partial';
+    // Annotate payment notes for ledger/audit
+    if (Array.isArray(clone.payments) && clone.payments.length) {
+      clone.payments = clone.payments.map(p => ({
+        ...p,
+        note: [p.note, `Against ${srcType || 'source'} ${bill.invoiceNumber || bill.id}`].filter(Boolean).join(' | '),
+        againstSourceDoc: bill.invoiceNumber || bill.id,
+      }));
+    }
     setEditingBill(clone);
     setCurrentView('new');
   };
