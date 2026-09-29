@@ -195,11 +195,36 @@ function printPO(po, profile, fingerprint) {
 <div class="foot">SHA-256: ${fingerprint || '—'} · Computer generated PO — ${new Date().toLocaleString('en-IN')}</div>
 <script>window.onload=function(){window.print();}</script>
 </body></html>`;
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
+  // Print via hidden iframe — avoids popup blockers
+  try {
+    let frame = document.getElementById('po-print-frame');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'po-print-frame';
+      frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+      document.body.appendChild(frame);
+    }
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch (e) {
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = (po.poNumber || 'PO') + '.html'; a.click();
+        URL.revokeObjectURL(url);
+        alert('Print blocked — PO saved as HTML file. Open it and print.');
+      }
+    }, 250);
+  } catch (e) {
+    console.error('printPO', e);
+    alert('Could not print PO: ' + (e.message || e));
+  }
 }
+
 
 
 export default function PurchaseOrdersView() {

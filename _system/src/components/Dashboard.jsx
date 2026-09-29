@@ -281,7 +281,24 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     });
     const topSites = Object.entries(bySite).sort((a,b) => b[1]-a[1]).slice(0, 6).map(([name, amount]) => ({ name, amount }));
     const salesByState = Object.entries(byState).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([name, amount]) => ({ name, amount }));
-    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging };
+    let gstC = 0, gstS = 0, gstI = 0;
+    bills.forEach(b => {
+      const typ = String(b.invoiceType || 'tax-invoice').toLowerCase();
+      if (typ.includes('quot') || typ.includes('challan') || typ.includes('proforma')) return;
+      if (b.status === 'cancelled') return;
+      const t = b.data?.totals || {};
+      const c = Number(t.cgst) || 0;
+      const s = Number(t.sgst) || Number(t.utgst) || 0;
+      const ig = Number(t.igst) || 0;
+      if (c || s || ig) {
+        gstC += c; gstS += s; gstI += ig;
+      } else if (b.totalTaxAmount) {
+        // Unknown split: put full tax under IGST so chart is not empty
+        gstI += Number(b.totalTaxAmount) || 0;
+      }
+    });
+    const gstBreakdown = { cgst: gstC, sgst: gstS, igst: gstI };
+    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging, gstBreakdown };
   }, [bills]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');

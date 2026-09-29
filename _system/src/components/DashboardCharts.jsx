@@ -19,116 +19,141 @@ export default function DashboardCharts({ stats }) {
         Chart.register(...registerables);
         charts.current.forEach(c => { try { c.destroy(); } catch {} });
         charts.current = [];
-        const prefs = getChartPrefs();
+        const prefs = getChartPrefs() || {};
         const s = stats || {};
         const mk = (canvas, cfg) => {
           if (!canvas) return;
           charts.current.push(new Chart(canvas, cfg));
         };
+        const baseOpts = { responsive: true, maintainAspectRatio: false };
 
-        const salesType = prefs.salesTrend?.type || prefs.salesChart || 'line';
-        const salesLabels = (s.salesTrend || s.monthlySales || s.monthKeys || []).map(x =>
-          typeof x === 'string' ? x : (x.label || x.month || '')
-        );
-        const salesData = (s.salesTrend || s.monthlySales || []).map(x => x.value || x.amount || 0);
-        // Fallback from byMonth if needed
-        let labels = salesLabels;
-        let data = salesData;
-        if ((!labels.length || !data.length) && s.byMonth && s.monthKeys) {
-          labels = s.monthKeys;
-          data = s.monthKeys.map(k => s.byMonth[k] || 0);
+        // Sales trend from byMonth (always present when bills exist)
+        if (prefs.showSalesTrend !== false) {
+          let labels = [];
+          let data = [];
+          if (s.monthKeys?.length && s.byMonth) {
+            labels = s.monthKeys;
+            data = s.monthKeys.map(k => Number(s.byMonth[k]) || 0);
+          } else if (s.salesTrend?.length) {
+            labels = s.salesTrend.map(x => x.label || x.month || '');
+            data = s.salesTrend.map(x => x.value || x.amount || 0);
+          }
+          if (!labels.length) { labels = ['No data']; data = [0]; }
+          mk(salesRef.current, {
+            type: prefs.salesChart === 'bar' ? 'bar' : 'line',
+            data: {
+              labels,
+              datasets: [{
+                label: 'Sales',
+                data,
+                borderColor: chartColor(prefs.theme || 'blue'),
+                backgroundColor: chartColor(prefs.theme || 'blue') + '66',
+                tension: 0.3,
+                fill: prefs.salesChart !== 'bar',
+              }],
+            },
+            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+          });
         }
-        mk(salesRef.current, {
-          type: salesType === 'doughnut' ? 'doughnut' : salesType,
-          data: {
-            labels: labels.length ? labels : ['—'],
-            datasets: [{
-              label: 'Sales',
-              data: data.length ? data : [0],
-              borderColor: chartColor(prefs.salesTrend?.color || prefs.theme),
-              backgroundColor: chartColor(prefs.salesTrend?.color || prefs.theme) + '99',
-              tension: 0.3,
-              fill: salesType === 'line',
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: salesType === 'pie' || salesType === 'doughnut' ? undefined : { y: { beginAtZero: true } } },
-        });
 
-        const gst = s.gstBreakdown || {};
-        mk(gstRef.current, {
-          type: prefs.gstBreakdown?.type || 'bar',
-          data: {
-            labels: ['CGST', 'SGST', 'IGST'],
-            datasets: [{
-              label: 'GST',
-              data: [gst.cgst || 0, gst.sgst || 0, gst.igst || 0],
-              backgroundColor: [chartColor('blue'), chartColor('green'), chartColor('purple')],
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-        });
+        if (prefs.showGstBreakdown !== false) {
+          const gst = s.gstBreakdown || {};
+          const gdata = [Number(gst.cgst) || 0, Number(gst.sgst) || 0, Number(gst.igst) || 0];
+          mk(gstRef.current, {
+            type: 'bar',
+            data: {
+              labels: ['CGST', 'SGST', 'IGST'],
+              datasets: [{
+                label: 'GST',
+                data: gdata,
+                backgroundColor: [chartColor('blue'), chartColor('green'), chartColor('purple')],
+              }],
+            },
+            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+          });
+        }
 
-        const tc = (s.topClients || []).map(x => Array.isArray(x) ? { name: x[0], amount: x[1] } : x);
-        mk(clientsRef.current, {
-          type: prefs.topClients?.type || prefs.clientsChart || 'bar',
-          data: {
-            labels: tc.length ? tc.map(x => x.name || x.client || '—') : ['—'],
-            datasets: [{
-              label: 'Revenue',
-              data: tc.length ? tc.map(x => x.amount || x.value || 0) : [0],
-              backgroundColor: chartColor(prefs.topClients?.color || prefs.theme),
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-        });
+        if (prefs.showTopClients !== false) {
+          const tc = (s.topClients || []).map(x => Array.isArray(x) ? { name: x[0], amount: x[1] } : x);
+          mk(clientsRef.current, {
+            type: prefs.clientsChart === 'pie' ? 'pie' : 'bar',
+            data: {
+              labels: tc.length ? tc.map(x => x.name || '—') : ['No data'],
+              datasets: [{
+                label: 'Revenue',
+                data: tc.length ? tc.map(x => Number(x.amount) || 0) : [0],
+                backgroundColor: tc.length
+                  ? tc.map((_, i) => chartColor(['purple', 'blue', 'green', 'amber', 'cyan'][i % 5]))
+                  : [chartColor('purple')],
+              }],
+            },
+            options: {
+              ...baseOpts,
+              plugins: { legend: { display: prefs.clientsChart === 'pie', position: 'bottom' } },
+              scales: prefs.clientsChart === 'pie' ? undefined : { y: { beginAtZero: true } },
+            },
+          });
+        }
 
-        const ts = s.topSites || [];
-        mk(sitesRef.current, {
-          type: prefs.topSites?.type || 'pie',
-          data: {
-            labels: ts.length ? ts.map(x => x.name || x.site || '—') : ['No site data'],
-            datasets: [{
-              data: ts.length ? ts.map(x => x.amount || x.value || 0) : [1],
-              backgroundColor: ts.length
-                ? ts.map((_, i) => chartColor(['green', 'blue', 'purple', 'amber', 'cyan', 'red'][i % 6]))
-                : ['#e2e8f0'],
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
-        });
+        if (prefs.showTopSites !== false) {
+          const ts = s.topSites || [];
+          mk(sitesRef.current, {
+            type: 'pie',
+            data: {
+              labels: ts.length ? ts.map(x => x.name || '—') : ['No site data'],
+              datasets: [{
+                data: ts.length ? ts.map(x => Number(x.amount) || 0) : [1],
+                backgroundColor: ts.length
+                  ? ts.map((_, i) => chartColor(['green', 'blue', 'purple', 'amber', 'cyan', 'red'][i % 6]))
+                  : ['#e2e8f0'],
+              }],
+            },
+            options: { ...baseOpts, plugins: { legend: { position: 'bottom' } } },
+          });
+        }
 
-        const ss = s.salesByState || [];
-        mk(stateRef.current, {
-          type: prefs.salesByState?.type || 'bar',
-          data: {
-            labels: ss.length ? ss.map(x => x.name || x.state || '—') : ['No state data'],
-            datasets: [{
-              label: 'Sales',
-              data: ss.length ? ss.map(x => x.amount || x.value || 0) : [0],
-              backgroundColor: chartColor(prefs.salesByState?.color || prefs.theme),
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-        });
+        if (prefs.showSalesByState !== false) {
+          const ss = s.salesByState || [];
+          mk(stateRef.current, {
+            type: 'bar',
+            data: {
+              labels: ss.length ? ss.map(x => x.name || '—') : ['No state data'],
+              datasets: [{
+                label: 'Sales',
+                data: ss.length ? ss.map(x => Number(x.amount) || 0) : [0],
+                backgroundColor: chartColor(prefs.theme || 'blue'),
+              }],
+            },
+            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+          });
+        }
 
-        const ag = s.aging || {};
-        mk(agingRef.current, {
-          type: prefs.aging?.type || prefs.agingChart || 'bar',
-          data: {
-            labels: ['0–30', '31–60', '61–90', '90+'],
-            datasets: [{
-              label: 'Outstanding',
-              data: [
-                ag.d0_30 || ag['0-30'] || 0,
-                ag.d31_60 || ag['31-60'] || 0,
-                ag.d61_90 || ag['61-90'] || 0,
-                ag.d90 || ag['90+'] || 0,
-              ],
-              backgroundColor: chartColor(prefs.aging?.color || prefs.theme),
-            }],
-          },
-          options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-        });
+        if (prefs.showAging !== false) {
+          const ag = s.aging || {};
+          mk(agingRef.current, {
+            type: prefs.agingChart === 'doughnut' ? 'doughnut' : 'bar',
+            data: {
+              labels: ['0–30', '31–60', '61–90', '90+'],
+              datasets: [{
+                label: 'Outstanding',
+                data: [
+                  Number(ag.d0_30) || 0,
+                  Number(ag.d31_60) || 0,
+                  Number(ag.d61_90) || 0,
+                  Number(ag.d90p || ag.d90) || 0,
+                ],
+                backgroundColor: [
+                  chartColor('green'), chartColor('blue'), chartColor('amber'), chartColor('red'),
+                ],
+              }],
+            },
+            options: {
+              ...baseOpts,
+              plugins: { legend: { display: prefs.agingChart === 'doughnut', position: 'bottom' } },
+              scales: prefs.agingChart === 'doughnut' ? undefined : { y: { beginAtZero: true } },
+            },
+          });
+        }
       } catch (e) {
         console.warn('[DashboardCharts]', e);
       }
@@ -139,20 +164,40 @@ export default function DashboardCharts({ stats }) {
     };
   }, [stats]);
 
+  const prefs = getChartPrefs() || {};
   const card = {
     background: 'var(--card, #fff)',
     borderRadius: 12,
     padding: '12px 14px',
     border: '1px solid var(--border, #e2e8f0)',
+    minHeight: 240,
   };
+  const title = { margin: '0 0 8px', fontSize: 14, fontWeight: 600 };
+  const wrap = { position: 'relative', height: 170 };
+
+  const Cell = ({ show, label, cref }) => {
+    if (show === false) return null;
+    return (
+      <div style={card}>
+        <h3 style={title}>{label}</h3>
+        <div style={wrap}><canvas ref={cref} /></div>
+      </div>
+    );
+  };
+
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 12 }}>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Sales trend</h3><canvas ref={salesRef} height={160} /></div>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>GST breakdown</h3><canvas ref={gstRef} height={160} /></div>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Top clients</h3><canvas ref={clientsRef} height={160} /></div>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Top sites</h3><canvas ref={sitesRef} height={160} /></div>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Sales by state</h3><canvas ref={stateRef} height={160} /></div>
-      <div style={card}><h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Aging</h3><canvas ref={agingRef} height={160} /></div>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+      gap: 12,
+      marginTop: 12,
+    }}>
+      <Cell show={prefs.showSalesTrend !== false} label="Sales trend" cref={salesRef} />
+      <Cell show={prefs.showGstBreakdown !== false} label="GST breakdown" cref={gstRef} />
+      <Cell show={prefs.showTopClients !== false} label="Top clients" cref={clientsRef} />
+      <Cell show={prefs.showTopSites !== false} label="Top sites" cref={sitesRef} />
+      <Cell show={prefs.showSalesByState !== false} label="Sales by state" cref={stateRef} />
+      <Cell show={prefs.showAging !== false} label="Aging" cref={agingRef} />
     </div>
   );
 }

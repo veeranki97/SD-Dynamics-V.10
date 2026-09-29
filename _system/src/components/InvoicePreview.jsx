@@ -580,30 +580,53 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     
   if (gridStyle) {
     try {
+      const safeItems = Array.isArray(items) ? items : [];
+      const safeClient = client || {};
+      const safeDetails = details || {};
+      const safeTotals = totals || {};
+      const safeProfile = profile || {};
       const lineCalc = (item) => {
-        const qty = Number(item.quantity) || 0;
-        const rate = Number(item.rate) || 0;
-        const disc = Number(item.discount) || 0;
+        const qty = Number(item?.quantity) || 0;
+        const rate = Number(item?.rate) || 0;
+        const disc = Number(item?.discount) || 0;
         const taxable = Math.max(0, qty * rate - disc);
         return { taxable, discount: disc };
       };
-      const hasAnyDiscount = (items || []).some(i => Number(i.discount) > 0);
-      const totalTax = (totals?.totalTaxAmount ?? ((totals?.cgst || 0) + (totals?.sgst || 0) + (totals?.igst || 0) + (totals?.cess || 0))) || 0;
+      const hasAnyDiscountGrid = safeItems.some(i => Number(i?.discount) > 0);
+      const totalTax = Number(safeTotals.totalTaxAmount) ||
+        ((Number(safeTotals.cgst) || 0) + (Number(safeTotals.sgst) || 0) + (Number(safeTotals.igst) || 0) + (Number(safeTotals.cess) || 0));
       const hsnMap = {};
-      (items || []).forEach((item) => {
-        const hsn = item.hsn || 'N/A';
-        const rate = Number(item.taxPercent) || 0;
+      safeItems.forEach((item) => {
+        const hsn = item?.hsn || 'N/A';
+        const rate = Number(item?.taxPercent) || 0;
         const key = hsn + '|' + rate;
         if (!hsnMap[key]) hsnMap[key] = { hsn, rate, taxable: 0, tax: 0 };
         const l = lineCalc(item);
-        const taxAmt = l.taxable * rate / 100;
         hsnMap[key].taxable += l.taxable;
-        hsnMap[key].tax += taxAmt;
+        hsnMap[key].tax += l.taxable * rate / 100;
       });
+      let account = null;
+      try {
+        if (typeof getAccountById === 'function' && options?.selectedAccountId) {
+          account = getAccountById(options.selectedAccountId);
+        }
+      } catch { account = null; }
+      let psLocal = {};
+      try { psLocal = getPrintSettings() || {}; } catch { psLocal = {}; }
+      const typeKey = String(invoiceType || 'tax-invoice').toLowerCase();
+      const showBank = (options.showBankDetails !== false) && (
+        typeKey === 'tax-invoice' || typeKey === 'proforma' || typeKey.includes('proforma') || typeKey.includes('tax')
+      );
       const gridCtx = {
         style: gridStyle,
-        profile, client, details, items, totals, options,
-        invoiceType, invoiceTitle: (INVOICE_TYPES[invoiceType]?.title || 'TAX INVOICE'),
+        profile: safeProfile,
+        client: safeClient,
+        details: safeDetails,
+        items: safeItems,
+        totals: safeTotals,
+        options: options || {},
+        invoiceType,
+        invoiceTitle: (INVOICE_TYPES[invoiceType]?.title || String(invoiceType || 'TAX INVOICE').toUpperCase()),
         docLabel: (INVOICE_TYPES[invoiceType]?.label || 'Invoice'),
         t: {
           logo: true, businessName: true, businessAddress: true, businessPhone: true, businessEmail: true,
@@ -611,32 +634,41 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
           invoiceDate: true, invoiceNumber: true, dueDate: true, placeOfSupply: true,
           hsn: true, itemQty: true, itemUnit: true, rate: true,
         },
-        sellerCC: getCountryConfig(profile?.country || 'India') || {},
-        isIndia: (profile?.country || 'India') === 'India',
-        isInterstate: !!(totals?.isInterstate || (totals?.igst > 0)),
+        sellerCC: (typeof getCountryConfig === 'function' ? getCountryConfig(safeProfile.country || 'India') : {}) || {},
+        isIndia: (safeProfile.country || 'India') === 'India',
+        isInterstate: !!(safeTotals.isInterstate || (safeTotals.igst > 0)),
         showGST: options.showGST !== false && (INVOICE_TYPES[invoiceType]?.showGST !== false),
         taxLabel: 'Tax',
         singleRate: null,
-        fmt: (n) => formatCurrency(n, options.currency || 'INR'),
-        words: (n) => numberToWords(n),
-        shortDate: (d) => d ? new Date(d).toLocaleDateString('en-IN') : '',
+        fmt: (n) => {
+          try { return formatCurrency(n, options.currency || 'INR'); }
+          catch { return String(Number(n) || 0); }
+        },
+        words: (n) => {
+          try { return numberToWords(Number(n) || 0); }
+          catch { return ''; }
+        },
+        shortDate: (d) => {
+          if (!d) return '';
+          try { return new Date(d).toLocaleDateString('en-IN'); } catch { return String(d); }
+        },
         lineCalc,
-        hasAnyDiscount,
+        hasAnyDiscount: hasAnyDiscountGrid,
         hsnRows: Object.values(hsnMap),
         showHsnSummary: options.showHsnSummary !== false,
         showTaxInWords: true,
         showAmountWords: true,
-        showBankDetails: options.showBankDetails !== false,
+        showBankDetails: showBank,
         showDeclaration: true,
         showCustomerSeal: true,
         showSystemGeneratedNote: true,
         showSignatoryText: true,
         showReverseChargeLine: !!options.reverseCharge,
         reverseChargeText: options.reverseCharge ? 'Yes' : 'No',
-        placeOfSupply: details?.placeOfSupply || client?.state || '',
-        shipTo: details?.shipTo || null,
-        account: (typeof getAccountById === "function" ? getAccountById(options.selectedAccountId) : null) || null,
-        upiId: profile?.upiId || '',
+        placeOfSupply: safeDetails.placeOfSupply || safeClient.state || '',
+        shipTo: safeDetails.shipTo || null,
+        account,
+        upiId: safeProfile.upiId || '',
         qrDataUrl: null,
         totalTax,
         declarationText: 'We declare that this invoice shows the actual price of the goods/services described and that all particulars are true and correct.',
@@ -646,8 +678,8 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         notices: null,
         sig: {
           show: true,
-          stampImg: getPrintSettings()?.stampImage || null,
-          sigImg: getPrintSettings()?.signatureImage || null,
+          stampImg: psLocal.stampImage || null,
+          sigImg: psLocal.signatureImage || safeProfile.signature || safeProfile.signatureImage || null,
           stampHeight: 48,
           sigHeight: 48,
         },
@@ -655,14 +687,20 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         isServices: true,
       };
       return (
-        <div ref={ref} {...(previewOnly ? {} : { id: 'invoice-preview' })} className="invoice-preview-container grid-layout-host">
+        <div
+          ref={ref}
+          {...(previewOnly ? {} : { id: 'invoice-preview' })}
+          className={`invoice-preview-container grid-layout-host grid-style-${gridStyle}`}
+          data-pdf-style={gridStyle}
+        >
           <InvoiceGridLayout ctx={gridCtx} />
         </div>
       );
     } catch (e) {
-      console.warn('[InvoiceGridLayout] fallback to standard template', e);
+      console.error('[InvoiceGridLayout] FAILED — falling back to standard template:', e);
     }
   }
+
 
 return (
       <div

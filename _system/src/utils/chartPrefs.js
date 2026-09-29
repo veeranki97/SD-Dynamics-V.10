@@ -6,6 +6,12 @@ const LEGACY_DEFAULTS = {
   agingChart: 'doughnut',
   clientsChart: 'bar',
   theme: 'blue',
+  showSalesTrend: true,
+  showGstBreakdown: true,
+  showTopClients: true,
+  showTopSites: true,
+  showSalesByState: true,
+  showAging: true,
 };
 
 /** Extended defaults (DashboardCharts / DashboardChartSettings) */

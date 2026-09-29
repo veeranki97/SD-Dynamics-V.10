@@ -3,7 +3,7 @@ import { getAllJournals, saveJournal } from '../store';
 import { formatCurrency } from '../utils';
 import {
   trialBalance, balanceSheet, computeTradingPnL, siteWisePnL,
-  woWisePnL,
+  woWisePnL, costCenterWisePnL,
   periodCloseJournal, bankBalance, lockMonth, unlockMonth, isMonthLocked,
 } from '../utils/ledger';
 import { getAllBills, getAllExpenses, getAllWorkOrders } from '../store';
@@ -70,12 +70,13 @@ export default function FinancialBooksView() {
     }));
   }, [journals, from, asOf, billRows, expRows]);
   const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
+  const ccs = useMemo(() => (typeof costCenterWisePnL === 'function' ? costCenterWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
   const bank = useMemo(() => bankBalance(journals, 'Bank') + bankBalance(journals, 'Cash'), [journals]);
 
   const runPeriodClose = async () => {
     const j = periodCloseJournal(journals, asOf);
     if (!j) return toast('Nothing to close (P&L ~ 0)', 'info');
-    if (!confirm(`Post period-close journal for ${asOf}? Net P&L: ${j.entries[0].debit || j.entries[0].credit}`)) return;
+    if (!confirm(`Post period-close journal for ${asOf}? Net P&L: ${j.entries.debit || j.entries.credit}`)) return;
     try {
       await saveJournal(j);
       toast('Period close posted to Retained Earnings', 'success');
@@ -91,6 +92,7 @@ export default function FinancialBooksView() {
     { id: 'pnl', label: 'P&L' },
     { id: 'site', label: 'Site-wise P&L' },
     { id: 'wo', label: 'WO-wise P&L' },
+    { id: 'cc', label: 'Cost Center P&L' },
     { id: 'lock', label: 'Period Lock' },
   ];
 
@@ -189,7 +191,7 @@ export default function FinancialBooksView() {
         </div>
       )}
 
-      {tab === 'pnl' && (
+            {tab === 'pnl' && (
         <div className="glass-panel p-4" style={{ maxWidth: 480 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Sales</span><strong>{formatCurrency(pnl.sales)}</strong></div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Direct costs / purchases</span><span>{formatCurrency(pnl.purchases)}</span></div>
@@ -205,8 +207,7 @@ export default function FinancialBooksView() {
           </button>
         </div>
       )}
-
-      {tab === 'site' && (
+	  {tab === 'site' && (
         <table className="data-table" style={{ width: '100%' }}>
           <thead><tr><th>Site</th><th className="text-end">Income</th><th className="text-end">Expense</th><th className="text-end">Profit</th></tr></thead>
           <tbody>
@@ -256,7 +257,41 @@ export default function FinancialBooksView() {
         </table>
       )}
 
-{tab === 'lock' && (
+    {tab === 'cc' && (
+        <div className="table-responsive">
+          <table className="data-table" style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th>Cost Center</th>
+                <th className="text-end">Income</th>
+                <th className="text-end">Expense</th>
+                <th className="text-end">Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(ccs || []).map((r) => (
+                <tr key={r.costCenter}>
+                  <td>{r.costCenter}</td>
+                  <td className="text-end">{formatCurrency(r.income)}</td>
+                  <td className="text-end">{formatCurrency(r.expense)}</td>
+                  <td className="text-end" style={{ fontWeight: 600, color: (r.profit || 0) >= 0 ? '#059669' : '#dc2626' }}>
+                    {formatCurrency(r.profit)}
+                  </td>
+                </tr>
+              ))}
+              {!(ccs || []).length && (
+                <tr>
+                  <td colSpan={4} className="text-muted" style={{ textAlign: 'center' }}>
+                    No cost-center data. Set Cost Center on invoices/expenses so journals include costCenterId.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+            {tab === 'lock' && (
         <div className="glass-panel p-4" style={{ maxWidth: 420 }}>
           <p style={{ fontSize: 14, color: '#64748b' }}>
             Lock a month to block edits (uses local period lock). Combine with freeze-days for audit control.
@@ -276,6 +311,9 @@ export default function FinancialBooksView() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
+
+

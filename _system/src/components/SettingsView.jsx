@@ -1564,6 +1564,9 @@ export default function SettingsView({ onSaved }) {
         )}
       </div>
 
+      {/* ---- Dashboard Chart Aesthetics (above Cloud Backup) ---- */}
+      <ChartSettingsPanel />
+
       {/* ---- Cloud Backup ---- */}
       <div id="section-cloud" className="glass-panel p-6 mb-6" style={{ order: 9 }}>
         <h3 className="section-title">Cloud Backup (Google Drive)</h3>
@@ -2064,7 +2067,6 @@ function BackupAndTrashPanel() {
           </div>
         </div>
       </div>
-          <ChartSettingsPanel />
 </div>
   );
 }

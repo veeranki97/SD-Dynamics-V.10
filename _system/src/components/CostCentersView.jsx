@@ -165,6 +165,62 @@ export default function CostCentersView() {
     toast('Removed', 'success');
   };
 
+
+  const editHsn = async (oldCode) => {
+    const v = await promptAction({
+      title: 'Edit HSN / SAC',
+      message: `Current: ${oldCode}`,
+      placeholder: 'New code (2/4/6/8 digits)',
+      defaultValue: oldCode,
+      confirmLabel: 'Save',
+    });
+    if (v == null) return;
+    const t = String(v).trim();
+    if (!/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(t)) {
+      toast('HSN/SAC must be 2, 4, 6 or 8 digits', 'error');
+      return;
+    }
+    if (t !== oldCode) {
+      setHsnList(removeHsnCode(oldCode));
+      setHsnList(addHsnCode(t));
+      try { syncMasterDataToServer(); } catch (e) {}
+    }
+    toast(`HSN/SAC ${t} updated`, 'success');
+  };
+
+  const editUnit = async (oldU) => {
+    const v = await promptAction({
+      title: 'Edit unit',
+      message: `Current: ${oldU}`,
+      placeholder: 'Unit',
+      defaultValue: oldU,
+      confirmLabel: 'Save',
+    });
+    if (v == null) return;
+    const t = String(v).trim();
+    if (!t) return;
+    setUnitList(deleteUnitMaster(oldU));
+    setUnitList(saveUnitMaster(t));
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast(`Unit "${t}" updated`, 'success');
+  };
+
+  const editExp = async (oldC) => {
+    const v = await promptAction({
+      title: 'Edit expense category',
+      message: `Current: ${oldC}`,
+      placeholder: 'Category',
+      defaultValue: oldC,
+      confirmLabel: 'Save',
+    });
+    if (v == null) return;
+    const t = String(v).trim();
+    if (!t) return;
+    setExpList(removeExpenseCategory(oldC));
+    setExpList(addExpenseCategory(t));
+    toast(`Category "${t}" updated`, 'success');
+  };
+
   return (
     <div className="page" style={{ maxWidth: 960 }}>
       <h1 style={{ marginBottom: 4 }}>Master data</h1>
@@ -263,13 +319,17 @@ export default function CostCentersView() {
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               Codes appear in Invoice, Work Order and Purchase Order HSN/SAC dropdowns.
             </p>
-            <button type="button" className="btn btn-primary btn-sm" onClick={addHsn}>＋ Add HSN / SAC</button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input className="search-input form-input" style={{ minWidth: 160 }} placeholder="Search HSN…"
+                value={hsnSearch || ''} onChange={e => setHsnSearch(e.target.value)} />
+              <button type="button" className="btn btn-primary btn-sm" onClick={addHsn}>＋ Add HSN / SAC</button>
+            </div>
           </div>
           <div className="table-responsive">
             <table className="data-table" style={{ width: '100%' }}>
               <thead><tr><th>CODE</th><th>TYPE</th><th>DESCRIPTION</th><th>GST %</th><th></th></tr></thead>
               <tbody>
-                {hsnList.map(code => {
+                {(hsnList || []).filter(code => !hsnSearch || String(code).toLowerCase().includes(String(hsnSearch).toLowerCase())).map(code => {
                   const info = (() => {
                     try {
                       const s = suggestGstRate(code);
@@ -286,7 +346,8 @@ export default function CostCentersView() {
                     <td>{info.label || '—'}</td>
                     <td>{info.rate != null ? info.rate + '%' : '—'}</td>
                     <td style={{ width: 80 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeHsn(code)}>Remove</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editHsn(code)} style={{ marginRight: 6 }}>Edit</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeHsn(code)}>Delete</button>
                     </td>
                   </tr>
                   );
@@ -306,16 +367,17 @@ export default function CostCentersView() {
             <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
               Units for line items (Nos, Hrs, Sqft, …). Same list drives Invoice, WO and PO.
             </p>
-            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit}>＋ Add unit</button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit} style={{ marginLeft: 8 }}>＋ Add unit</button>
           </div>
           <div className="table-responsive">
             <table className="data-table" style={{ width: '100%' }}>
               <thead><tr><th>UNIT</th><th style={{ width: 100 }}></th></tr></thead>
               <tbody>
-                {unitList.map(u => (
+                {(unitList || []).filter(u => !unitSearch || String(u).toLowerCase().includes(String(unitSearch).toLowerCase())).map(u => (
                   <tr key={u}>
                     <td className="font-medium">{u}</td>
                     <td>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editUnit(u)}>Edit</button>
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeUnit(u)}>Remove</button>
                     </td>
                   </tr>
@@ -341,10 +403,11 @@ export default function CostCentersView() {
             <table className="data-table" style={{ width: '100%' }}>
               <thead><tr><th>CATEGORY</th><th></th></tr></thead>
               <tbody>
-                {expList.map(c => (
+                {(expList || []).filter(c => !catSearch || String(c).toLowerCase().includes(String(catSearch).toLowerCase())).map(c => (
                   <tr key={c}>
                     <td>{c}</td>
                     <td style={{ width: 80 }}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editExp(c)}>Edit</button>
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeExp(c)}>Remove</button>
                     </td>
                   </tr>

@@ -8,7 +8,34 @@ export default function ChartOfAccountsView() {
   const [type, setType] = useState('Expense');
   const [parentId, setParentId] = useState('');
 
-  const load = () => getAllAccounts().then(setList).catch(() => toast('Failed to load accounts', 'error'));
+  const SEED_GROUPS = [
+    { id: 'grp_assets', name: 'Assets', type: 'Assets', parentId: null, leaf: false },
+    { id: 'grp_liab', name: 'Liabilities', type: 'Liabilities', parentId: null, leaf: false },
+    { id: 'grp_equity', name: 'Equity', type: 'Equity', parentId: null, leaf: false },
+    { id: 'grp_income', name: 'Income', type: 'Income', parentId: null, leaf: false },
+    { id: 'grp_expense', name: 'Expense', type: 'Expense', parentId: null, leaf: false },
+    { id: 'acc_bank', name: 'Bank', type: 'Assets', parentId: 'grp_assets', leaf: true },
+    { id: 'acc_cash', name: 'Cash', type: 'Assets', parentId: 'grp_assets', leaf: true },
+    { id: 'acc_ar', name: 'Accounts Receivable', type: 'Assets', parentId: 'grp_assets', leaf: true },
+    { id: 'acc_ap', name: 'Accounts Payable', type: 'Liabilities', parentId: 'grp_liab', leaf: true },
+    { id: 'acc_sales', name: 'Sales', type: 'Income', parentId: 'grp_income', leaf: true },
+    { id: 'acc_cogs', name: 'Direct Costs', type: 'Expense', parentId: 'grp_expense', leaf: true },
+  ];
+
+  const load = async () => {
+    try {
+      let rows = await getAllAccounts();
+      if (!rows || !rows.length) {
+        for (const s of SEED_GROUPS) {
+          try { await saveAccount(s); } catch { /* */ }
+        }
+        rows = await getAllAccounts();
+      }
+      setList(rows || []);
+    } catch {
+      toast('Failed to load accounts', 'error');
+    }
+  };
   useEffect(() => { load(); }, []);
 
   const add = async () => {
@@ -26,7 +53,7 @@ export default function ChartOfAccountsView() {
   return (
     <div className="page">
       <h2>Chart of Accounts</h2>
-      <p className="page-subtitle">Post only to leaf accounts. Seed groups load on first open.</p>
+      <p className="page-subtitle">Post only to leaf accounts (child rows marked · leaf). Parent groups (Assets, Income, …) are for structure only — journal entries must use leaves like Bank, Sales, Direct Costs. Seed groups load automatically the first time you open this screen.</p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <input className="form-input" placeholder="New account name" value={name} onChange={e => setName(e.target.value)} />
         <select className="form-input" value={type} onChange={e => setType(e.target.value)}>

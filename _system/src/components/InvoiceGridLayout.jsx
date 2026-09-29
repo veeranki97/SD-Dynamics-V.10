@@ -186,10 +186,11 @@ function SellerBlock({ ctx, tally }) {
 
 function PartyBlock({ ctx, heading, party, withContact }) {
   const { t, sellerCC } = ctx;
+  party = party || {};
   return (
     <div>
       <div style={label}>{heading}</div>
-      <div style={{ fontWeight: 800 }}>{party.name || 'Client Name'}</div>
+      <div style={{ fontWeight: 800 }}>{(party && party.name) || 'Client Name'}</div>
       {t.clientAddress && party.address && <div style={{ whiteSpace: 'pre-line' }}>{party.address}</div>}
       {t.clientAddress && (party.city || party.pin) && <div>{[party.city, party.pin].filter(Boolean).join(' - ')}</div>}
       {t.gstin && party.gstin && <div>{sellerCC.taxIdLabel || 'GSTIN'}/UIN : <strong>{party.gstin}</strong></div>}
@@ -204,7 +205,8 @@ function PartyBlock({ ctx, heading, party, withContact }) {
 // TALLY STYLE
 // ---------------------------------------------------------------------------
 function TallyLayout({ ctx }) {
-  const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle } = ctx;
+  const { details, client, totals, fmt, lineCalc, t, invoiceTitle } = ctx;
+  const items = Array.isArray(ctx.items) ? ctx.items : [];
   const orderMap = Object.fromEntries(filledOrderDetails(details).map((f) => [f.key, f.value]));
   const shipTo = ctx.shipTo;
   const refBoxes = [
@@ -389,7 +391,8 @@ function TallyLayout({ ctx }) {
 const BOXED_MIN_ROWS = 8;
 
 function BoxedLayout({ ctx }) {
-  const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle, accent, profile } = ctx;
+  const { details, client, totals, fmt, lineCalc, t, invoiceTitle, accent, profile } = ctx;
+  const items = Array.isArray(ctx.items) ? ctx.items : [];
   const order = filledOrderDetails(details);
   const workDetails = order.find((f) => f.key === 'workDetails');
   const metaRows = [

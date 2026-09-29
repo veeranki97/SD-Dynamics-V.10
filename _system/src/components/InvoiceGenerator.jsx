@@ -863,8 +863,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (!hasRealItem) {
       return 'Add at least one item with a quantity and rate before saving.';
     }
+    // Invoice date vs bill period: date must be >= period start and >= period end
+    const inv = (details?.invoiceDate || '').slice(0, 10);
+    const ps = (details?.periodStart || '').slice(0, 10);
+    const pe = (details?.periodEnd || '').slice(0, 10);
+    if (inv && ps && inv < ps) {
+      return 'Invoice Date cannot be earlier than Bill Period Start.';
+    }
+    if (inv && pe && inv < pe) {
+      return 'Invoice Date must be on or after Bill Period End (service complete before / on invoice date).';
+    }
     return null;
-  }, [client?.name, items, editingBill]);
+  }, [client?.name, items, editingBill, details?.invoiceDate, details?.periodStart, details?.periodEnd]);
 
   // Debounced auto-save (2s after last change), gated on meaningful content.
   //
@@ -1200,7 +1210,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (type === 'bill-of-supply') {
       setInvoiceOptions(prev => ({ ...prev, showGST: false, showPlaceOfSupply: false }));
     } else {
-      setInvoiceOptions(prev => ({ ...prev, showGST: config.showGST, showPlaceOfSupply: config.showGST }));
+      setInvoiceOptions(prev => ({
+        ...prev,
+        showGST: config.showGST,
+        showPlaceOfSupply: config.showGST,
+        showBankDetails: type === 'tax-invoice' || type === 'proforma' || type === 'proforma-invoice',
+      }));
     }
   };
 

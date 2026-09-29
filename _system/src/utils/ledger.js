@@ -513,3 +513,28 @@ export function woWisePnL(journals, fromDate, toDate, accountTypeOverrides = nul
     net: money(r.income - r.expense),
   })).sort((a, b) => b.net - a.net);
 }
+
+
+export function costCenterWisePnL(journals, fromDate, toDate, accountTypeOverrides = null) {
+  journals = activeJournals(journals);
+  const byCc = {};
+  (journals || []).forEach(j => {
+    const d = j.date || '';
+    if (fromDate && d < fromDate) return;
+    if (toDate && d > toDate) return;
+    if (j.refType === 'period-close') return;
+    const cc = j.costCenterId || j.costCenter || 'Unassigned';
+    if (!byCc[cc]) byCc[cc] = { costCenter: cc, income: 0, expense: 0 };
+    (j.entries || []).forEach(e => {
+      const type = classifyAccount(e.account, accountTypeOverrides);
+      if (type === 'income') byCc[cc].income += money(e.credit) - money(e.debit);
+      if (type === 'expense') byCc[cc].expense += money(e.debit) - money(e.credit);
+    });
+  });
+  return Object.values(byCc).map(s => ({
+    ...s,
+    income: money(s.income),
+    expense: money(s.expense),
+    profit: money(s.income - s.expense),
+  }));
+}
