@@ -78,153 +78,180 @@ function printPO(po, profile, fingerprint) {
   } catch { sigSrc = (profile && (profile.signature || profile.signatureImage)) || ''; }
   const t = calcPOTotals(po.items, po.taxRate, po.vendorState, profile?.state);
   const terms = (po.terms || po.notes || profile?.defaultTerms ||
-    '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.').replace(/\n/g, '<br/>');
+    '1. Please quote PO number on all invoices and delivery challans.\\n2. Goods/services subject to inspection and approval.\\n3. Payment as per agreed terms.').replace(/\\n/g, '<br/>');
   const rows = (po.items || []).map((it, i) => {
     const amt = calcItemAmount(it);
     return `<tr>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${i + 1}</td>
-      <td style="border:1px solid #000;padding:4px 6px">${String(it.description || '').replace(/</g,'&lt;')}</td>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${it.hsn || ''}</td>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${it.qty || 0}</td>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:center">${it.unit || ''}</td>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:right">${Number(it.rate || 0).toFixed(2)}</td>
-      <td style="border:1px solid #000;padding:4px 6px;text-align:right">${amt.toFixed(2)}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${i + 1}</td>
+      <td style="border:1px solid #000;padding:5px">${(it.description || '').replace(/</g,'&lt;')}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${it.hsn || ''}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${it.qty || 0}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:center">${it.unit || ''}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:right">${Number(it.rate || 0).toFixed(2)}</td>
+      <td style="border:1px solid #000;padding:5px;text-align:right">${amt.toFixed(2)}</td>
     </tr>`;
   }).join('');
   const taxBlock = t.isInterstate
-    ? `<tr><td colspan="5" style="border:1px solid #000;padding:4px"></td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">IGST @ ${po.taxRate || 0}%</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">${t.igst.toFixed(2)}</td></tr>`
-    : `<tr><td colspan="5" style="border:1px solid #000;padding:4px"></td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">CGST</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">${t.cgst.toFixed(2)}</td></tr>
-      <tr><td colspan="5" style="border:1px solid #000;padding:4px"></td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">SGST</td>
-        <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">${t.sgst.toFixed(2)}</td></tr>`;
-  const addr = [profile?.address, [profile?.city, profile?.pin].filter(Boolean).join(' - '), profile?.state].filter(Boolean).join('<br/>');
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${po.poNumber || 'PO'}</title>
+    ? `<tr>
+        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right"><b>IGST @ ${po.taxRate || 0}%</b></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right">${t.igst.toFixed(2)}</td>
+      </tr>`
+    : `<tr>
+        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right"><b>CGST</b></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right">${t.cgst.toFixed(2)}</td>
+      </tr>
+      <tr>
+        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right"><b>SGST</b></td>
+        <td style="border:1px solid #000;padding:5px;text-align:right">${t.sgst.toFixed(2)}</td>
+      </tr>`;
+  const html = `<!DOCTYPE html><html><head><title>${po.poNumber || 'PO'}</title>
+<meta charset="utf-8"/>
 <style>
-  @page { size: A4; margin: 8mm; }
+  @page { size: A4; margin: 12mm; }
   * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; margin: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #000; margin: 0; }
   table { border-collapse: collapse; width: 100%; }
-  .wrap { border: 1.5px solid #000; }
-  .hdr td { border: 1px solid #000; padding: 6px 8px; vertical-align: top; }
-  .title { font-size: 16px; font-weight: 800; letter-spacing: 0.04em; text-align: center; }
-  th { background: #f3f4f6; font-weight: 700; border: 1px solid #000; padding: 5px 6px; }
-  .sig img { max-height: 52px; max-width: 140px; }
-  .foot { font-size: 9px; color: #444; margin-top: 6px; text-align: center; }
+  .box { border: 1px solid #000; }
+  .hdr { font-size: 16px; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #000; }
+  .cell { border: 1px solid #000; padding: 6px; vertical-align: top; }
+  .muted { color: #333; font-size: 10px; }
+  .sign { height: 70px; }
 </style></head><body>
-<div class="wrap">
-<table class="hdr">
+<table class="box" style="width:100%">
   <tr>
-    <td style="width:55%">
-      <div style="font-weight:800;font-size:14px">${(profile?.businessName || 'Company').replace(/</g,'&lt;')}</div>
-      <div>${addr}</div>
-      ${profile?.gstin ? `<div>GSTIN: <b>${profile.gstin}</b></div>` : ''}
-      ${profile?.pan ? `<div>PAN: ${profile.pan}</div>` : ''}
-      ${profile?.phone || profile?.email ? `<div>${[profile.phone && 'Phone: '+profile.phone, profile.email && 'Email: '+profile.email].filter(Boolean).join(' · ')}</div>` : ''}
+    <td class="cell" style="width:55%">
+      <div style="font-size:14px;font-weight:bold">${profile?.businessName || 'Business'}</div>
+      <div class="muted">${[profile?.address, profile?.city, profile?.state, profile?.pin].filter(Boolean).join(', ')}</div>
+      <div class="muted">GSTIN: ${profile?.gstin || '—'} · PAN: ${profile?.pan || '—'}</div>
+      <div class="muted">Phone: ${profile?.phone || '—'} · Email: ${profile?.email || '—'}</div>
     </td>
-    <td style="width:45%">
-      <div class="title">PURCHASE ORDER</div>
-      <div style="margin-top:6px"><b>PO No</b> &nbsp; ${po.poNumber || ''}</div>
-      <div><b>Date</b> &nbsp; ${po.date || ''}</div>
-      <div><b>Status</b> &nbsp; ${po.status || 'Issued'}</div>
-      ${po.costCenterId || po.costCenter ? `<div><b>Cost Center</b> &nbsp; ${po.costCenterId || po.costCenter}</div>` : ''}
+    <td class="cell" style="width:45%">
+      <div class="hdr" style="border:none;padding:4px 0">PURCHASE ORDER</div>
+      <table style="width:100%;font-size:11px">
+        <tr><td><b>PO No</b></td><td>${po.poNumber || ''}</td></tr>
+        <tr><td><b>Date</b></td><td>${po.date || ''}</td></tr>
+        <tr><td><b>Status</b></td><td>${po.status || 'Issued'}</td></tr>
+        <tr><td><b>Cost Center</b></td><td>${po.costCenterId || po.costCenter || '—'}</td></tr>
+      </table>
     </td>
   </tr>
   <tr>
-    <td>
-      <div style="font-weight:700;margin-bottom:2px">Vendor (Bill From)</div>
-      <div style="font-weight:700">${(po.vendorName || '').replace(/</g,'&lt;')}</div>
-      <div>${(po.vendorAddress || '').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</div>
-      ${po.vendorGstin ? `<div>GSTIN: ${po.vendorGstin}</div>` : ''}
-      ${po.vendorState ? `<div>State: ${po.vendorState}</div>` : ''}
+    <td class="cell">
+      <b>Vendor (Bill From)</b><br/>
+      ${po.vendorName || ''}<br/>
+      <span class="muted">GSTIN: ${po.vendorGstin || '—'} · State: ${po.vendorState || '—'}</span>
     </td>
-    <td>
-      <div style="font-weight:700;margin-bottom:2px">Ship To (Site)</div>
-      <div>${(po.shipToName || po.site || profile?.businessName || '').replace(/</g,'&lt;')}</div>
-      <div>${(po.shipToAddress || '').replace(/</g,'&lt;').replace(/\n/g,'<br/>')}</div>
+    <td class="cell">
+      <b>Ship To (Site)</b><br/>
+      ${po.site || po.shipToSite || 'Main Site'}<br/>
+      <span class="muted">${profile?.businessName || ''}</span>
     </td>
   </tr>
 </table>
-<table>
+<table style="width:100%;margin-top:0">
   <thead>
-    <tr>
-      <th style="width:28px">#</th><th>Description</th><th style="width:70px">HSN</th>
-      <th style="width:48px">Qty</th><th style="width:48px">Unit</th>
-      <th style="width:72px">Rate</th><th style="width:88px">Amount</th>
+    <tr style="background:#f3f4f6">
+      <th class="cell" style="width:4%">#</th>
+      <th class="cell">Description</th>
+      <th class="cell" style="width:10%">HSN</th>
+      <th class="cell" style="width:8%">Qty</th>
+      <th class="cell" style="width:8%">Unit</th>
+      <th class="cell" style="width:12%">Rate</th>
+      <th class="cell" style="width:12%">Amount</th>
     </tr>
   </thead>
   <tbody>
-    ${rows}
+    ${rows || '<tr><td class="cell" colspan="7" style="text-align:center">No items</td></tr>'}
     <tr>
-      <td colspan="5" style="border:1px solid #000;padding:4px"></td>
-      <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">Taxable</td>
-      <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:700">${t.taxable.toFixed(2)}</td>
+      <td colspan="5" class="cell"></td>
+      <td class="cell" style="text-align:right"><b>Taxable</b></td>
+      <td class="cell" style="text-align:right">${t.sub.toFixed(2)}</td>
     </tr>
     ${taxBlock}
     <tr>
-      <td colspan="5" style="border:1px solid #000;padding:4px"></td>
-      <td style="border:1px solid #000;padding:4px;text-align:right">Round Off</td>
-      <td style="border:1px solid #000;padding:4px;text-align:right">${(t.roundOff || 0).toFixed(2)}</td>
+      <td colspan="5" class="cell"></td>
+      <td class="cell" style="text-align:right"><b>Round Off</b></td>
+      <td class="cell" style="text-align:right">0.00</td>
     </tr>
     <tr>
-      <td colspan="5" style="border:1px solid #000;padding:4px"></td>
-      <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:800;font-size:12px">Grand Total</td>
-      <td style="border:1px solid #000;padding:4px;text-align:right;font-weight:800;font-size:12px">${t.total.toFixed(2)}</td>
+      <td colspan="5" class="cell"></td>
+      <td class="cell" style="text-align:right"><b>Grand Total</b></td>
+      <td class="cell" style="text-align:right"><b>${t.total.toFixed(2)}</b></td>
     </tr>
   </tbody>
 </table>
-<table>
+<table style="width:100%;margin-top:0">
   <tr>
-    <td style="border:1px solid #000;padding:8px;width:58%;vertical-align:top">
-      <div style="font-weight:700;margin-bottom:4px">Terms &amp; Conditions</div>
-      <div style="font-size:10px;line-height:1.4">${terms}</div>
+    <td class="cell" style="width:60%;height:90px">
+      <b>Terms &amp; Conditions</b>
+      <div class="muted" style="margin-top:6px;line-height:1.45">${terms}</div>
     </td>
-    <td style="border:1px solid #000;padding:8px;width:42%;vertical-align:top;text-align:right">
-      <div style="font-weight:700">For ${(profile?.businessName || '').replace(/</g,'&lt;')}</div>
-      <div class="sig" style="min-height:56px;margin:8px 0">
-        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:48px"></div>'}
+    <td class="cell sign" style="width:40%;text-align:center;vertical-align:bottom">
+      <div style="text-align:right">
+        ${sigSrc ? `<img src="${sigSrc}" alt="Signature" style="max-height:56px;max-width:160px;display:block;margin:0 0 6px auto;object-fit:contain"/>` : ''}
+        <div>For <b>${(profile?.businessName || 'Company').replace(/</g,'&lt;')}</b></div>
+        <div style="margin-top:28px;border-top:1px solid #000;display:inline-block;min-width:140px;padding-top:4px;font-size:10px">Authorized Signatory</div>
       </div>
-      <div style="border-top:1px solid #000;padding-top:4px;font-size:10px">Authorised Signatory</div>
+      <div style="height:48px"></div>
+      <div style="border-top:1px solid #000;margin-top:8px;padding-top:4px">Authorised Signatory</div>
     </td>
   </tr>
 </table>
+<div class="muted" style="margin-top:8px;font-size:9px">
+  SHA-256: ${fingerprint || '—'} · Computer generated PO — ${new Date().toLocaleString('en-IN')}
 </div>
-<div class="foot">SHA-256: ${fingerprint || '—'} · Computer generated PO — ${new Date().toLocaleString('en-IN')}</div>
-<script>window.onload=function(){window.print();}</script>
 </body></html>`;
-  // Print via hidden iframe — avoids popup blockers
+
+  // Hidden iframe print — more reliable than blob + window.open (onload often
+  // never fires for blob URLs; popups can open blank). Same pattern as invoice print.
   try {
-    let frame = document.getElementById('po-print-frame');
-    if (!frame) {
-      frame = document.createElement('iframe');
-      frame.id = 'po-print-frame';
-      frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-      document.body.appendChild(frame);
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('title', 'PO Print');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      // Fallback: blob tab
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) {
+        URL.revokeObjectURL(url);
+        alert('Pop-up blocked. Please allow pop-ups to print Purchase Orders.');
+        return;
+      }
+      setTimeout(() => {
+        try { w.focus(); w.print(); } catch (e) { console.error(e); }
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }, 500);
+      return;
     }
-    const doc = frame.contentDocument || frame.contentWindow.document;
     doc.open();
     doc.write(html);
     doc.close();
-    setTimeout(() => {
-      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
-      catch (e) {
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = (po.poNumber || 'PO') + '.html'; a.click();
-        URL.revokeObjectURL(url);
-        alert('Print blocked — PO saved as HTML file. Open it and print.');
+    const win = iframe.contentWindow;
+    const doPrint = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch (e) {
+        console.error('Print failed', e);
       }
-    }, 250);
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch { /* already removed */ }
+      }, 60_000);
+    };
+    // Images (signature) may load async — small delay then print
+    setTimeout(doPrint, sigSrc ? 400 : 150);
   } catch (e) {
-    console.error('printPO', e);
-    alert('Could not print PO: ' + (e.message || e));
+    console.error('printPO failed', e);
+    alert('Failed to generate PO print. Check browser console.');
   }
 }
-
 
 
 export default function PurchaseOrdersView() {

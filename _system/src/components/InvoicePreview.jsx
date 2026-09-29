@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import DOMPurify from 'dompurify';
-import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById, getPaperSize, resolveLineDiscount, htmlHasText, splitNumberedTerms } from '../utils';
+import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById, getPaperSize, resolveLineDiscount, htmlHasText, splitNumberedTerms, calculateLineItemTax } from '../utils';
 import { getPrintSettings, getLabel } from '../utils/printSettings';
 import InvoiceGridLayout from './InvoiceGridLayout';
 
@@ -214,10 +214,6 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga'
     : (pdfStyleRaw === 'tally-v2' ? 'tally-v2'
       : (pdfStyleRaw === 'boxed-grid' ? 'boxed-grid' : pdfStyleRaw));
-  const gridStyle = (pdfStyleRaw === 'boxed' || pdfStyleRaw === 'boxed-grid') ? 'boxed'
-    : (pdfStyleRaw === 'tally' || pdfStyleRaw === 'tally-v2' || pdfStyle === 'tally') ? 'tally'
-    : null;
-
 
   // Check if any item has discount
   const hasAnyDiscount = showDiscount && items.some(item => (item.discount || 0) > 0);
@@ -409,24 +405,6 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // renders a proper single-column receipt.
   const paperCfg = getPaperSize(options.paperSize, options);
   const isThermal = paperCfg.kind === 'thermal';
-
-  // Dynamic PDF header title from document type (INVOICE_TYPES.title)
-  const pdfDocTitle = (() => {
-    const t = String(invoiceType || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
-    if (INVOICE_TYPES && INVOICE_TYPES[t]?.title) return INVOICE_TYPES[t].title;
-    if (t.includes('credit')) return 'CREDIT NOTE';
-    if (t.includes('debit')) return 'DEBIT NOTE';
-    if (t.includes('quot') || t === 'quotation' || t === 'quote') return 'QUOTATION';
-    if (t.includes('proforma') || t.includes('estimate')) return 'PROFORMA INVOICE';
-    if (t.includes('challan') || t.includes('delivery')) return 'DELIVERY CHALLAN';
-    if (t.includes('bos') || t.includes('bill-of-supply') || t.includes('composition')) return 'BILL OF SUPPLY';
-    if (t.includes('purchase') && t.includes('order')) return 'PURCHASE ORDER';
-    if (t.includes('work') && t.includes('order')) return 'WORK ORDER';
-    if (INVOICE_TYPES && INVOICE_TYPES[invoiceType]?.title) return INVOICE_TYPES[invoiceType].title;
-    // fallback: capitalize words of type
-    return String(invoiceType || 'TAX INVOICE').replace(/[-_]/g, ' ').toUpperCase();
-  })();
-
   const containerStyle = {
     width: `${paperCfg.widthMm}mm`,
     minHeight: paperCfg.kind === 'sheet' ? `${paperCfg.heightMm}mm` : undefined,
@@ -577,132 +555,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       MozOsxFontSmoothing: 'grayscale',
     };
 
-    
-  if (gridStyle) {
-    try {
-      const safeItems = Array.isArray(items) ? items : [];
-      const safeClient = client || {};
-      const safeDetails = details || {};
-      const safeTotals = totals || {};
-      const safeProfile = profile || {};
-      const lineCalc = (item) => {
-        const qty = Number(item?.quantity) || 0;
-        const rate = Number(item?.rate) || 0;
-        const disc = Number(item?.discount) || 0;
-        const taxable = Math.max(0, qty * rate - disc);
-        return { taxable, discount: disc };
-      };
-      const hasAnyDiscountGrid = safeItems.some(i => Number(i?.discount) > 0);
-      const totalTax = Number(safeTotals.totalTaxAmount) ||
-        ((Number(safeTotals.cgst) || 0) + (Number(safeTotals.sgst) || 0) + (Number(safeTotals.igst) || 0) + (Number(safeTotals.cess) || 0));
-      const hsnMap = {};
-      safeItems.forEach((item) => {
-        const hsn = item?.hsn || 'N/A';
-        const rate = Number(item?.taxPercent) || 0;
-        const key = hsn + '|' + rate;
-        if (!hsnMap[key]) hsnMap[key] = { hsn, rate, taxable: 0, tax: 0 };
-        const l = lineCalc(item);
-        hsnMap[key].taxable += l.taxable;
-        hsnMap[key].tax += l.taxable * rate / 100;
-      });
-      let account = null;
-      try {
-        if (typeof getAccountById === 'function' && options?.selectedAccountId) {
-          account = getAccountById(options.selectedAccountId);
-        }
-      } catch { account = null; }
-      let psLocal = {};
-      try { psLocal = getPrintSettings() || {}; } catch { psLocal = {}; }
-      const typeKey = String(invoiceType || 'tax-invoice').toLowerCase();
-      const showBank = (options.showBankDetails !== false) && (
-        typeKey === 'tax-invoice' || typeKey === 'proforma' || typeKey.includes('proforma') || typeKey.includes('tax')
-      );
-      const gridCtx = {
-        style: gridStyle,
-        profile: safeProfile,
-        client: safeClient,
-        details: safeDetails,
-        items: safeItems,
-        totals: safeTotals,
-        options: options || {},
-        invoiceType,
-        invoiceTitle: (INVOICE_TYPES[invoiceType]?.title || String(invoiceType || 'TAX INVOICE').toUpperCase()),
-        docLabel: (INVOICE_TYPES[invoiceType]?.label || 'Invoice'),
-        t: {
-          logo: true, businessName: true, businessAddress: true, businessPhone: true, businessEmail: true,
-          gstin: true, state: true, clientAddress: true, clientPhone: true, clientEmail: true,
-          invoiceDate: true, invoiceNumber: true, dueDate: true, placeOfSupply: true,
-          hsn: true, itemQty: true, itemUnit: true, rate: true,
-        },
-        sellerCC: (typeof getCountryConfig === 'function' ? getCountryConfig(safeProfile.country || 'India') : {}) || {},
-        isIndia: (safeProfile.country || 'India') === 'India',
-        isInterstate: !!(safeTotals.isInterstate || (safeTotals.igst > 0)),
-        showGST: options.showGST !== false && (INVOICE_TYPES[invoiceType]?.showGST !== false),
-        taxLabel: 'Tax',
-        singleRate: null,
-        fmt: (n) => {
-          try { return formatCurrency(n, options.currency || 'INR'); }
-          catch { return String(Number(n) || 0); }
-        },
-        words: (n) => {
-          try { return numberToWords(Number(n) || 0); }
-          catch { return ''; }
-        },
-        shortDate: (d) => {
-          if (!d) return '';
-          try { return new Date(d).toLocaleDateString('en-IN'); } catch { return String(d); }
-        },
-        lineCalc,
-        hasAnyDiscount: hasAnyDiscountGrid,
-        hsnRows: Object.values(hsnMap),
-        showHsnSummary: options.showHsnSummary !== false,
-        showTaxInWords: true,
-        showAmountWords: true,
-        showBankDetails: showBank,
-        showDeclaration: true,
-        showCustomerSeal: true,
-        showSystemGeneratedNote: true,
-        showSignatoryText: true,
-        showReverseChargeLine: !!options.reverseCharge,
-        reverseChargeText: options.reverseCharge ? 'Yes' : 'No',
-        placeOfSupply: safeDetails.placeOfSupply || safeClient.state || '',
-        shipTo: safeDetails.shipTo || null,
-        account,
-        upiId: safeProfile.upiId || '',
-        qrDataUrl: null,
-        totalTax,
-        declarationText: 'We declare that this invoice shows the actual price of the goods/services described and that all particulars are true and correct.',
-        termsHtml: customTerms || '',
-        notesHtml: customNotes || '',
-        termsClassMod: '',
-        notices: null,
-        sig: {
-          show: true,
-          stampImg: psLocal.stampImage || null,
-          sigImg: psLocal.signatureImage || safeProfile.signature || safeProfile.signatureImage || null,
-          stampHeight: 48,
-          sigHeight: 48,
-        },
-        accent: '#1f2937',
-        isServices: true,
-      };
-      return (
-        <div
-          ref={ref}
-          {...(previewOnly ? {} : { id: 'invoice-preview' })}
-          className={`invoice-preview-container grid-layout-host grid-style-${gridStyle}`}
-          data-pdf-style={gridStyle}
-        >
-          <InvoiceGridLayout ctx={gridCtx} />
-        </div>
-      );
-    } catch (e) {
-      console.error('[InvoiceGridLayout] FAILED — falling back to standard template:', e);
-    }
-  }
-
-
-return (
+    return (
       <div
         className={`invoice-preview-container ${paperCfg.cssClass} paper-thermal`}
         ref={ref} {...(previewOnly ? {} : { id: 'invoice-preview' })} style={rootStyle}>
@@ -1062,6 +915,128 @@ return (
     ...(pdfCapsOn ? { textTransform: 'uppercase' } : {}),
   };
 
+  // Full Tally / Boxed grid (InvoiceGridLayout) — skip partial CSS tally path
+  const gridStyleId = (pdfStyleRaw === 'boxed') ? 'boxed-grid'
+    : (pdfStyleRaw === 'tally' || pdfStyleRaw === 'tally-v2' || pdfStyleRaw === 'boxed-grid')
+      ? pdfStyleRaw : null;
+  if (gridStyleId && !isThermal) {
+    const shortDate = (iso) => {
+      if (!iso) return '';
+      try {
+        return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      } catch { return String(iso); }
+    };
+    const lineCalc = (item) => {
+      const r = calculateLineItemTax(item, !!options.taxInclusive);
+      return {
+        discount: r.discount || 0,
+        taxable: r.afterDiscount != null ? r.afterDiscount
+          : Math.max(0, (Number(item.quantity) || 0) * (Number(item.rate) || 0) - resolveLineDiscount(item)),
+        tax: r.taxAmount || 0,
+        total: r.total || 0,
+      };
+    };
+    const hsnMap = new Map();
+    (items || []).forEach((item) => {
+      const l = lineCalc(item);
+      const rate = Number(item.taxPercent) || 0;
+      const key = `${item.hsn || ''}|${rate}`;
+      const prev = hsnMap.get(key) || { hsn: item.hsn || '', rate, taxable: 0, tax: 0 };
+      prev.taxable += l.taxable;
+      prev.tax += l.tax;
+      hsnMap.set(key, prev);
+    });
+    const hsnRows = [...hsnMap.values()].filter((r) => r.taxable || r.tax);
+    const rates = [...new Set((items || []).map((i) => Number(i.taxPercent) || 0))];
+    const singleRate = rates.length === 1 ? rates[0] : null;
+    const totalTax = (Number(totals?.cgst) || 0) + (Number(totals?.sgst) || 0)
+      + (Number(totals?.igst) || 0) + (Number(totals?.cess) || 0) + (Number(totals?.utgst) || 0);
+    const shipTo = details?.shipToSameAsBilling === false ? {
+      name: client?.name,
+      address: details.shippingAddress || '',
+      city: details.shippingCity || '',
+      pin: details.shippingPin || '',
+      state: details.shippingState || '',
+      gstin: client?.gstin,
+      phone: client?.phone,
+      email: client?.email,
+    } : null;
+    const termsHtml = showTerms && customTerms && htmlHasText(customTerms) ? DOMPurify.sanitize(customTerms) : '';
+    const notesHtml = showNotes && customNotes && htmlHasText(customNotes) ? DOMPurify.sanitize(customNotes) : '';
+    const termsClassMod = (options.termsFormatMode || _ps.termsFormatMode || 'compact') === 'formatted'
+      ? 'inv-terms-formatted' : 'inv-terms-compact';
+    const sigImg = profile?.signature || (_ps.signatureShow !== false ? _ps.signatureImage : null);
+    const stampImg = profile?.stamp || profile?.companyStamp || _ps.stampImage || null;
+    const placeOfSupply = details?.placeOfSupply || client?.state || '';
+    const isServices = (options.invoiceMode || 'goods') === 'services';
+    const docLabel = typeConfig?.label || 'Invoice';
+    const declarationText = options.declarationText
+      || (isIndia
+        ? 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.'
+        : 'We declare that this invoice shows the actual price of the goods / services described and that all particulars are true and correct.');
+    const notices = [];
+    if (options.reverseCharge && isIndia) {
+      notices.push(<div key="rcm" style={{ fontSize: '0.85em', marginBottom: 4 }}><strong>Tax is payable on reverse charge.</strong></div>);
+    }
+    const gridCtx = {
+      style: gridStyleId === 'boxed-grid' ? 'boxed' : (gridStyleId === 'tally-v2' ? 'tally' : gridStyleId),
+      profile, client, details, items, totals, options, invoiceType,
+      fmt, lineCalc,
+      t: {
+        logo: showLogo, businessName: showBusinessName, businessAddress: showBusinessAddress,
+        businessPhone: showBusinessPhone, businessEmail: showBusinessEmail,
+        gstin: showGSTIN, state: showState, clientAddress: showClientAddress,
+        clientPhone: showClientPhone, clientEmail: showClientEmail,
+        invoiceNumber: showInvoiceNumber, invoiceDate: showInvoiceDate, dueDate: showDueDate,
+        placeOfSupply: showPlaceOfSupply, hsn: showHSN, itemQty: showItemQty,
+        itemUnit: showItemUnit !== false, rate: showRateColumn !== false,
+      },
+      invoiceTitle: customTitle || typeConfig?.title || 'TAX INVOICE',
+      accent, shortDate, words: amountInWords,
+      sig: {
+        show: showSignature && !!(sigImg || stampImg),
+        sigImg: sigImg || null, sigHeight: profile?.signatureHeight || 48,
+        stampImg: stampImg || null, stampHeight: profile?.stampHeight || 48,
+      },
+      showSignatoryText: showSignatoryText !== false,
+      showBankDetails, account, sellerCC,
+      qrDataUrl: showUPI ? qrDataUrl : '', upiId,
+      isIndia, isInterstate, showGST, taxLabel, singleRate, hasAnyDiscount, showAmountWords,
+      showHsnSummary: (options.showHsnSummary !== false) && showHSN && hsnRows.length > 0 && isIndia,
+      hsnRows,
+      showTaxInWords: options.showTaxInWords !== false && showGST && totalTax > 0,
+      totalTax, termsHtml, notesHtml, termsClassMod,
+      showDeclaration: options.showDeclaration !== false && isIndia,
+      declarationText,
+      showCustomerSeal: options.showCustomerSeal !== false,
+      showSystemGeneratedNote: !!options.showSystemGeneratedNote || (!showSignature || !sigImg),
+      notices, shipTo, placeOfSupply, showReverseChargeLine, reverseChargeText, isServices, docLabel,
+    };
+    return (
+      <div
+        className={`invoice-preview-container ${paperCfg.cssClass} template-${gridStyleId} grid-layout`}
+        data-user-colors={_ps_final.userColorsEnabled ? '1' : '0'}
+        ref={ref}
+        {...(previewOnly ? {} : { id: 'invoice-preview' })}
+        style={{ ...finalContainerStyle, border: 'none', padding: 0, background: '#fff', color: '#111827' }}
+      >
+        <InvoiceGridLayout ctx={gridCtx} />
+        {Array.isArray(extraSections) && extraSections.length > 0 && (
+          <div style={{ padding: '8px 12px' }}>
+            {extraSections.map((sec) => (
+              <div key={sec.id} data-pdf-page-boundary="" style={{ marginTop: 12, borderTop: '1px solid #e5e7eb', paddingTop: 8 }}>
+                {sec.title && <div style={{ fontWeight: 700, marginBottom: 4 }}>{sec.title}</div>}
+                {sec.content && (
+                  <div className="inv-rich" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sec.content || '') }} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className={`invoice-preview-container ${paperCfg.cssClass} template-${pdfStyleVariant}`}
@@ -1072,14 +1047,14 @@ return (
       {...(previewOnly ? {} : { id: 'invoice-preview' })}
       style={{
         ...finalContainerStyle,
-        ...((pdfStyleVariant === 'saidurga' || pdfStyleVariant === 'tally') ? {
+        ...((pdfStyleVariant === 'saidurga') ? {
           fontFamily: "'Times New Roman', Times, serif",
           border: '2px solid #111',
           padding: '12px',
         } : {}),
       }}>
 
-      {/* ===== SAI DURGA PIXEL LAYOUT (Print Settings → Sai Durga preset) ===== */}
+      {/* ===== SAI DURGA / TALLY v1 / TALLY v2 / BOXED GRID ===== */}
       
       {(pdfStyleVariant === 'tally' || pdfStyleVariant === 'tally-v2' || pdfStyleVariant === 'boxed-grid' || pdfStyleVariant === 'saidurga') && (
         <style>{`
@@ -1088,19 +1063,29 @@ return (
             border-collapse: collapse !important;
           }
           .inv-table-tally th { background: #f1f5f9; font-weight: 700; }
-          .template-tally .invoice-preview-container { font-family: Arial, sans-serif; }
-          .template-tally-v2 .inv-table-tally th, .template-tally-v2 .inv-table-tally td,
+          .template-tally .invoice-preview-container,
+          .template-tally-v2 .invoice-preview-container,
+          .template-boxed-grid .invoice-preview-container { font-family: Arial, sans-serif; }
+          .template-tally-v2 .inv-table-tally th, .template-tally-v2 .inv-table-tally td {
+            border: 1px solid #000 !important; padding: 3px 5px !important; font-size: 10px !important;
+          }
           .template-boxed-grid .inv-table-tally th, .template-boxed-grid .inv-table-tally td {
-            border: 1px solid #000 !important; padding: 4px 6px !important;
+            border: 1.5px solid #111 !important; padding: 5px 6px !important;
           }
           .template-tally-v2 .tally-hdr-3 td, .template-boxed-grid .tally-hdr-3 td {
             border: 1px solid #000 !important;
           }
+          .template-boxed-grid .sd-invoice { border: 2px solid #000 !important; }
         `}</style>
       )}
-{(pdfStyleVariant === 'saidurga' || pdfStyleVariant === 'tally') && !isThermal && (
-        <div className="sd-invoice" style={{ fontFamily: 'Helvetica, Arial, sans-serif', fontSize: '11px', color: '#111', border: '2px solid #111' }}>
-          {/* Tally-style 3-box top band when template is tally */}
+{(pdfStyleVariant === 'saidurga' || pdfStyleVariant === 'tally' || pdfStyleVariant === 'tally-v2' || pdfStyleVariant === 'boxed-grid') && !isThermal && (
+        <div className={`sd-invoice sd-inv-${pdfStyleVariant}`} style={{
+          fontFamily: 'Helvetica, Arial, sans-serif',
+          fontSize: pdfStyleVariant === 'tally-v2' ? '10px' : '11px',
+          color: '#111',
+          border: pdfStyleVariant === 'boxed-grid' ? '2.5px solid #000' : '2px solid #111',
+        }}>
+          {/* Tally-style 3-box top band when template is tally family */}
           {(pdfStyleVariant === 'tally' || pdfStyleVariant === 'tally-v2' || pdfStyleVariant === 'boxed-grid') ? (
             <table className="tally-hdr-3" style={{ width: '100%', borderCollapse: 'collapse', borderBottom: '2px solid #111' }}>
               <tbody>
@@ -1116,7 +1101,10 @@ return (
                       fontWeight: 800, fontSize: '14px', letterSpacing: '0.08em',
                       color: (String(invoiceType).toLowerCase().includes('credit') ? '#b91c1c' : '#111'),
                     }}>
-                      {pdfDocTitle}
+                      {String(invoiceType).toLowerCase().includes('credit') ? 'CREDIT NOTE'
+                        : String(invoiceType).toLowerCase().includes('challan') ? 'DELIVERY CHALLAN'
+                        : String(invoiceType).toLowerCase().includes('proforma') ? 'PROFORMA'
+                        : 'TAX INVOICE'}
                     </div>
                   </td>
                   <td style={{ width: '34%', padding: 8, verticalAlign: 'top', fontSize: '10px' }}>
@@ -1145,7 +1133,10 @@ return (
               padding: (invoiceType === 'credit-note' || String(invoiceType).toLowerCase().includes('credit')) ? '4px 16px' : '0',
               borderRadius: 2,
             }}>
-              {pdfDocTitle}
+              {invoiceType === 'credit-note' || invoiceType === 'Credit Note' || String(invoiceType).toLowerCase().includes('credit') ? 'CREDIT NOTE'
+                : invoiceType === 'delivery-challan' || invoiceType === 'Delivery Challan' || String(invoiceType).toLowerCase().includes('challan') ? 'DELIVERY CHALLAN'
+                : invoiceType === 'proforma' || String(invoiceType).toLowerCase().includes('proforma') ? 'PROFORMA INVOICE'
+                : 'TAX INVOICE'}
             </div>
           </div>
                     )}

@@ -14,7 +14,31 @@
 // Every block and every table row here carries data-pdf-page-boundary, so a
 // page can end between rows or blocks but never cuts through one.
 import React from 'react';
-import { filledOrderDetails, getStateCode } from '../utils';
+import { getStateCode } from '../utils';
+
+// Order/dispatch fields for Tally ref boxes and Boxed meta (local — not all utils export this).
+export function filledOrderDetails(details = {}) {
+  const d = details || {};
+  const fields = [
+    { key: 'deliveryNote', label: 'Delivery Note', value: d.deliveryNote },
+    { key: 'paymentTerms', label: 'Mode/Terms of Payment', value: d.paymentTerms || d.modeOfPayment },
+    { key: 'referenceNo', label: 'Reference No. & Date.', value: d.referenceNo || d.reference },
+    { key: 'otherReferences', label: 'Other References', value: d.otherReferences },
+    { key: 'buyerOrderNo', label: "Buyer's Order No.", value: d.buyerOrderNo || d.poNumber },
+    { key: 'buyerOrderDate', label: 'Dated', value: d.buyerOrderDate || d.poDate },
+    { key: 'dispatchDocNo', label: 'Dispatch Doc No.', value: d.dispatchDocNo },
+    { key: 'deliveryNoteDate', label: 'Delivery Note Date', value: d.deliveryNoteDate },
+    { key: 'dispatchedThrough', label: 'Dispatched through', value: d.dispatchedThrough || d.transporterName },
+    { key: 'destination', label: 'Destination', value: d.destination },
+    { key: 'vehicleNo', label: 'Vehicle No.', value: d.vehicleNo },
+    { key: 'revisionNo', label: 'Revision No.', value: d.revisionNo },
+    { key: 'periodFrom', label: 'Period From', value: d.periodStart || d.periodFrom },
+    { key: 'periodTo', label: 'Period To', value: d.periodEnd || d.periodTo },
+    { key: 'deliveryTerms', label: 'Terms of Delivery', value: d.deliveryTerms },
+    { key: 'workDetails', label: 'Work Details', value: d.workDetails },
+  ];
+  return fields.filter((f) => f.value != null && String(f.value).trim() !== '');
+}
 
 const LINE = '#1f2937';
 const B = `1px solid ${LINE}`;
@@ -186,11 +210,10 @@ function SellerBlock({ ctx, tally }) {
 
 function PartyBlock({ ctx, heading, party, withContact }) {
   const { t, sellerCC } = ctx;
-  party = party || {};
   return (
     <div>
       <div style={label}>{heading}</div>
-      <div style={{ fontWeight: 800 }}>{(party && party.name) || 'Client Name'}</div>
+      <div style={{ fontWeight: 800 }}>{party.name || 'Client Name'}</div>
       {t.clientAddress && party.address && <div style={{ whiteSpace: 'pre-line' }}>{party.address}</div>}
       {t.clientAddress && (party.city || party.pin) && <div>{[party.city, party.pin].filter(Boolean).join(' - ')}</div>}
       {t.gstin && party.gstin && <div>{sellerCC.taxIdLabel || 'GSTIN'}/UIN : <strong>{party.gstin}</strong></div>}
@@ -205,8 +228,7 @@ function PartyBlock({ ctx, heading, party, withContact }) {
 // TALLY STYLE
 // ---------------------------------------------------------------------------
 function TallyLayout({ ctx }) {
-  const { details, client, totals, fmt, lineCalc, t, invoiceTitle } = ctx;
-  const items = Array.isArray(ctx.items) ? ctx.items : [];
+  const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle } = ctx;
   const orderMap = Object.fromEntries(filledOrderDetails(details).map((f) => [f.key, f.value]));
   const shipTo = ctx.shipTo;
   const refBoxes = [
@@ -391,8 +413,7 @@ function TallyLayout({ ctx }) {
 const BOXED_MIN_ROWS = 8;
 
 function BoxedLayout({ ctx }) {
-  const { details, client, totals, fmt, lineCalc, t, invoiceTitle, accent, profile } = ctx;
-  const items = Array.isArray(ctx.items) ? ctx.items : [];
+  const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle, accent, profile } = ctx;
   const order = filledOrderDetails(details);
   const workDetails = order.find((f) => f.key === 'workDetails');
   const metaRows = [
@@ -539,5 +560,8 @@ function BoxedLayout({ ctx }) {
 }
 
 export default function InvoiceGridLayout({ ctx }) {
-  return ctx.style === 'tally' ? <TallyLayout ctx={ctx} /> : <BoxedLayout ctx={ctx} />;
+  const style = ctx?.style || 'boxed';
+  // tally + tally-v2 share TallyLayout; boxed / boxed-grid share BoxedLayout
+  if (style === 'tally' || style === 'tally-v2') return <TallyLayout ctx={ctx} />;
+  return <BoxedLayout ctx={ctx} />;
 }

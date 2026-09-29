@@ -17,14 +17,23 @@ export default function DashboardCharts({ stats }) {
         const { Chart, registerables } = await import('chart.js');
         if (cancelled) return;
         Chart.register(...registerables);
+        
+        // Destroy existing global charts to prevent ghosting/flashing
         charts.current.forEach(c => { try { c.destroy(); } catch {} });
         charts.current = [];
+        
         const prefs = getChartPrefs() || {};
         const s = stats || {};
+        
         const mk = (canvas, cfg) => {
           if (!canvas) return;
+          // Extra safety: Check DOM for rogue Chart instances and destroy them
+          const existing = Chart.getChart(canvas);
+          if (existing) existing.destroy();
+          
           charts.current.push(new Chart(canvas, cfg));
         };
+        
         const baseOpts = { responsive: true, maintainAspectRatio: false };
 
         // Sales trend from byMonth (always present when bills exist)
@@ -158,9 +167,12 @@ export default function DashboardCharts({ stats }) {
         console.warn('[DashboardCharts]', e);
       }
     })();
+    
+    // Strict Cleanup on Unmount
     return () => {
       cancelled = true;
       charts.current.forEach(c => { try { c.destroy(); } catch {} });
+      charts.current = [];
     };
   }, [stats]);
 
@@ -175,7 +187,10 @@ export default function DashboardCharts({ stats }) {
   const title = { margin: '0 0 8px', fontSize: 14, fontWeight: 600 };
   const wrap = { position: 'relative', height: 170 };
 
-  const Cell = ({ show, label, cref }) => {
+  // FIX: Converted the <Cell /> component into a pure rendering function.
+  // This prevents React from destroying and rebuilding the `<canvas>` 
+  // elements on every tab switch, completely fixing the "blank charts" bug.
+  const renderCell = (show, label, cref) => {
     if (show === false) return null;
     return (
       <div style={card}>
@@ -192,12 +207,12 @@ export default function DashboardCharts({ stats }) {
       gap: 12,
       marginTop: 12,
     }}>
-      <Cell show={prefs.showSalesTrend !== false} label="Sales trend" cref={salesRef} />
-      <Cell show={prefs.showGstBreakdown !== false} label="GST breakdown" cref={gstRef} />
-      <Cell show={prefs.showTopClients !== false} label="Top clients" cref={clientsRef} />
-      <Cell show={prefs.showTopSites !== false} label="Top sites" cref={sitesRef} />
-      <Cell show={prefs.showSalesByState !== false} label="Sales by state" cref={stateRef} />
-      <Cell show={prefs.showAging !== false} label="Aging" cref={agingRef} />
+      {renderCell(prefs.showSalesTrend !== false, "Sales trend", salesRef)}
+      {renderCell(prefs.showGstBreakdown !== false, "GST breakdown", gstRef)}
+      {renderCell(prefs.showTopClients !== false, "Top clients", clientsRef)}
+      {renderCell(prefs.showTopSites !== false, "Top sites", sitesRef)}
+      {renderCell(prefs.showSalesByState !== false, "Sales by state", stateRef)}
+      {renderCell(prefs.showAging !== false, "Aging", agingRef)}
     </div>
   );
 }
