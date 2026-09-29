@@ -635,7 +635,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         reverseChargeText: options.reverseCharge ? 'Yes' : 'No',
         placeOfSupply: details?.placeOfSupply || client?.state || '',
         shipTo: details?.shipTo || null,
-        account: getAccountById?.(options.selectedAccountId) || null,
+        account: (typeof getAccountById === "function" ? getAccountById(options.selectedAccountId) : null) || null,
         upiId: profile?.upiId || '',
         qrDataUrl: null,
         totalTax,

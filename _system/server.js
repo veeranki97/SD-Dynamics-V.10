@@ -1680,7 +1680,7 @@ app.get('/api/activity-logs', (req, res) => {
   try {
     const dir = path.join(DATA_DIR, 'activity-logs');
     if (!fs.existsSync(dir)) return res.json([]);
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 300);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 500);
     const rows = files.map(f => {
       try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
       catch { return { file: f }; }
@@ -1708,6 +1708,15 @@ app.post('/api/activity-logs', (req, res) => {
     const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
     const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
     fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
+    // Cap growth: keep newest 500 activity files (safe for 1000+ invoices)
+    try {
+      const all = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+      if (all.length > 500) {
+        for (const f of all.slice(0, all.length - 500)) {
+          try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore prune */ }
     res.json({ success: true, file: path.basename(fp) });
   } catch (e) {
     res.status(500).json({ error: e.message });

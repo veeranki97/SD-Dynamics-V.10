@@ -1,6 +1,7 @@
 import { loadMasterDataFromServer } from './utils/masterData';
 import { hydratePrintSettingsFromServer } from './utils/printSettings';
 import ActivityLogView from './components/ActivityLogView';
+import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag , Banknote} from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
@@ -594,6 +595,7 @@ function App() {
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
+    { id: 'chart-settings', icon: BarChart3, label: 'Chart styles', module: 'dashboard', group: 'System' },
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
@@ -1107,6 +1109,7 @@ function App() {
           <Suspense fallback={<ViewLoading />}><WorkflowRulesView key={businessKey} /></Suspense>
         )}
         {currentView === 'activity-log' ? <ActivityLogView />
+        : currentView === 'chart-settings' ? <DashboardChartSettings />
         : currentView === 'settings' && (
           <SettingsView onSaved={(p) => setProfile(p)} />
         )}

@@ -269,8 +269,19 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       byClient[cn] = (byClient[cn] || 0) + (b.totalAmount || 0);
     }
     const monthKeys = Object.keys(byMonth).sort().slice(-6);
-    const topClients = Object.entries(byClient).sort((a,b) => b[1]-a[1]).slice(0, 5);
-    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, aging };
+    const topClients = Object.entries(byClient).sort((a,b) => b[1]-a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount }));
+    const bySite = {};
+    const byState = {};
+    bills.forEach(b => {
+      if ((b.invoiceType || 'tax-invoice') !== 'tax-invoice' || b.status === 'cancelled') return;
+      const site = b.data?.site || b.data?.details?.site || 'Unassigned';
+      bySite[site] = (bySite[site] || 0) + (Number(b.totalAmount) || 0);
+      const st = b.data?.client?.state || b.data?.details?.placeOfSupply || 'Unknown';
+      byState[st] = (byState[st] || 0) + (Number(b.totalAmount) || 0);
+    });
+    const topSites = Object.entries(bySite).sort((a,b) => b[1]-a[1]).slice(0, 6).map(([name, amount]) => ({ name, amount }));
+    const salesByState = Object.entries(byState).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([name, amount]) => ({ name, amount }));
+    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging };
   }, [bills]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -292,7 +303,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     } catch { /* ignore */ }
     return {
       date: true, invoice: true, type: true, client: true, amount: true,
-      status: true, actions: true, printed: false, currency: false, dueDate: false, daysOverdue: false, workOrder: false,
+      status: true, actions: true, printed: false, currency: false, dueDate: true, daysOverdue: true, workOrder: false,
     };
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
@@ -1776,17 +1787,19 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                   const dueD = parseYmd(dueRaw);
                   const invD = parseYmd(invRaw);
                   const todayD = new Date(); todayD.setHours(0,0,0,0);
-                  // Days Overdue = whole calendar days past due date (unpaid/partial only)
-                  let daysOverdue = 0;
-                  if (status !== 'paid' && status !== 'cancelled' && dueD) {
-                    const due0 = new Date(dueD); due0.setHours(0,0,0,0);
-                    daysOverdue = Math.max(0, Math.floor((todayD - due0) / 86400000));
-                  } else if (status !== 'paid' && status !== 'cancelled' && !dueD && invD) {
-                    // No due date: show days since invoice date as aging hint
-                    const inv0 = new Date(invD); inv0.setHours(0,0,0,0);
-                    daysOverdue = Math.max(0, Math.floor((todayD - inv0) / 86400000));
+                  // Open docs: days past due (if due set), else days since invoice date (aging)
+                  let daysOverdue = null;
+                  if (status !== 'paid' && status !== 'cancelled') {
+                    const base = dueD || invD;
+                    if (base) {
+                      const b0 = new Date(base); b0.setHours(0,0,0,0);
+                      const diff = Math.floor((todayD - b0) / 86400000);
+                      // If due date is in the future, show 0 (not overdue yet); if using invoice date, show age
+                      daysOverdue = dueD ? Math.max(0, diff) : Math.max(0, diff);
+                    }
                   }
-                  const isOverdue = daysOverdue > 0 && status !== 'paid' && status !== 'cancelled';
+                  const isOverdue = (daysOverdue != null && daysOverdue > 0 && dueD && status !== 'paid' && status !== 'cancelled')
+                    || status === 'overdue';
                   const billCurrency = bill.currency || bill.data?.invoiceOptions?.currency || 'INR';
                   return (
                     <tr key={bill.id} className={isOverdue || status === 'overdue' ? 'row-overdue' : ''}
@@ -1832,52 +1845,21 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                         {daysOverdue > 0 && <span style={{ fontSize: '0.7rem', color: '#dc2626', display: 'block', marginTop: 2 }}>{daysOverdue}d overdue</span>}
                       </td>}
                       {visibleColumns.actions && <td>
-                        <div className="table-actions">
-                          <button className="icon-btn icon-btn-blue" onClick={() => handleView(bill)} title="Edit"><Edit3 size={15} /></button>
-                          <button className="icon-btn icon-btn-blue" onClick={async () => {
-                            try {
-                              toast('Preparing PDF…', 'info', 1500);
-                              const blob = await generateSingleBillPdfBlob(bill);
-                              const a = document.createElement('a');
-                              a.href = URL.createObjectURL(blob);
-                              a.download = `${bill.invoiceNumber || 'invoice'}.pdf`;
-                              a.click();
-                              URL.revokeObjectURL(a.href);
-                              toast('PDF downloaded', 'success');
-                            } catch (e) {
-                              console.error(e);
-                              toast('PDF download failed', 'error');
-                            }
-                          }} title="Download PDF"><Download size={15} /></button>
-                          <button className="icon-btn icon-btn-blue" onClick={() => onDuplicate(bill)} title="Duplicate"><Copy size={15} /></button>
-                          {(bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan' || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot') || String(bill.invoiceType||'').includes('challan')) && (bill.status || '') !== 'cancelled' && !String(bill.status||'').toUpperCase().includes('CONVERT') && (
-                            <button className="icon-btn icon-btn-green" onClick={() => onConvert(bill)} title="Convert to Tax Invoice"><FileText size={15} /></button>
-                          )}
-                          {(status || bill.status) !== 'cancelled' && (
-                          <button className="icon-btn icon-btn-green" onClick={() => openPaymentModal(bill)} title="Payment"><IndianRupee size={15} /></button>
-                          )}
-                          <button className="icon-btn icon-btn-green" onClick={() => shareWhatsApp(bill)}
-                            title="Share via WhatsApp — PDF attaches on mobile Chrome/Safari. On desktop it sends the invoice as text only (browser can't attach files to WhatsApp Web — security limitation, not our app).">
-                            <MessageCircle size={15} />
-                          </button>
-                          {/* v1.10.12 — Payment-reminder button now shows for
-                               UNPAID, PARTIAL, and OVERDUE bills (not just
-                               overdue). Reported: "amount pending towards
-                               customer should give option to send via
-                               whatsapp or email as reminder predefined side
-                               of every invoice. also for partial pending too". */}
-                          {(isOverdue || status === 'overdue' || status === 'unpaid' || status === 'partial') && (bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01 && (
-                            <button className="icon-btn icon-btn-green"
-                              onClick={() => sendReminder({ ...bill, clientPhone: getClientPhone(bill) })}
-                              title={status === 'partial' ? 'Send reminder — partial pending' : (status === 'overdue' || isOverdue ? 'Send reminder — overdue' : 'Send reminder — unpaid')}
-                              style={{ color: status === 'partial' ? '#0284c7' : '#d97706' }}>
-                              <Send size={15} />
-                            </button>
-                          )}
-                          <button className="icon-btn icon-btn-blue" onClick={() => shareEmail(bill)} title="Email"><Mail size={15} /></button>
-                    <button className="icon-btn icon-btn-red" onClick={() => handleDelete(bill)}
-                    /* cancel via title-attr button nearby */ title="Cancel invoice (GST-safe)"><Trash2 size={15} /></button>
-                        </div>
+                        <ActionMenu items={[
+                          { label: 'Edit', onClick: () => handleView(bill) },
+                          { label: 'Duplicate', onClick: () => onDuplicate?.(bill) },
+                          (bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan'
+                            || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot')
+                            || String(bill.invoiceType||'').includes('challan')) && (bill.status || '') !== 'cancelled'
+                            ? { label: 'Convert to Tax Invoice', onClick: () => onConvert?.(bill) } : null,
+                          (status || bill.status) !== 'cancelled'
+                            ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                          { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
+                          { label: 'Email', onClick: () => shareEmail(bill) },
+                          (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)
+                            ? { label: 'Send Reminder', onClick: () => sendReminder({ ...bill, clientPhone: getClientPhone(bill) }) } : null,
+                          { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },
+                        ].filter(Boolean)} />
                       </td>}
                     </tr>
                   );

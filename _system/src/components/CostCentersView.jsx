@@ -35,6 +35,9 @@ const TABS = [
 ];
 
 export default function CostCentersView() {
+  const [hsnSearch, setHsnSearch] = useState('');
+  const [unitSearch, setUnitSearch] = useState('');
+  const [catSearch, setCatSearch] = useState('');
   const [tab, setTab] = useState('cc');
   const [list, setList] = useState([]);
   const [name, setName] = useState('');
