@@ -1823,3 +1823,30 @@ export const CURRENCY_NAMES = {
   IDR: { major: 'Rupiah',   minor: 'Sen'   },
   NZD: { major: 'Dollars',  minor: 'Cents' },
 };
+
+
+/** Order / dispatch fields used by Tally & Boxed PDF layouts */
+export const ORDER_DETAIL_FIELDS = [
+  { key: 'deliveryNote', label: 'Delivery Note' },
+  { key: 'paymentTerms', label: 'Mode/Terms of Payment' },
+  { key: 'referenceNo', label: 'Reference No. & Date' },
+  { key: 'otherReferences', label: 'Other References' },
+  { key: 'buyerOrderNo', label: "Buyer's Order No." },
+  { key: 'buyerOrderDate', label: 'Buyer Order Date' },
+  { key: 'dispatchDocNo', label: 'Dispatch Doc No.' },
+  { key: 'deliveryNoteDate', label: 'Delivery Note Date' },
+  { key: 'dispatchedThrough', label: 'Dispatched through' },
+  { key: 'destination', label: 'Destination' },
+  { key: 'vehicleNo', label: 'Vehicle No.' },
+  { key: 'revisionNo', label: 'Revision No.' },
+  { key: 'periodFrom', label: 'Period From' },
+  { key: 'periodTo', label: 'Period To' },
+  { key: 'deliveryTerms', label: 'Terms of Delivery' },
+  { key: 'workDetails', label: 'Work Details' },
+];
+
+export function filledOrderDetails(details = {}) {
+  return ORDER_DETAIL_FIELDS
+    .map((f) => ({ ...f, value: details?.[f.key] || details?.[f.key.replace(/([A-Z])/g, (m) => m)] || '' }))
+    .filter((f) => f.value);
+}

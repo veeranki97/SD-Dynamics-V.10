@@ -1066,6 +1066,10 @@ export default function PrintSettings() {
               options={[
                 ['modern', 'Modern (colorful header · default)'],
                 ['saidurga', 'Sai Durga (traditional Indian tax invoice)'],
+                ['tally', 'Tally (ruled boxes · taxes in table · HSN summary)'],
+                ['tally-v2', 'Tally v2 (denser grid)'],
+                ['boxed', 'Boxed (quotation-pad rows · full ruled boxes)'],
+                ['boxed-grid', 'Boxed grid (alias of Boxed)'],
                 ['classic', 'Classic (professional / conservative)'],
                 ['minimal', 'Minimal (clean / whitespace)'],
                 ['corporate', 'Corporate (formal blue/navy)'],

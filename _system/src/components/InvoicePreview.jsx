@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import DOMPurify from 'dompurify';
 import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById, getPaperSize, resolveLineDiscount, htmlHasText, splitNumberedTerms } from '../utils';
 import { getPrintSettings, getLabel } from '../utils/printSettings';
+import InvoiceGridLayout from './InvoiceGridLayout';
 
 // v1.10.36 — Optional `previewOnly` prop suppresses the internal
 // `id="invoice-preview"`. The parent's on-screen preview keeps the id
@@ -213,6 +214,10 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga'
     : (pdfStyleRaw === 'tally-v2' ? 'tally-v2'
       : (pdfStyleRaw === 'boxed-grid' ? 'boxed-grid' : pdfStyleRaw));
+  const gridStyle = (pdfStyleRaw === 'boxed' || pdfStyleRaw === 'boxed-grid') ? 'boxed'
+    : (pdfStyleRaw === 'tally' || pdfStyleRaw === 'tally-v2' || pdfStyle === 'tally') ? 'tally'
+    : null;
+
 
   // Check if any item has discount
   const hasAnyDiscount = showDiscount && items.some(item => (item.discount || 0) > 0);
@@ -572,7 +577,94 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       MozOsxFontSmoothing: 'grayscale',
     };
 
-    return (
+    
+  if (gridStyle) {
+    try {
+      const lineCalc = (item) => {
+        const qty = Number(item.quantity) || 0;
+        const rate = Number(item.rate) || 0;
+        const disc = Number(item.discount) || 0;
+        const taxable = Math.max(0, qty * rate - disc);
+        return { taxable, discount: disc };
+      };
+      const hasAnyDiscount = (items || []).some(i => Number(i.discount) > 0);
+      const totalTax = (totals?.totalTaxAmount ?? ((totals?.cgst || 0) + (totals?.sgst || 0) + (totals?.igst || 0) + (totals?.cess || 0))) || 0;
+      const hsnMap = {};
+      (items || []).forEach((item) => {
+        const hsn = item.hsn || 'N/A';
+        const rate = Number(item.taxPercent) || 0;
+        const key = hsn + '|' + rate;
+        if (!hsnMap[key]) hsnMap[key] = { hsn, rate, taxable: 0, tax: 0 };
+        const l = lineCalc(item);
+        const taxAmt = l.taxable * rate / 100;
+        hsnMap[key].taxable += l.taxable;
+        hsnMap[key].tax += taxAmt;
+      });
+      const gridCtx = {
+        style: gridStyle,
+        profile, client, details, items, totals, options,
+        invoiceType, invoiceTitle: (INVOICE_TYPES[invoiceType]?.title || 'TAX INVOICE'),
+        docLabel: (INVOICE_TYPES[invoiceType]?.label || 'Invoice'),
+        t: {
+          logo: true, businessName: true, businessAddress: true, businessPhone: true, businessEmail: true,
+          gstin: true, state: true, clientAddress: true, clientPhone: true, clientEmail: true,
+          invoiceDate: true, invoiceNumber: true, dueDate: true, placeOfSupply: true,
+          hsn: true, itemQty: true, itemUnit: true, rate: true,
+        },
+        sellerCC: getCountryConfig(profile?.country || 'India') || {},
+        isIndia: (profile?.country || 'India') === 'India',
+        isInterstate: !!(totals?.isInterstate || (totals?.igst > 0)),
+        showGST: options.showGST !== false && (INVOICE_TYPES[invoiceType]?.showGST !== false),
+        taxLabel: 'Tax',
+        singleRate: null,
+        fmt: (n) => formatCurrency(n, options.currency || 'INR'),
+        words: (n) => numberToWords(n),
+        shortDate: (d) => d ? new Date(d).toLocaleDateString('en-IN') : '',
+        lineCalc,
+        hasAnyDiscount,
+        hsnRows: Object.values(hsnMap),
+        showHsnSummary: options.showHsnSummary !== false,
+        showTaxInWords: true,
+        showAmountWords: true,
+        showBankDetails: options.showBankDetails !== false,
+        showDeclaration: true,
+        showCustomerSeal: true,
+        showSystemGeneratedNote: true,
+        showSignatoryText: true,
+        showReverseChargeLine: !!options.reverseCharge,
+        reverseChargeText: options.reverseCharge ? 'Yes' : 'No',
+        placeOfSupply: details?.placeOfSupply || client?.state || '',
+        shipTo: details?.shipTo || null,
+        account: getAccountById?.(options.selectedAccountId) || null,
+        upiId: profile?.upiId || '',
+        qrDataUrl: null,
+        totalTax,
+        declarationText: 'We declare that this invoice shows the actual price of the goods/services described and that all particulars are true and correct.',
+        termsHtml: customTerms || '',
+        notesHtml: customNotes || '',
+        termsClassMod: '',
+        notices: null,
+        sig: {
+          show: true,
+          stampImg: getPrintSettings()?.stampImage || null,
+          sigImg: getPrintSettings()?.signatureImage || null,
+          stampHeight: 48,
+          sigHeight: 48,
+        },
+        accent: '#1f2937',
+        isServices: true,
+      };
+      return (
+        <div ref={ref} {...(previewOnly ? {} : { id: 'invoice-preview' })} className="invoice-preview-container grid-layout-host">
+          <InvoiceGridLayout ctx={gridCtx} />
+        </div>
+      );
+    } catch (e) {
+      console.warn('[InvoiceGridLayout] fallback to standard template', e);
+    }
+  }
+
+return (
       <div
         className={`invoice-preview-container ${paperCfg.cssClass} paper-thermal`}
         ref={ref} {...(previewOnly ? {} : { id: 'invoice-preview' })} style={rootStyle}>

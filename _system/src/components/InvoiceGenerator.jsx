@@ -1191,6 +1191,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     try {
       const num = await getNextInvoiceNumber(prefix, { peek: true, explicitPrefix: true });
       setDetails(prev => ({ ...prev, invoiceNumber: num || '' }));
+      if (num) toast(`Number for ${config?.label || type}: ${num}`, 'info');
     } catch {
       setDetails(prev => ({ ...prev, invoiceNumber: '' }));
     }
@@ -3066,7 +3067,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       }
     } catch (err) {
       console.error(err);
-      toast('Failed to generate PDF.', 'error');
+      toast('Failed to generate PDF — open Preview first, then try again. If it still fails, switch Template to Classic in Print Settings.', 'error');
     } finally {
       setSaving(false);
     }
@@ -3211,7 +3212,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
             } catch (err) {
               if (err?.status !== 409) {  // 409 already handled by retry inside saveInvoiceToDB
                 console.error('Save failed', err);
-                toast('Save failed — try again', 'error');
+                toast((err && (err.message || err.error)) ? `Save failed: ${err.message || err.error}` : 'Save failed — try again', 'error');
               }
             } finally {
               setSaving(false);

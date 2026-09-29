@@ -134,12 +134,19 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
     next = inc.value;
   }
 
-  // Collision guard: count only numbers for THIS type prefix (INV / QUO / DC / …)
+    // Collision guard: only same type-prefix series (never mix INV max into DC)
   try {
     const bills = await apiFetch(`${API}/bills`);
     let maxUsed = 0;
     const pfxU = String(prefix || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const typeForPrefix = {
+      INV: 'tax-invoice', QUO: 'quotation', PI: 'proforma', PRO: 'proforma',
+      CN: 'credit-note', DN: 'debit-note', DC: 'delivery-challan', CHL: 'delivery-challan',
+      BOS: 'bill-of-supply', COMP: 'composition',
+    };
+    const wantType = typeForPrefix[pfxU] || '';
     for (const b of (bills || [])) {
+      const bType = String(b.invoiceType || b.data?.invoiceType || '').toLowerCase();
       const num = String(b.invoiceNumber || b.data?.details?.invoiceNumber || '');
       if (!num) continue;
       const m = num.match(/(\d+)\s*$/);
@@ -147,9 +154,11 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
       const n = parseInt(m[1], 10);
       if (!Number.isFinite(n)) continue;
       const numU = num.toUpperCase().replace(/\s/g, '');
-      const tokenOk = !pfxU || numU.includes('/' + pfxU + '/') || numU.includes('-' + pfxU + '-')
-        || numU.startsWith(pfxU + '/') || numU.startsWith(pfxU + '-') || numU.includes(pfxU + '/');
-      if (tokenOk) maxUsed = Math.max(maxUsed, n);
+      const tokenOk = pfxU && (numU.includes('/' + pfxU + '/') || numU.includes('-' + pfxU + '-')
+        || numU.startsWith(pfxU + '/') || numU.startsWith(pfxU + '-') || numU.includes(pfxU + '/'));
+      const typeOk = wantType && bType === wantType;
+      // Require type match OR explicit prefix token — never count plain SD/…/020 as DC
+      if (typeOk || tokenOk) maxUsed = Math.max(maxUsed, n);
     }
     if (maxUsed >= next) next = maxUsed + 1;
   } catch { /* offline */ }
