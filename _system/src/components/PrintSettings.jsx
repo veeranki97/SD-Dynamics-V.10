@@ -1119,6 +1119,7 @@ export default function PrintSettings() {
                 ['saidurga', 'Sai Durga (traditional Indian tax invoice)'],
                 ['tally', 'Tally v1 (SD Dynamics current — ruled grid)'],
                 ['tally-v2', 'Tally v2 (upstream denser grid)'],
+                ['boxed', 'Boxed grid (ruled quotation-pad)'],
                 ['boxed-grid', 'Boxed grid (full cell borders)'],
                 ['modern', 'Modern (colorful header)'],
                 ['classic', 'Classic (professional / conservative)'],

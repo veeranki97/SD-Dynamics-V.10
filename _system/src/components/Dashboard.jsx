@@ -20,6 +20,11 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // user reported "NEW ISSUE IN CASE OF DARK MODE". rgba() with 12%
 // alpha lets the underlying row bg show through and works in both
 // themes.
+const isPaymentDocType = (t) => {
+  const s = String(t || 'tax-invoice').toLowerCase();
+  return s === 'tax-invoice' || s === 'proforma' || s === 'proforma-invoice' || s.includes('proforma') || (s.includes('tax') && !s.includes('credit'));
+};
+
 const STATUS_CONFIG = {
   unpaid:  { label: 'Unpaid',  icon: Clock,          color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)' },
   partial: { label: 'Partial', icon: Clock,          color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.14)' },
@@ -1852,28 +1857,37 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                       {visibleColumns.printed && <td className="text-muted" style={{ textAlign: 'center' }}>{Number(bill.printedCount) || 0}×</td>}
                       <td className="text-muted">{(bill.paidAmount || 0) > 0 ? formatCurrency(bill.paidAmount, billCurrency) : <span className="cell-empty">—</span>}</td>
                       {visibleColumns.status && <td>
-                        <select className="status-select" value={isOverdue && status !== 'overdue' ? 'overdue' : status}
-                          style={{ background: sc.bg, color: sc.color, borderColor: sc.color + '44' }}
-                          onChange={e => changeStatus(bill, e.target.value)}>
-                          {Object.entries(STATUS_CONFIG).map(([key, val]) => (
-                            <option key={key} value={key}>{val.label}</option>
-                          ))}
-                        </select>
-                        {daysOverdue > 0 && <span style={{ fontSize: '0.7rem', color: '#dc2626', display: 'block', marginTop: 2 }}>{daysOverdue}d overdue</span>}
+                        {isPaymentDocType(bill.invoiceType) ? (
+                          <>
+                            <select className="status-select" value={isOverdue && status !== 'overdue' ? 'overdue' : status}
+                              style={{ background: sc.bg, color: sc.color, borderColor: sc.color + '44' }}
+                              onChange={e => changeStatus(bill, e.target.value)}>
+                              {Object.entries(STATUS_CONFIG).map(([key, val]) => (
+                                <option key={key} value={key}>{val.label}</option>
+                              ))}
+                            </select>
+                            {daysOverdue > 0 && <span style={{ fontSize: '0.7rem', color: '#dc2626', display: 'block', marginTop: 2 }}>{daysOverdue}d overdue</span>}
+                          </>
+                        ) : (
+                          <span className="type-badge" style={{ background: sc.bg, color: sc.color }} title="Payment status only for Tax Invoice / Proforma">
+                            {(INVOICE_TYPES[bill.invoiceType || 'tax-invoice']?.label) || bill.invoiceType || '—'}
+                          </span>
+                        )}
                       </td>}
                       {visibleColumns.actions && <td>
                         <ActionMenu items={[
                           { label: 'Edit', onClick: () => handleView(bill) },
+                          { label: 'Download PDF', onClick: () => bulkExportPDF([bill]) },
                           { label: 'Duplicate', onClick: () => onDuplicate?.(bill) },
                           (bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan'
                             || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot')
                             || String(bill.invoiceType||'').includes('challan')) && (bill.status || '') !== 'cancelled'
                             ? { label: 'Convert to Tax Invoice', onClick: () => onConvert?.(bill) } : null,
-                          (status || bill.status) !== 'cancelled'
+                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled'
                             ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
-                          (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)
+                          isPaymentDocType(bill.invoiceType) && (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)
                             ? { label: 'Send Reminder', onClick: () => sendReminder({ ...bill, clientPhone: getClientPhone(bill) }) } : null,
                           { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },
                         ].filter(Boolean)} />

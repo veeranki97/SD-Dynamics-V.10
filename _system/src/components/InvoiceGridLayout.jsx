@@ -63,7 +63,7 @@ const stateWithCode = (state) => {
 function Signature({ ctx, align = 'right' }) {
   const { sig } = ctx;
   return (
-    <div {...blockProps} data-pdf-signature="" style={{ textAlign: align, minHeight: 90, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+    <div {...blockProps} data-pdf-signature="" style={{ textAlign: align, minHeight: 70, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
       <div style={{ fontWeight: 700 }}>for {ctx.profile?.businessName || 'Your Business'}</div>
       {sig.show && (
         <div style={{ display: 'flex', gap: 6, justifyContent: align === 'right' ? 'flex-end' : 'center', alignItems: 'flex-end', margin: '4px 0' }}>
@@ -378,16 +378,41 @@ function TallyLayout({ ctx }) {
         <div {...blockProps} style={{ ...cell, borderTop: 'none' }}>Tax Amount (in words) : <strong>{ctx.words(ctx.totalTax)}</strong></div>
       )}
 
-      <div style={{ border: B, borderTop: 'none', display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-        <div style={{ padding: '4px 6px', borderRight: B }}>
+      {/* Footer kept in one pdf page-boundary so signature is not split across pages */}
+      <div
+        {...blockProps}
+        data-pdf-keep-together=""
+        style={{
+          border: B,
+          borderTop: 'none',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          pageBreakInside: 'avoid',
+          breakInside: 'avoid',
+          WebkitColumnBreakInside: 'avoid',
+        }}
+      >
+        <div style={{ padding: '4px 6px', borderRight: B, maxHeight: 160, overflow: 'hidden' }}>
           {ctx.notices}
-          {ctx.isIndia && ctx.profile?.pan && <div {...blockProps} style={{ margin: '4px 0' }}>Company&apos;s PAN : <strong>{ctx.profile.pan}</strong></div>}
-          <RichBlock title="Terms & Conditions" html={ctx.termsHtml} className={ctx.termsClassMod} />
-          <RichBlock title="Notes" html={ctx.notesHtml} className={ctx.termsClassMod} />
+          {ctx.isIndia && ctx.profile?.pan && <div style={{ margin: '4px 0' }}>Company&apos;s PAN : <strong>{ctx.profile.pan}</strong></div>}
+          {ctx.termsHtml ? (
+            <div style={{ marginBottom: 4 }}>
+              <div style={label}>Terms &amp; Conditions</div>
+              <div className={`inv-rich ${ctx.termsClassMod || ''}`} style={{ ...small, maxHeight: 72, overflow: 'hidden' }}
+                dangerouslySetInnerHTML={{ __html: ctx.termsHtml }} />
+            </div>
+          ) : null}
+          {ctx.notesHtml ? (
+            <div style={{ marginBottom: 4 }}>
+              <div style={label}>Notes</div>
+              <div className={`inv-rich ${ctx.termsClassMod || ''}`} style={{ ...small, maxHeight: 40, overflow: 'hidden' }}
+                dangerouslySetInnerHTML={{ __html: ctx.notesHtml }} />
+            </div>
+          ) : null}
           {ctx.showDeclaration && (
-            <div {...blockProps}>
+            <div>
               <div style={{ ...label, textDecoration: 'underline' }}>Declaration</div>
-              <div style={small}>{ctx.declarationText}</div>
+              <div style={{ ...small, maxHeight: 36, overflow: 'hidden' }}>{ctx.declarationText}</div>
             </div>
           )}
         </div>
@@ -396,9 +421,11 @@ function TallyLayout({ ctx }) {
           <UpiQr ctx={ctx} />
         </div>
         {ctx.showCustomerSeal ? (
-          <div {...blockProps} style={{ padding: '4px 6px', borderTop: B, borderRight: B, minHeight: 80 }}>Customer&apos;s Seal and Signature</div>
+          <div style={{ padding: '4px 6px', borderTop: B, borderRight: B, minHeight: 72, pageBreakInside: 'avoid' }}>Customer&apos;s Seal and Signature</div>
         ) : <div style={{ borderTop: B, borderRight: B }} />}
-        <div style={{ padding: '4px 6px', borderTop: B }}><Signature ctx={ctx} /></div>
+        <div style={{ padding: '4px 6px', borderTop: B, pageBreakInside: 'avoid', breakInside: 'avoid' }} data-pdf-signature="">
+          <Signature ctx={ctx} />
+        </div>
       </div>
       <div {...blockProps} style={{ textAlign: 'center', marginTop: 4, ...small }}>
         {ctx.showSystemGeneratedNote ? 'This is a computer generated invoice. No signature or stamp is required.' : 'This is a Computer Generated Invoice'}

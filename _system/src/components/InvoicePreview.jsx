@@ -210,7 +210,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const pdfStyle = ['corporate', 'minimalist'].includes(pdfStyleRaw)
     ? (pdfStyleRaw === 'corporate' ? 'classic' : 'minimal')
     : (pdfStyleRaw === 'saidurga' ? 'classic'
-      : ((pdfStyleRaw === 'tally-v2' || pdfStyleRaw === 'boxed-grid') ? 'tally' : pdfStyleRaw));
+      : (pdfStyleRaw === 'tally-v2' ? 'tally' : (pdfStyleRaw === 'boxed-grid' || pdfStyleRaw === 'boxed' ? 'boxed' : pdfStyleRaw)));
   const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga'
     : (pdfStyleRaw === 'tally-v2' ? 'tally-v2'
       : (pdfStyleRaw === 'boxed-grid' ? 'boxed-grid' : pdfStyleRaw));
@@ -916,8 +916,8 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   };
 
   // Full Tally / Boxed grid (InvoiceGridLayout) — skip partial CSS tally path
-  const gridStyleId = (pdfStyleRaw === 'boxed') ? 'boxed-grid'
-    : (pdfStyleRaw === 'tally' || pdfStyleRaw === 'tally-v2' || pdfStyleRaw === 'boxed-grid')
+  const gridStyleId = (pdfStyleRaw === 'boxed' || pdfStyleRaw === 'boxed-grid') ? 'boxed-grid'
+    : (pdfStyleRaw === 'tally' || pdfStyleRaw === 'tally-v2')
       ? pdfStyleRaw : null;
   if (gridStyleId && !isThermal) {
     const shortDate = (iso) => {
@@ -979,7 +979,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       notices.push(<div key="rcm" style={{ fontSize: '0.85em', marginBottom: 4 }}><strong>Tax is payable on reverse charge.</strong></div>);
     }
     const gridCtx = {
-      style: gridStyleId === 'boxed-grid' ? 'boxed' : (gridStyleId === 'tally-v2' ? 'tally' : gridStyleId),
+      style: (gridStyleId === 'boxed-grid' || gridStyleId === 'boxed') ? 'boxed' : (gridStyleId === 'tally-v2' || gridStyleId === 'tally') ? 'tally' : (gridStyle || gridStyleId),
       profile, client, details, items, totals, options, invoiceType,
       fmt, lineCalc,
       t: {
