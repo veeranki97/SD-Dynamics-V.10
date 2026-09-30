@@ -212,8 +212,8 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     : (pdfStyleRaw === 'saidurga' ? 'classic'
       : (pdfStyleRaw === 'tally-v2' ? 'tally' : (pdfStyleRaw === 'boxed-grid' || pdfStyleRaw === 'boxed' ? 'boxed' : pdfStyleRaw)));
   const pdfStyleVariant = pdfStyleRaw === 'saidurga' ? 'saidurga'
-    : (pdfStyleRaw === 'tally-v2' ? 'tally-v2'
-      : (pdfStyleRaw === 'boxed-grid' ? 'boxed-grid' : pdfStyleRaw));
+    : (pdfStyleRaw === 'tally-v2' ? 'tally'
+      : ((pdfStyleRaw === 'boxed-grid' || pdfStyleRaw === 'boxed') ? 'boxed-grid' : pdfStyleRaw));
 
   // Check if any item has discount
   const hasAnyDiscount = showDiscount && items.some(item => (item.discount || 0) > 0);

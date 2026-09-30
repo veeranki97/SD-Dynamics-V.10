@@ -87,32 +87,8 @@ const DESIGN_PRESETS = [
       contrast: 'high',
     },
   },
-  {
-    id: 'tally-v2',
-    name: 'Tally v2',
-    label: 'Tally v2',
-    icon: '▦',
-    description: 'Upstream denser grid — tighter cells, full borders',
-    tag: 'Tally v2 · GST',
-    settings: {
-      pdfTemplate: 'tally-v2',
-      userColorsEnabled: true,
-      pdfPrimaryText: '#111827',
-      pdfMutedText: '#374151',
-      pdfAccent: '#111827',
-      pdfAccentText: '#ffffff',
-      pdfHeaderBg: '#f3f4f6',
-      pdfDividerColor: '#1f2937',
-      fontFamily: 'sans',
-      fontWeight: 'bold',
-      fontSize: 'small',
-      lineSpacing: 'compact',
-      allCaps: false,
-      headerAlign: 'center',
-      headerCaps: true,
-      contrast: 'high',
-    },
-  },
+  /* tally-v2 removed — same visual as tally; use Template = Tally */
+  
   {
     id: 'boxed-grid',
     name: 'Boxed Grid',
@@ -1118,7 +1094,6 @@ export default function PrintSettings() {
               options={[
                 ['saidurga', 'Sai Durga (traditional Indian tax invoice)'],
                 ['tally', 'Tally v1 (SD Dynamics current — ruled grid)'],
-                ['tally-v2', 'Tally v2 (upstream denser grid)'],
                 ['boxed', 'Boxed grid (ruled quotation-pad)'],
                 ['boxed-grid', 'Boxed grid (full cell borders)'],
                 ['modern', 'Modern (colorful header)'],

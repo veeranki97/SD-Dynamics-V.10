@@ -185,6 +185,7 @@ const ACCENT_PRESETS = [
 const PDF_STYLES = [
   { id: 'saidurga', label: 'Sai Durga', desc: 'Traditional Indian tax invoice' },
   { id: 'tally', label: 'Tally', desc: 'Ruled grid Tally-style' },
+  { id: 'boxed', label: 'Boxed grid', desc: 'Quotation-pad full borders' },
   { id: 'classic', label: 'Classic', desc: 'Clean with top accent bar' },
   { id: 'modern', label: 'Modern', desc: 'Bold header with color block' },
   { id: 'minimal', label: 'Minimal', desc: 'Simple, borderless layout' },

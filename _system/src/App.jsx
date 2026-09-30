@@ -1,5 +1,6 @@
 import { loadMasterDataFromServer } from './utils/masterData';
 import { hydratePrintSettingsFromServer } from './utils/printSettings';
+import HrmView from './components/HrmView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
@@ -500,7 +501,12 @@ function App() {
     localStorage.setItem('freegstbill_pwa_dismissed_at', String(Date.now()));
   };
 
-  const handleConvertToInvoice = (bill) => {
+  const handleConvertToInvoice = async (bill) => {
+    const st = String(bill.status || '').toLowerCase();
+    if (st === 'converted' || st === 'cancelled' || bill.convertedToInvoiceId || bill.data?.convertedToInvoiceId) {
+      alert('This document was already converted and is locked.');
+      return;
+    }
     sessionStorage.removeItem('gst_invoiceDraft');
     const clone = JSON.parse(JSON.stringify(bill));
     const srcType = (bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
@@ -512,6 +518,16 @@ function App() {
     // legacy aliases used by generator
     clone._sourceProformaId = bill.id;
     clone._sourceProformaNumber = bill.invoiceNumber || bill.id;
+    // Soft-lock source immediately so Convert cannot be used twice
+    try {
+      const { saveBill } = await import('./store');
+      await saveBill({
+        ...bill,
+        status: 'converted',
+        convertedAt: new Date().toISOString(),
+        data: { ...(bill.data || {}), convertedLocked: true },
+      }, { overwrite: true });
+    } catch (e) { console.warn('Could not lock source doc', e); }
     clone.id = undefined;
     clone.invoiceNumber = '';
     clone.invoiceType = 'tax-invoice';
@@ -572,7 +588,8 @@ function App() {
     { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Orders' },
     { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Orders' },
     // Parties
-    { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Parties' },
+    { id: 'hrm', icon: Users, label: 'HRM', module: 'clients', group: 'Parties' },
+      { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Parties' },
     { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Parties' },
     // Money (contiguous — no duplicate MONEY section)
     { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Money' },
@@ -772,7 +789,7 @@ function App() {
             The app just needs to be started once.
           </p>
           <a href="freegstbill://start" className="server-start-btn">
-            Open GST Billing
+            Open SD Dynamics
           </a>
           <div className="server-down-steps">
             <p className="server-down-hint">Or start manually:</p>
@@ -841,7 +858,7 @@ function App() {
           aria-label="Open menu" aria-expanded={navOpen}>
           <Menu size={22} />
         </button>
-        <span className="mobile-topbar-title">GST Billing</span>
+        <span className="mobile-topbar-title">SD Dynamics</span>
         <span className="mobile-topbar-business">{profile?.businessName || ''}</span>
       </div>
       {navOpen && <div className="sidebar-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />}
@@ -856,8 +873,8 @@ function App() {
             <FileText size={22} />
           </div>
           <div className="sidebar-brand-text">
-            <h2 className="sidebar-title">GST Billing</h2>
-            <p className="sidebar-subtitle">by DiceCodes</p>
+            <h2 className="sidebar-title">SD Dynamics</h2>
+            <p className="sidebar-subtitle">Service ERP · GST</p>
           </div>
           <button
             type="button"
@@ -1107,7 +1124,8 @@ function App() {
         {currentView === 'workflows' && (
           <Suspense fallback={<ViewLoading />}><WorkflowRulesView key={businessKey} /></Suspense>
         )}
-        {currentView === 'activity-log' ? <ActivityLogView />
+        {currentView === 'hrm' ? <HrmView />
+        : currentView === 'activity-log' ? <ActivityLogView />
         : currentView === 'chart-settings' ? (
           <SettingsView onSaved={(p) => setProfile(p)} />
         ) : currentView === 'settings' && (

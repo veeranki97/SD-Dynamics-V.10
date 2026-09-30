@@ -27,6 +27,7 @@ const isPaymentDocType = (t) => {
 
 const STATUS_CONFIG = {
   unpaid:  { label: 'Unpaid',  icon: Clock,          color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)' },
+  converted:{ label: 'Converted', icon: CheckCircle, color: '#64748b', bg: 'rgba(100,116,139,0.14)' },
   partial: { label: 'Partial', icon: Clock,          color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.14)' },
   paid:    { label: 'Paid',    icon: CheckCircle,    color: '#059669', bg: 'rgba(5, 150, 105, 0.14)'  },
   overdue: { label: 'Overdue', icon: AlertTriangle,  color: '#dc2626', bg: 'rgba(220, 38, 38, 0.14)'  },
@@ -1881,7 +1882,11 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                           { label: 'Duplicate', onClick: () => onDuplicate?.(bill) },
                           (bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan'
                             || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot')
-                            || String(bill.invoiceType||'').includes('challan')) && (bill.status || '') !== 'cancelled'
+                            || String(bill.invoiceType||'').includes('challan'))
+                            && (bill.status || '') !== 'cancelled'
+                            && (bill.status || '') !== 'converted'
+                            && !bill.convertedToInvoiceId
+                            && !bill.data?.convertedLocked
                             ? { label: 'Convert to Tax Invoice', onClick: () => onConvert?.(bill) } : null,
                           isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled'
                             ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,

@@ -216,7 +216,7 @@ export default function ReportsView() {
           profit: (s.revenue || 0) - (s.expense || 0),
         })).sort((a, b) => b.profit - a.profit);
         return (
-          <div className="glass-panel" style={{ padding: '1.25rem' }}>
+          <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
             <h3 style={{ marginTop: 0 }}>Site-wise P&amp;L</h3>
             <p className="text-muted" style={{ fontSize: 13 }}>Revenue from invoices tagged with Site; expenses from expense.site / cost center.</p>
             <table className="data-table">
@@ -273,7 +273,7 @@ export default function ReportsView() {
           profit: (s.revenue || 0) - (s.expense || 0),
         })).sort((a, b) => b.profit - a.profit);
         return (
-          <div className="glass-panel" style={{ padding: '1.25rem' }}>
+          <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
             <h3 style={{ marginTop: 0 }}>Work Order–wise P&amp;L</h3>
             <p className="text-muted" style={{ fontSize: 13 }}>Link invoices to a Work Order number; tag expenses with WO to see profit per WO.</p>
             <table className="data-table">
@@ -310,7 +310,7 @@ export default function ReportsView() {
 
       {activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('products')}>
-          <Package size={16} /> Product Performance
+          <Package size={16} /> Service / Product Performance
         </button>
       </div>
 
@@ -597,7 +597,7 @@ export default function ReportsView() {
         const worstPayers = clientArr.filter(c => c.outstanding > 0).sort((a, b) => b.outstanding - a.outstanding).slice(0, 10);
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1rem' }}>
-            <div className="glass-panel" style={{ padding: '1.25rem' }}>
+            <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
               <h3 style={{ marginTop: 0, fontSize: '1rem' }}>🏆 Top clients by revenue</h3>
               {topByRevenue.length === 0 ? <p className="text-muted">No client data for this period.</p> : (
                 <table className="data-table" style={{ marginBottom: 0 }}>
@@ -615,7 +615,7 @@ export default function ReportsView() {
               )}
             </div>
 
-            <div className="glass-panel" style={{ padding: '1.25rem' }}>
+            <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
               <h3 style={{ marginTop: 0, fontSize: '1rem' }}>⚠️ Highest outstanding (worst payers)</h3>
               {worstPayers.length === 0 ? <p className="text-muted">Everyone is up to date. 🎉</p> : (
                 <table className="data-table" style={{ marginBottom: 0 }}>
@@ -678,6 +678,7 @@ export default function ReportsView() {
       {/* v1.9.5 — PRODUCT PERFORMANCE (best sellers, revenue per SKU) */}
       {/* ============================================================ */}
       {activeTab === 'products' && (() => {
+        /* Service-first report: line descriptions from invoices (not inventory-only) */
         const filteredBills = allFilteredBills.filter(b => getBillCurrency(b) === currencyFilter);
         // Aggregate quantity + revenue + last-sold per unique item name
         const byProduct = {};
@@ -688,7 +689,7 @@ export default function ReportsView() {
             if (!byProduct[name]) byProduct[name] = { name, hsn: item.hsn || '', qty: 0, revenue: 0, txns: 0, lastSold: '' };
             const qty = Number(item.quantity) || 0;
             const rate = Number(item.rate) || 0;
-            byProduct[name].qty += qty;
+            byProduct[name].qty += Math.round((Number(qty) || 0) * 1000) / 1000;
             byProduct[name].revenue += (qty * rate);
             byProduct[name].txns += 1;
             if (!byProduct[name].lastSold || b.invoiceDate > byProduct[name].lastSold) byProduct[name].lastSold = b.invoiceDate;
@@ -700,8 +701,8 @@ export default function ReportsView() {
         const mostSoldByUnits = [...productArr].sort((a, b) => b.qty - a.qty).slice(0, 10);
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1rem' }}>
-            <div className="glass-panel" style={{ padding: '1.25rem' }}>
-              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>💰 Top revenue producers</h3>
+            <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
+              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>💰 Top revenue services</h3>
               {bestSellers.length === 0 ? <p className="text-muted">No product data for this period.</p> : (
                 <table className="data-table" style={{ marginBottom: 0 }}>
                   <thead><tr><th>Product</th><th style={{ textAlign: 'right' }}>Revenue</th><th style={{ textAlign: 'right' }}>Qty sold</th></tr></thead>
@@ -710,7 +711,7 @@ export default function ReportsView() {
                       <tr key={i}>
                         <td className="font-medium" title={p.hsn ? `HSN ${p.hsn}` : ''}>{p.name}</td>
                         <td style={{ textAlign: 'right', color: '#059669', fontWeight: 600 }}>{formatCurrency(p.revenue, currencyFilter)}</td>
-                        <td style={{ textAlign: 'right' }}>{p.qty}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(p.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -718,8 +719,8 @@ export default function ReportsView() {
               )}
             </div>
 
-            <div className="glass-panel" style={{ padding: '1.25rem' }}>
-              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>📦 Most units sold</h3>
+            <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
+              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>📦 Most billed units</h3>
               {mostSoldByUnits.length === 0 ? <p className="text-muted">No product data.</p> : (
                 <table className="data-table" style={{ marginBottom: 0 }}>
                   <thead><tr><th>Product</th><th style={{ textAlign: 'right' }}>Qty sold</th><th style={{ textAlign: 'right' }}>Txns</th></tr></thead>
@@ -727,7 +728,7 @@ export default function ReportsView() {
                     {mostSoldByUnits.map((p, i) => (
                       <tr key={i}>
                         <td className="font-medium">{p.name}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{p.qty}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{Number(p.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                         <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{p.txns}</td>
                       </tr>
                     ))}
@@ -737,7 +738,7 @@ export default function ReportsView() {
             </div>
 
             <div className="glass-panel" style={{ padding: '1.25rem', gridColumn: '1 / -1' }}>
-              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>📋 All products ({productArr.length})</h3>
+              <h3 style={{ marginTop: 0, fontSize: '1rem' }}>📋 All services / items ({productArr.length})</h3>
               <div style={{ overflowX: 'auto' }}>
                 <table className="data-table" style={{ marginBottom: 0 }}>
                   <thead><tr>
@@ -753,7 +754,7 @@ export default function ReportsView() {
                       <tr key={i}>
                         <td className="font-medium">{p.name}</td>
                         <td className="text-muted" style={{ fontSize: '0.78rem' }}>{p.hsn || '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{p.qty}</td>
+                        <td style={{ textAlign: 'right' }}>{Number(p.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                         <td style={{ textAlign: 'right' }}>{formatCurrency(p.revenue, currencyFilter)}</td>
                         <td style={{ textAlign: 'right', color: 'var(--text-muted)' }}>{p.qty > 0 ? formatCurrency(p.revenue / p.qty, currencyFilter) : '—'}</td>
                         <td style={{ textAlign: 'right' }}>{p.txns}</td>

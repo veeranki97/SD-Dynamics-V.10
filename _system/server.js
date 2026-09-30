@@ -1211,9 +1211,10 @@ app.get('/api/check-update', async (req, res) => {
     // GitHub Releases API (for release notes). Both have a 4s timeout so a
     // flaky network can't lock the UI.
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
+    const t = setTimeout(() => ctrl.abort(), 12000);
     const [pkgRes, relRes] = await Promise.all([
-      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/package.json', { signal: ctrl.signal }),
+      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/_system/package.json', { signal: ctrl.signal })
+        .catch(() => fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/package.json', { signal: ctrl.signal })),
       fetch('https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest', {
         signal: ctrl.signal,
         headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SD-Dynamics-update-check' },
@@ -1248,7 +1249,7 @@ app.get('/api/check-update', async (req, res) => {
       releaseTag,
     });
   } catch {
-    res.json({ current: pkg.version, latest: null, updateAvailable: false, error: 'Could not check for updates' });
+    res.json({ current: pkg.version, latest: null, updateAvailable: false, error: 'Could not reach GitHub — check internet / firewall' });
   }
 });
 

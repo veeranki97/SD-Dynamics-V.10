@@ -63,7 +63,7 @@ const stateWithCode = (state) => {
 function Signature({ ctx, align = 'right' }) {
   const { sig } = ctx;
   return (
-    <div {...blockProps} data-pdf-signature="" style={{ textAlign: align, minHeight: 70, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+    <div {...blockProps} data-pdf-signature="" style={{ textAlign: align, minHeight: 52, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
       <div style={{ fontWeight: 700 }}>for {ctx.profile?.businessName || 'Your Business'}</div>
       {sig.show && (
         <div style={{ display: 'flex', gap: 6, justifyContent: align === 'right' ? 'flex-end' : 'center', alignItems: 'flex-end', margin: '4px 0' }}>
@@ -228,6 +228,8 @@ function PartyBlock({ ctx, heading, party, withContact }) {
 // TALLY STYLE
 // ---------------------------------------------------------------------------
 function TallyLayout({ ctx }) {
+  // Compact: prefer single A4 page — fewer blank rows, tight footer
+
   const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle } = ctx;
   const orderMap = Object.fromEntries(filledOrderDetails(details).map((f) => [f.key, f.value]));
   const shipTo = ctx.shipTo;
@@ -437,7 +439,7 @@ function TallyLayout({ ctx }) {
 // ---------------------------------------------------------------------------
 // BOXED GRID
 // ---------------------------------------------------------------------------
-const BOXED_MIN_ROWS = 8;
+const BOXED_MIN_ROWS = 4;
 
 function BoxedLayout({ ctx }) {
   const { details, client, items, totals, fmt, lineCalc, t, invoiceTitle, accent, profile } = ctx;
@@ -527,7 +529,7 @@ function BoxedLayout({ ctx }) {
                 </tr>
               );
             })}
-            {Array.from({ length: filler }, (_, i) => (
+            {Array.from({ length: Math.min(filler, 3) }, (_, i) => (
               <tr key={`fill-${i}`}>
                 {Array.from({ length: colCount }, (__, c) => (
                   <td key={c} style={{ ...cell, height: 26, ...(c === 0 ? { borderLeft: 'none' } : {}), ...(c === colCount - 1 ? { borderRight: 'none' } : {}) }} />
