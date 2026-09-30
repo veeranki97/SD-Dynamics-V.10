@@ -1232,7 +1232,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       });
       const capScale = Math.min(4, Math.max(2, Math.round((window.devicePixelRatio || 1) * 1.2)));
       const canvas = await html2canvas(container.firstElementChild || container, {
-        scale: capScale, backgroundColor: '#ffffff', useCORS: false, logging: false,
+        scale: Math.min(capScale || 3, 4), backgroundColor: '#ffffff', useCORS: false, logging: false, imageTimeout: 0,
       });
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const img = canvas.toDataURL('image/jpeg', 0.92);

@@ -579,7 +579,8 @@ function App() {
 
   // P1: Grouped navigation (Sales / Orders / Parties / Money / Books / Compliance)
   const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
+    { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HRMS' },
+      { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
     // Sales
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
@@ -588,7 +589,6 @@ function App() {
     { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Orders' },
     { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Orders' },
     // Parties
-    { id: 'hrm', icon: Users, label: 'HRM', module: 'clients', group: 'Parties' },
       { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Parties' },
     { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Parties' },
     // Money (contiguous — no duplicate MONEY section)

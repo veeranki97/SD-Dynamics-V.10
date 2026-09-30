@@ -2185,8 +2185,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     // smudged glyph edges on high-DPI screens.
     const capScale = (n) => Math.min(6, Math.max(2, Math.round(n)));
     const qualityCfg = {
-      draft:    { scale: 2, imgFormat: 'JPEG', quality: 0.85 },
-      standard: { scale: capScale(Math.max(3, (window.devicePixelRatio || 1) * 2)), imgFormat: 'JPEG', quality: 0.95 },
+      draft:    { scale: 2, imgFormat: 'JPEG', quality: 0.88 },
+      standard: { scale: capScale(Math.max(3.5, (window.devicePixelRatio || 1) * 2.2)), imgFormat: 'PNG', quality: 1.0 },
       hd:       { scale: capScale(Math.max(4, (window.devicePixelRatio || 1) * 2.5)), imgFormat: 'PNG', quality: 1.0 },
     };
     const q = qualityCfg[printSettings.pdfQuality] || qualityCfg.standard;
