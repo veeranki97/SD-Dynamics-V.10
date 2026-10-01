@@ -1901,6 +1901,35 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         const msg = jErr?.body?.error || jErr?.message || 'unknown';
         try { toast(`Invoice saved, but ledger journal failed (${msg}). Open Books → Journals if needed.`, 'warning'); } catch { /* */ }
       }
+      // Lock source PI/Quotation ONLY after Tax Invoice is saved (convert discard safe)
+      try {
+        const srcId = editingBill?._sourceDocId || editingBill?._sourceProformaId;
+        const srcNo = editingBill?._sourceDocNumber || editingBill?._sourceProformaNumber
+          || bill?.data?.details?.convertedFrom;
+        if (editingBill?._convertToType && (srcId || srcNo)) {
+          const allSrc = await getAllBills();
+          const source = allSrc.find(b =>
+            (srcId && (b.id === srcId || b.invoiceNumber === srcId))
+            || (srcNo && (b.invoiceNumber === srcNo || b.id === srcNo))
+          );
+          if (source && String(source.status || '').toLowerCase() !== 'converted') {
+            await saveBill({
+              ...source,
+              status: 'converted',
+              convertedAt: new Date().toISOString(),
+              convertedToInvoiceId: bill.invoiceNumber || bill.id,
+              data: {
+                ...(source.data || {}),
+                convertedLocked: true,
+                convertedToInvoiceId: bill.invoiceNumber || bill.id,
+              },
+            }, { overwrite: true });
+          }
+        }
+      } catch (lockErr) {
+        console.warn('Could not lock source after convert', lockErr);
+        try { toast('Tax Invoice saved, but source could not be locked as Converted.', 'warning'); } catch { /* */ }
+      }
       // v1.10.24 — Follow-up: write the `credit-transferred-out` entries
       // to each source overpaid bill. Sequential so a failure on any one
       // stops the chain (rare — same origin, same server, right after we

@@ -518,16 +518,8 @@ function App() {
     // legacy aliases used by generator
     clone._sourceProformaId = bill.id;
     clone._sourceProformaNumber = bill.invoiceNumber || bill.id;
-    // Soft-lock source immediately so Convert cannot be used twice
-    try {
-      const { saveBill } = await import('./store');
-      await saveBill({
-        ...bill,
-        status: 'converted',
-        convertedAt: new Date().toISOString(),
-        data: { ...(bill.data || {}), convertedLocked: true },
-      }, { overwrite: true });
-    } catch (e) { console.warn('Could not lock source doc', e); }
+    // Convert lock moved to InvoiceGenerator after successful Tax Invoice save.
+    // Locking here marked PI as Converted even when the user discarded the draft.
     clone.id = undefined;
     clone.invoiceNumber = '';
     clone.invoiceType = 'tax-invoice';
