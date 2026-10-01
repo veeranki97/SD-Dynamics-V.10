@@ -4,7 +4,7 @@ import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
-import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile } from '../utils';
+import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
@@ -575,9 +575,13 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
             confirmLabel: 'Record payment',
           });
         } catch { raw = null; }
-        postAmt = parseFloat(raw);
+        postAmt = parseMoney(raw);
         if (!isFinite(postAmt) || postAmt <= 0) {
           toast('Partial payment cancelled — amount required for ledger', 'warning');
+          return;
+        }
+        if (postAmt > outstanding + 0.05) {
+          toast(`Amount ₹${postAmt.toFixed(2)} exceeds outstanding ₹${outstanding.toFixed(2)}`, 'error');
           return;
         }
         updated.paidAmount = Math.min(billTotal, alreadyPaid + postAmt);
@@ -671,7 +675,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
 
         for (const j of related) {
           try {
-            const rev = journalReversePayment(j, `Unpaid — reverse ${inv || bid}`);
+            const rev = journalReversePayment(j);
             if (rev && rev.entries && rev.entries.length) {
               await saveJournal(rev);
               reversed++;
@@ -685,14 +689,20 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
             ? priorPayments
             : [{ amount: priorPaid, mode: 'bank-transfer', date: new Date().toISOString().split('T')[0], id: 'manual' }];
           for (const p of toReverse) {
-            const amt = Number(p.amount) || 0;
+            const amt = parseMoney(p.amount);
             if (amt < 0.01) continue;
             const isCash = String(p.mode || '').toLowerCase().includes('cash');
             const party = bill.clientName || bill.data?.client?.name || '';
+            const srcType = String(bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
+            const isAdv = srcType.includes('proforma') || srcType.includes('quot');
+            const creditAcc = isAdv ? 'Advance from Customers' : 'Sundry Debtors';
+            const inv = bill.invoiceNumber || bill.id || '';
             const rev = {
               id: 'jnl_rev_direct_' + (p.id || Date.now()) + '_' + Math.random().toString(36).slice(2, 6),
-              date: p.date || new Date().toISOString().split('T')[0],
-              narration: `Unpaid reverse ₹${amt.toFixed(2)} — ${inv || bid}`,
+              date: new Date().toISOString().split('T')[0],
+              narration: isAdv
+                ? `Reversal of Advance Receipt against ${inv}`
+                : `Reversal of Receipt against ${inv}`,
               refType: 'payment-reversal',
               refId: bid || inv,
               againstInvoice: inv,
@@ -700,7 +710,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
               clientName: party,
               entries: [
                 { account: isCash ? 'Cash' : 'Bank', debit: 0, credit: amt, party },
-                { account: 'Sundry Debtors', debit: amt, credit: 0, party },
+                { account: creditAcc, debit: amt, credit: 0, party },
               ],
             };
             try {
@@ -787,22 +797,20 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   };
 
   const recordPayment = async () => {
-    const amount = parseFloat(paymentInput.amount);
+    const amount = parseMoney(paymentInput.amount);
     if (!isFinite(amount) || amount <= 0) {
       toast('Enter a positive payment amount', 'warning'); return;
     }
     const bill = paymentModal;
-    const billTotal = Number(bill.totalAmount) || 0;
-    const alreadyPaid = Number(bill.paidAmount) || 0;
-    const outstanding = Math.max(0, billTotal - alreadyPaid);
-    if (amount > outstanding + 0.01) {
-      const proceed = await confirmAction({
-        title: 'Record as overpayment?',
-        message: `This payment (${formatCurrency(amount, bill.currency)}) is more than the outstanding balance (${formatCurrency(outstanding, bill.currency)}).\n\nThe extra will be saved as client credit and can be applied to future invoices.`,
-        confirmLabel: 'Yes, record overpayment',
-        tone: 'warning',
-      });
-      if (!proceed) return;
+    const billTotal = parseMoney(bill.totalAmount);
+    const alreadyPaid = parseMoney(bill.paidAmount);
+    const outstanding = Math.max(0, Math.round((billTotal - alreadyPaid) * 100) / 100);
+    if (amount > outstanding + 0.05) {
+      toast(
+        `Payment ₹${amount.toFixed(2)} exceeds outstanding ₹${outstanding.toFixed(2)} (invoice ₹${billTotal.toFixed(2)}). Entry rejected.`,
+        'error'
+      );
+      return;
     }
     let receiptNoSeq = '';
     try { receiptNoSeq = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }

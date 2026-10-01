@@ -364,7 +364,6 @@ export default function HrmView() {
     { id: 'filings', label: 'ECR / ESIC' },
     { id: 'registers', label: 'Registers' },
     { id: 'minwages', label: 'Min Wages' },
-    { id: 'exports', label: 'ECR / ESIC / Registers' },
     { id: 'settings', label: 'HR Settings' },
   ];
 
@@ -595,9 +594,12 @@ export default function HrmView() {
         </div>
       )}
 
-      {tab === 'exports' && (
+      {(tab === 'exports' || tab === 'filings' || tab === 'registers') && (
         <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
-          <h3 style={{ marginTop: 0 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
+          <h3 style={{ marginTop: 0 }}>
+            {tab === 'registers' ? 'Statutory registers' : tab === 'filings' ? 'EPFO ECR / ESIC filings' : 'Statutory downloads'}
+            {' — '}{MONTH_NAMES[month - 1]} {year}
+          </h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             Process payroll for the selected month before ECR / ESIC / wages register. Attendance CSV works after attendance is saved.
           </p>

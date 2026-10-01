@@ -25,7 +25,11 @@ export function calcWOUsage(wo, allBills) {
   if (!wo) return { billedAmount: 0, remaining: 0, linkedInvoiceIds: [], billedByItem: {}, remainingByItem: [] };
 
   const linked = (allBills || []).filter(b => {
-    if (b.status === 'cancelled') return false;
+    if (b.status === 'cancelled' || b.status === 'converted') return false;
+    const typ = String(b.invoiceType || b.data?.invoiceType || '').toLowerCase();
+    // Proforma / quotation / challan do not consume WO budget — only tax docs do.
+    // Converting PI → Tax Invoice therefore does not double-encumber.
+    if (/proforma|quotation|estimate|delivery|challan/.test(typ)) return false;
     if (b.workOrderId && b.workOrderId === wo.id) return true;
     const woNo = wo.woNumber || wo.id;
     const billWo = b.data?.details?.workOrderNo || b.data?.workOrderNo || b.workOrderNo;
@@ -88,10 +92,10 @@ export function canInvoiceAgainstWO(wo, invoiceTotal, allBills, invoiceItems, op
     return { ok: false, reason: 'Work Order is not approved' };
   }
   // When editing an existing invoice, exclude it from "already billed" so re-save is not treated as double-billing.
-  const excludeId = opts.excludeBillId || opts.editingBillId || null;
-  const excludeNum = opts.excludeInvoiceNumber || null;
+  const excludeId = opts.excludeBillId || opts.editingBillId || opts.excludeSourceDocId || null;
+  const excludeNum = opts.excludeInvoiceNumber || opts.excludeSourceDocNumber || null;
   const billsForUsage = (allBills || []).filter(b => {
-    if (excludeId && b.id === excludeId) return false;
+    if (excludeId && (b.id === excludeId || b.invoiceNumber === excludeId)) return false;
     if (excludeNum && (b.invoiceNumber === excludeNum || b.id === excludeNum)) return false;
     return true;
   });

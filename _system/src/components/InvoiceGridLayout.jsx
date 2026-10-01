@@ -92,12 +92,18 @@ function taxRows(ctx) {
   const rows = [];
   const pct = singleRate != null ? ` (${singleRate}%)` : '';
   const halfPct = singleRate != null ? ` (${singleRate / 2}%)` : '';
+  const lineTax = Number(ctx.totalTax) || 0;
+  const igstAmt = Number(totals.igst) > 0.005 ? Number(totals.igst) : (isInterstate ? lineTax : 0);
+  const cgstAmt = Number(totals.cgst) > 0.005 ? Number(totals.cgst) : (!isInterstate ? lineTax / 2 : 0);
+  const sgstAmt = Number(totals.sgst) > 0.005 || Number(totals.utgst) > 0.005
+    ? (Number(totals.sgst) || 0) + (Number(totals.utgst) || 0)
+    : (!isInterstate ? lineTax / 2 : 0);
   if (showGST) {
-    if (isIndia && isInterstate) rows.push(['IGST' + pct, totals.igst]);
+    if (isIndia && isInterstate) rows.push(['IGST' + pct, igstAmt]);
     else if (isIndia) {
-      rows.push(['CGST' + halfPct, totals.cgst]);
-      rows.push([(totals.isIntraUT ? 'UTGST' : 'SGST') + halfPct, (totals.sgst || 0) + (totals.utgst || 0)]);
-    } else rows.push([taxLabel, (totals.cgst || 0) + (totals.sgst || 0) + (totals.igst || 0)]);
+      rows.push(['CGST' + halfPct, cgstAmt]);
+      rows.push([(totals.isIntraUT ? 'UTGST' : 'SGST') + halfPct, sgstAmt]);
+    } else rows.push([taxLabel, (totals.cgst || 0) + (totals.sgst || 0) + (totals.igst || 0) || lineTax]);
   }
   if (totals.cess > 0) rows.push(['Cess', totals.cess]);
   if (totals.tcsAmount > 0) rows.push([`TCS${options.tcsSection ? ` (${options.tcsSection} @ ${options.tcsRate}%)` : ''}`, totals.tcsAmount]);

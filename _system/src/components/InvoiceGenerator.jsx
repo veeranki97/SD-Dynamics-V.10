@@ -1712,8 +1712,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       invoiceType,
       currency: invoiceOptions.currency || 'INR',
       totalAmount: totals.total,
-      // v1.10.1 — was `cgst + sgst + igst` which omitted UTGST and cess.
-      // Reports treated cess as revenue for tobacco/auto/coal sellers.
       totalTaxAmount: totals.totalTaxAmount ?? (totals.cgst + totals.sgst + (totals.utgst || 0) + totals.igst + (totals.cess || 0)),
       status: seedStatus,
       paidAmount: seedPaidAmount,
@@ -1855,6 +1853,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           const check = canInvoiceAgainstWO(wo, bill.totalAmount, allBillsNow, items, {
             excludeBillId: editingBill?.id || (shouldOverwrite ? bill.id : null),
             excludeInvoiceNumber: editingBill?.invoiceNumber || details?.invoiceNumber || bill.invoiceNumber,
+            excludeSourceDocId: editingBill?._sourceDocId || editingBill?._sourceProformaId || null,
+            excludeSourceDocNumber: editingBill?._sourceDocNumber || editingBill?._sourceProformaNumber || null,
           });
           if (!check.ok) {
             toast(check.reason, 'error');

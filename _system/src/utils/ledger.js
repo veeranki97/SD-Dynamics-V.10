@@ -139,7 +139,7 @@ export function journalFromTaxInvoice(bill) {
 }
 
 export function journalFromPayment(bill, paymentAmount, mode = 'bank', paymentMeta = {}) {
-  const amt = Number(paymentAmount) || 0;
+  const amt = money(paymentAmount);
   if (amt <= 0) return null;
   const bankAcc = String(mode).toLowerCase().includes('cash') ? ACCOUNTS.CASH : ACCOUNTS.CASH_BANK;
   const party = bill.data?.client?.name || bill.clientName || paymentMeta.party || '';
@@ -208,23 +208,35 @@ export function journalApplyCustomerAdvance(bill, amount, meta = {}) {
   };
 }
 
-export function journalReversePayment(originalJournal, reason = 'Payment reversed') {
+export function journalReversePayment(originalJournal, reason) {
   if (!originalJournal?.entries?.length) return null;
+  const origRef = originalJournal.invoiceNumber || originalJournal.againstInvoice
+    || originalJournal.refId || originalJournal.id || '';
+  const isAdv = originalJournal.refType === 'advance'
+    || /advance/i.test(String(originalJournal.narration || ''));
+  const clean = reason && !/was:/i.test(reason)
+    ? reason
+    : (isAdv
+      ? `Reversal of Advance Receipt against ${origRef}`
+      : `Reversal of Receipt against ${origRef}`);
   return {
-    id: 'jnl_rev_' + (originalJournal.id || Date.now()),
+    id: 'jnl_rev_' + (originalJournal.id || Date.now()) + '_' + Date.now().toString(36).slice(-4),
     date: new Date().toISOString().split('T')[0],
-    narration: reason + (originalJournal.narration ? ` — was: ${originalJournal.narration}` : ''),
+    narration: clean,
     refType: 'payment-reversal',
     refId: originalJournal.refId || originalJournal.id,
     party: originalJournal.party || originalJournal.clientName || '',
     clientName: originalJournal.clientName || originalJournal.party || '',
     site: originalJournal.site || null,
     costCenterId: originalJournal.costCenterId || null,
+    workOrderId: originalJournal.workOrderId || null,
+    againstInvoice: originalJournal.againstInvoice || originalJournal.invoiceNumber || origRef,
+    invoiceNumber: originalJournal.invoiceNumber || '',
     reversesId: originalJournal.id,
     entries: (originalJournal.entries || []).map(e => ({
       account: e.account,
-      debit: Number(e.credit) || 0,
-      credit: Number(e.debit) || 0,
+      debit: money(e.credit),
+      credit: money(e.debit),
       party: e.party,
     })),
   };

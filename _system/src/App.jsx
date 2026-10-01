@@ -875,7 +875,7 @@ function App() {
           </div>
           <div className="sidebar-brand-text">
             <h2 className="sidebar-title">SD Dynamics</h2>
-            <p className="sidebar-subtitle">Service ERP · GST</p>
+            <p className="sidebar-subtitle">Service ERP</p>
           </div>
           <button
             type="button"

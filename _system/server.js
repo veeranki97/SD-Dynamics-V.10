@@ -248,6 +248,11 @@ function isInterstateBill(profile, client, details) {
   return false;
 }
 
+/**
+ * Canonical server-side tax rollup. Never trust browser-only totals.
+ * Proforma / quotation KEEP GST (display + stored totals) — only
+ * Bill of Supply / composition / delivery challan omit GST.
+ */
 function recomputeBillTax(bill) {
   if (!bill || typeof bill !== 'object') return { bill, warnings: ['invalid bill'] };
   const data = bill.data || {};
@@ -255,74 +260,114 @@ function recomputeBillTax(bill) {
   const profile = data.profile || {};
   const client = data.client || {};
   const details = data.details || {};
-  const invType = (data.invoiceType || bill.type || 'tax-invoice').toLowerCase();
-  const opts = data.invoiceOptions || {};
-  const showGST = opts.showGST !== false
-    && !/bill-of-supply|quotation|proforma|estimate|delivery/.test(invType);
-  const reverseCharge = !!opts.reverseCharge;
+  const invType = String(data.invoiceType || bill.invoiceType || 'tax-invoice').toLowerCase();
+  const opts = { ...(data.invoiceOptions || {}) };
+  const omitGst = /bill-of-supply|composition/.test(invType)
+    || (invType.includes('delivery') && invType.includes('challan'));
+  const showGST = opts.showGST !== false && !omitGst;
 
-  let taxable = 0;
-  let taxTotal = 0;
-  for (const it of items) {
-    const qty = Math.max(0, Number(it.quantity) || Number(it.qty) || 0);
-    const rate = Math.max(0, Number(it.rate) || 0);
-    const disc = Math.max(0, Number(it.discount) || 0);
-    let line = Math.max(0, qty * rate - disc);
-    const taxPct = showGST ? Math.max(0, Number(it.taxPercent) || Number(it.taxRate) || 0) : 0;
-    if (opts.taxInclusive && taxPct > 0) {
-      const base = line / (1 + taxPct / 100);
-      const tax = line - base;
-      taxable += base;
-      taxTotal += tax;
-    } else {
-      taxable += line;
-      taxTotal += line * taxPct / 100;
-    }
-  }
-  taxable = money2(taxable);
-  taxTotal = money2(taxTotal);
-
-  let cgst = 0, sgst = 0, igst = 0;
-  if (showGST && taxTotal > 0 && !reverseCharge) {
-    if (isInterstateBill(profile, client, details)) {
-      igst = taxTotal;
-    } else {
-      cgst = money2(taxTotal / 2);
-      sgst = money2(taxTotal - cgst);
-    }
+  let totals;
+  try {
+    totals = computeInvoiceTotals({
+      items,
+      profile,
+      client,
+      details,
+      showGST,
+      taxInclusive: !!(opts.taxInclusive || data.taxInclusive),
+      invoiceOptions: { ...opts, showGST },
+    });
+  } catch (e) {
+    console.warn('[tax] computeInvoiceTotals failed, falling back', e.message);
+    totals = null;
   }
 
-  const roundOff = money2(Number(data.totals?.roundOff) || Number(bill.roundOff) || 0);
-  const grand = money2(taxable + cgst + sgst + igst + roundOff);
+  if (!totals) {
+    // Fallback arithmetic if utils import path fails
+    let taxable = 0, taxTotal = 0;
+    for (const it of items) {
+      const qty = Math.max(0, Number(it.quantity) || Number(it.qty) || 0);
+      const rate = Math.max(0, Number(it.rate) || 0);
+      const disc = Math.max(0, Number(it.discount) || 0);
+      let line = Math.max(0, qty * rate - disc);
+      const taxPct = showGST ? Math.max(0, Number(it.taxPercent) || Number(it.taxRate) || 0) : 0;
+      if ((opts.taxInclusive || data.taxInclusive) && taxPct > 0) {
+        const base = line / (1 + taxPct / 100);
+        taxable += base;
+        taxTotal += line - base;
+      } else {
+        taxable += line;
+        taxTotal += line * taxPct / 100;
+      }
+    }
+    taxable = money2(taxable);
+    taxTotal = money2(taxTotal);
+    const interstate = isInterstateBill(profile, client, details);
+    totals = {
+      taxableAmount: taxable,
+      cgst: showGST && !interstate ? money2(taxTotal / 2) : 0,
+      sgst: showGST && !interstate ? money2(taxTotal / 2) : 0,
+      igst: showGST && interstate ? taxTotal : 0,
+      totalTaxAmount: showGST ? taxTotal : 0,
+      total: money2(taxable + (showGST ? taxTotal : 0)),
+      isInterstate: interstate,
+    };
+  }
 
+  const cgst = money2(totals.cgst);
+  const sgst = money2(totals.sgst);
+  const igst = money2(totals.igst);
+  const utgst = money2(totals.utgst);
+  const cess = money2(totals.cess);
+  const taxAmt = money2(totals.totalTaxAmount ?? (cgst + sgst + igst + utgst + cess));
+  const grand = money2(totals.total);
+  const warnings = [];
   const prevTotal = money2(bill.totalAmount);
   const prevTax = money2(bill.totalTaxAmount);
-  const warnings = [];
-  if (Math.abs(prevTotal - grand) > 1.0 || Math.abs(prevTax - money2(cgst + sgst + igst)) > 1.0) {
-    warnings.push(`Tax recalculated on server (client total ${prevTotal} → ${grand})`);
+  if (Math.abs(prevTotal - grand) > 0.009 || Math.abs(prevTax - taxAmt) > 0.009) {
+    warnings.push(`Tax recalculated on server (client total ${prevTotal} → ${grand}, tax ${prevTax} → ${taxAmt})`);
   }
 
-  const totals = {
+  const mergedTotals = {
     ...(data.totals || {}),
-    subtotal: taxable,
-    subTotal: taxable,
-    cgst, sgst, igst,
-    totalTax: money2(cgst + sgst + igst),
-    totalTaxAmount: money2(cgst + sgst + igst),
-    roundOff,
+    ...totals,
+    cgst, sgst, igst, utgst, cess,
+    totalTax: taxAmt,
+    totalTaxAmount: taxAmt,
     total: grand,
     grandTotal: grand,
   };
 
   bill.totalAmount = grand;
-  bill.totalTaxAmount = money2(cgst + sgst + igst);
+  bill.totalTaxAmount = taxAmt;
   bill.data = {
     ...data,
-    totals,
+    totals: mergedTotals,
     serverTaxVerified: true,
     serverTaxWarnings: warnings,
   };
   return { bill, warnings };
+}
+
+/** Reject fat-finger payments that exceed outstanding (Grand Total − paid). */
+function validateBillPayments(bill) {
+  const total = money2(bill.totalAmount);
+  const payments = Array.isArray(bill.payments) ? bill.payments : [];
+  let paid = 0;
+  for (const p of payments) {
+    const amt = money2(p.amount);
+    if (amt < 0) return { ok: false, error: 'Payment amount cannot be negative' };
+    paid = money2(paid + amt);
+  }
+  // Allow 1 paise rounding; reject overpayment (incl. 10× typos)
+  if (paid > total + 0.05) {
+    return {
+      ok: false,
+      error: `Payment ₹${paid.toFixed(2)} exceeds invoice grand total ₹${total.toFixed(2)}. Outstanding is ₹${Math.max(0, total - (money2(bill.paidAmount) || 0)).toFixed(2)}.`,
+    };
+  }
+  bill.paidAmount = paid;
+  return { ok: true };
 }
 
 
@@ -361,6 +406,9 @@ app.post('/api/bills', (req, res) => {
   } catch (e) {
     console.warn('[tax] recompute failed, storing client totals:', e.message);
   }
+
+  const payCheck = validateBillPayments(bill);
+  if (!payCheck.ok) return res.status(400).json({ error: payCheck.error, code: 'payment-exceeds-invoice' });
 
   // P2: default docstatus for financial invoices
   if (bill.docstatus == null) {
@@ -779,9 +827,21 @@ app.post('/api/journals', (req, res) => {
     if (!j?.id) return res.status(400).json({ error: 'Missing id' });
     const dir = path.join(DATA_DIR, 'journals');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const dest = path.join(dir, safeFileName(j.id) + '.json');
+    // Paise-safe money on every line; never mutate an existing journal (append-only)
+    j.entries = (j.entries || []).map(e => ({
+      ...e,
+      debit: money2(e.debit),
+      credit: money2(e.credit),
+    }));
+    let dest = path.join(dir, safeFileName(j.id) + '.json');
     const overwrite = req.query.overwrite === '1' || req.query.overwrite === 'true' || j.overwrite === true
-      || String(j.id || '').startsWith('jnl_inv_') || String(j.id || '').startsWith('jnl_pay_');
+      || String(j.id || '').startsWith('jnl_inv_');
+    // Payment / reversal journals are append-only — never overwrite history
+    if ((String(j.id || '').startsWith('jnl_pay_') || String(j.id || '').startsWith('jnl_rev_'))
+        && fs.existsSync(dest) && req.query.overwrite !== '1') {
+      j.id = j.id + '_' + Date.now().toString(36);
+      dest = path.join(dir, safeFileName(j.id) + '.json');
+    }
     if (fs.existsSync(dest) && !overwrite) {
       return res.status(409).json({
         error: 'journal-exists',
@@ -934,6 +994,23 @@ app.delete('/api/profiles/:id', (req, res) => {
 // META (counters, etc.)
 // ========================
 const META_PATH = path.join(DATA_DIR, 'meta.json');
+
+// Must be registered BEFORE /api/meta/:key or Express treats "resetCounters" as a key.
+app.post('/api/meta/resetCounters', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {});
+    const keys = Object.keys(meta).filter(k => k.startsWith('counter_'));
+    keys.forEach(k => { meta[k] = 0; });
+    if (req.body && req.body.startNumber != null) {
+      const n = Math.max(0, Number(req.body.startNumber) || 0);
+      keys.forEach(k => { meta[k] = n; });
+    }
+    writeJSON(META_PATH, meta);
+    res.json({ success: true, reset: keys, meta: Object.fromEntries(keys.map(k => [k, meta[k]])) });
+  } catch (e) {
+    errRes(res, 500, 'server-error', e);
+  }
+});
 
 app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
@@ -2220,24 +2297,6 @@ app.get('/api/hrm/reports/form-xvii', (req, res) => {
     res.send('\ufeff' + lines.join('\n'));
   } catch (e) {
     res.status(500).send(e.message || 'Form XVII failed');
-  }
-});
-
-// ---- Reset document counters (testing) — does NOT delete bills ----
-app.post('/api/meta/resetCounters', (req, res) => {
-  try {
-    const meta = readJSON(META_PATH, {});
-    const keys = Object.keys(meta).filter(k => k.startsWith('counter_'));
-    keys.forEach(k => { meta[k] = 0; });
-    // optional: body.startNumber
-    if (req.body && req.body.startNumber != null) {
-      const n = Math.max(0, Number(req.body.startNumber) || 0);
-      keys.forEach(k => { meta[k] = n; });
-    }
-    writeJSON(META_PATH, meta);
-    res.json({ success: true, reset: keys, meta: Object.fromEntries(keys.map(k => [k, meta[k]])) });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
   }
 });
 

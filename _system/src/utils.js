@@ -238,6 +238,15 @@ export const TDS_TCS_THRESHOLD = 5_000_000;
 const sum = (arr) => arr.reduce((s, n) => s + (Number(n) || 0), 0);
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+/** Strip ₹ / commas / Indian grouping and round to 2 dp. */
+export function parseMoney(v) {
+  if (typeof v === 'number' && isFinite(v)) return r2(v);
+  const s = String(v ?? '').replace(/[₹Rs.\s]/g, '').replace(/,/g, '').trim();
+  const n = Number(s);
+  return r2(isFinite(n) ? n : 0);
+}
+export const moneyRound = r2;
+
 export function computeInvoiceTotals(opts) {
   // v1.10.33 — Destructure defaults only fire on `undefined`, not `null`.
   // Callers that pass `profile: null` (e.g. InvoiceGenerator mounted
