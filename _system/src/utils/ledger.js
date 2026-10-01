@@ -141,6 +141,10 @@ export function journalFromTaxInvoice(bill) {
 export function journalFromPayment(bill, paymentAmount, mode = 'bank', paymentMeta = {}) {
   const amt = money(paymentAmount);
   if (amt <= 0) return null;
+  // P0: pure advance-application / convert transfer — no Bank movement
+  if (paymentMeta?.noBank || paymentMeta?.settlement === 'advance-apply' || mode === 'advance-apply') {
+    return null;
+  }
   const bankAcc = String(mode).toLowerCase().includes('cash') ? ACCOUNTS.CASH : ACCOUNTS.CASH_BANK;
   const party = bill.data?.client?.name || bill.clientName || paymentMeta.party || '';
   const payDate = paymentMeta.date || new Date().toISOString().split('T')[0];

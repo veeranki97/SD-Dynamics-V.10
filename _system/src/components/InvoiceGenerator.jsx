@@ -1893,7 +1893,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               id: 'conv',
               date: bill.invoiceDate,
             });
-            if (adj) await saveJournal(adj, { overwrite: true });
+            if (adj) {
+              adj.againstInvoice = bill.invoiceNumber || bill.id;
+              adj.invoiceNumber = bill.invoiceNumber || bill.id;
+              adj.refId = bill.invoiceNumber || bill.id;
+              await saveJournal(adj, { overwrite: true });
+            }
+            // P0: transferred PI cash already hit Bank on the original advance.
+            // Do NOT create receipt/Bank journals for the transferred amount.
+            // Debtors cleared by advance-apply JE above; residual unpaid stays on Debtors.
           }
         }
       } catch (jErr) {

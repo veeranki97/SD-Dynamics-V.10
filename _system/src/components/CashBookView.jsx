@@ -69,9 +69,11 @@ export default function CashBookView() {
         const dr = Math.round((Number(e.debit) || 0) * 100) / 100;
         const cr = Math.round((Number(e.credit) || 0) * 100) / 100;
         if (dr < 0.005 && cr < 0.005) return;
-        const invRef = j.againstInvoice || j.invoiceNumber || j.receiptNo
-          || (j.refType === 'expense' ? (j.narration || '') : '')
-          || j.refId || '';
+        // P2: human document number only — never internal pay_/jnl_ hashes
+        let invRef = j.againstInvoice || j.invoiceNumber || j.receiptNo || '';
+        if (!invRef && j.refType === 'expense') invRef = j.narration || '';
+        if (!invRef && j.refId && !/^pay_|^jnl_|^rcpt_/i.test(String(j.refId))) invRef = String(j.refId);
+        if (!invRef) invRef = (j.narration || '').split('—')[0].trim().slice(0, 40);
         entries.push({
           date: j.date,
           type: j.refType === 'payment-reversal' ? 'Reversal'

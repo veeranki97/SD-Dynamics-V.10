@@ -30,7 +30,7 @@ set -eu
 # installing dependencies is worse than one that finishes or rolls back.
 trap '' HUP PIPE
 
-REPO_API='https://api.github.com/repos/IamRamgarhia/Free-GST-Billing-Software/releases/latest'
+REPO_API='https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest'
 
 say()  { printf '  %s\n' "$*" 2>/dev/null || true; }
 fail() { printf '\n  ERROR: %s\n\n' "$*" >&2 2>/dev/null || true; exit 1; }

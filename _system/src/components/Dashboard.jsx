@@ -859,20 +859,32 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         currency: bill.currency || bill.data?.invoiceOptions?.currency || 'INR',
         source: 'auto-from-payment',
         billId: bill.id,
+        // P2: stamp current business so receipt is not "unassigned" under all profiles
+        ownerGstin: profile?.gstin || '',
+        ownerName: profile?.businessName || '',
+        profileId: profile?.id || '',
       });
     } catch { /* non-fatal — receipt is still viewable from the invoice's Payment History */ }
     toast(`Payment of ${formatCurrency(amount, bill.currency)} recorded`, 'success');
     
     // Double-entry + cash book: Bank/Cash Dr · Debtors Cr (party-tagged)
     try {
-      const jnl = journalFromPayment(updatedBill, amount, paymentInput.mode, {
-        id: paymentEntry.id,
-        date: paymentEntry.date,
-        party: bill.clientName || bill.data?.client?.name,
-      });
+      // P0: if this payment only applies convert-advance (no new cash), skip Bank journal
+      const isAdvanceApply = /advance\s*apply|from convert|_fromConvert/i.test(String(paymentInput.note || ''))
+        || paymentInput.mode === 'advance-apply';
+      const jnl = isAdvanceApply
+        ? null
+        : journalFromPayment(updatedBill, amount, paymentInput.mode, {
+            id: paymentEntry.id,
+            date: paymentEntry.date,
+            party: bill.clientName || bill.data?.client?.name,
+            againstDoc: bill.invoiceNumber || bill.id,
+          });
       if (jnl) {
         jnl.againstInvoice = bill.invoiceNumber || bill.id;
+        jnl.invoiceNumber = bill.invoiceNumber || bill.id;
         jnl.receiptNo = paymentEntry.receiptNo;
+        jnl.refId = bill.invoiceNumber || bill.id; // human ref, not hash
         await saveJournal(jnl);
       }
     } catch (e) {

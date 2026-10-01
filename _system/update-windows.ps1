@@ -38,7 +38,7 @@ if (Test-Path $dataDir) {
 # --- Step 2: Find latest release ---
 Write-Host '  Checking latest release from GitHub...'
 try {
-  $api = Invoke-RestMethod -Uri 'https://api.github.com/repos/veeranki97/SD-Dynamics/releases/latest' -Headers @{ 'User-Agent' = 'SDDynamics-Updater' }
+  $api = Invoke-RestMethod -Uri 'https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest' -Headers @{ 'User-Agent' = 'SDDynamics-Updater' }
   $tag = $api.tag_name
   $zipAsset = $api.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
   if (-not $zipAsset) {

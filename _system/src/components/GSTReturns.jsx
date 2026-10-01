@@ -850,7 +850,17 @@ export default function GSTReturns() {
       if (!hsnMap[key]) hsnMap[key] = { hsn, rate, uqc, description: item.name || '', quantity: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, totalTax: 0 };
       const split = computeItemTaxSplit(item, isInterState, !!bill.data?.taxInclusive, isIntraUT);
       const sign = hsnSign(bill);
-      hsnMap[key].quantity += sign * (item.quantity || 0);
+      // P1: qty from line qty only; ignore absurd OCR/WO values for HSN table
+      {
+        let q = Number(item.quantity ?? item.qty) || 0;
+        if (q < 0) q = 0;
+        if (q > 100000) {
+          const rate = Number(item.rate) || 0;
+          const taxAmt = Number(split.taxable) || 0;
+          q = rate > 0 ? Math.round((taxAmt / rate) * 1000) / 1000 : 0;
+        }
+        hsnMap[key].quantity += sign * q;
+      }
       hsnMap[key].taxable += sign * split.taxable;
       hsnMap[key].cgst += sign * split.cgst;
       hsnMap[key].sgst += sign * (split.sgst + split.utgst);
@@ -1083,7 +1093,16 @@ export default function GSTReturns() {
         const key = `${hsn}|${rate}|${uqc}`;
         if (!hsnDetailed[key]) hsnDetailed[key] = { hsn, desc: item.name || '', uqc, qty: 0, rate, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, totalValue: 0 };
         const split = computeItemTaxSplit(item, isInter, !!bill.data?.taxInclusive, isIntraUT);
-        hsnDetailed[key].qty += item.quantity || 0;
+        {
+          let q = Number(item.quantity ?? item.qty) || 0;
+          if (q < 0) q = 0;
+          if (q > 100000) {
+            const rate = Number(item.rate) || 0;
+            const taxAmt = Number(split.taxable) || 0;
+            q = rate > 0 ? Math.round((taxAmt / rate) * 1000) / 1000 : 0;
+          }
+          hsnDetailed[key].qty += q;
+        }
         hsnDetailed[key].taxable += split.taxable;
         hsnDetailed[key].cgst += split.cgst;
         hsnDetailed[key].sgst += split.sgst + split.utgst;
@@ -1160,31 +1179,52 @@ export default function GSTReturns() {
     }
     const gstin = profile.gstin || '';
     const getReturnPeriod = () => {
-    // Portal expects MMYYYY of the LAST month of the return period for Q/Y
+    // Portal expects MMYYYY. Prefer filter; if bills exist, align to latest invoice month when month filter empty/invalid.
+    const y4 = (() => {
+      const raw = String(yearFilter || '').replace(/\D/g, '');
+      if (raw.length >= 4) return raw.slice(0, 4);
+      // FY style 2026-27 → use first year for Apr-Dec logic handled by quarter map
+      if (String(yearFilter).includes('-')) {
+        const p = String(yearFilter).split('-');
+        return (p[0] || '').slice(0, 4) || String(new Date().getFullYear());
+      }
+      return String(new Date().getFullYear());
+    })();
     if (filterMode === 'month') {
-      const m = String(monthFilter || '').padStart(2, '0');
-      return `${m}${yearFilter}`;
+      let m = parseInt(monthFilter, 10);
+      if (!Number.isFinite(m) || m < 1 || m > 12) {
+        // Derive from filtered tax invoices (CA: period must match invoice dates)
+        const months = (filteredBills || []).map(b => {
+          const d = b.invoiceDate || b.data?.details?.invoiceDate || '';
+          return d.length >= 7 ? d.slice(0, 7) : '';
+        }).filter(Boolean).sort();
+        if (months.length) {
+          const last = months[months.length - 1];
+          return last.slice(5, 7) + last.slice(0, 4);
+        }
+        m = new Date().getMonth() + 1;
+      }
+      return String(m).padStart(2, '0') + y4;
     }
     if (filterMode === 'quarter') {
       const qMap = { Q1: '06', Q2: '09', Q3: '12', Q4: '03' };
-      const mm = qMap[quarterFilter] || '03';
-      // Q4 (Jan-Mar) belongs to FY ending yearFilter often — use yearFilter as stored
-      let y = yearFilter;
+      const mm = qMap[quarterFilter] || '06';
+      let y = y4;
       if (quarterFilter === 'Q4' && String(yearFilter).includes('-')) {
-        // FY label like 2026-27 → calendar year of Mar is 2027
         const parts = String(yearFilter).split('-');
-        y = parts[1]?.length === 2 ? parts[0].slice(0, 2) + parts[1] : parts[1] || yearFilter;
+        y = parts[1]?.length === 2 ? parts[0].slice(0, 2) + parts[1] : (parts[1] || y4);
       }
       return `${mm}${y}`;
     }
-    // year / FY — use March of end year
-    return `03${yearFilter}`;
+    // year / FY — March of FY end
+    if (String(yearFilter).includes('-')) {
+      const parts = String(yearFilter).split('-');
+      const endY = parts[1]?.length === 2 ? parts[0].slice(0, 2) + parts[1] : (parts[1] || y4);
+      return `03${endY}`;
+    }
+    return `03${y4}`;
   };
-  const ret_period = (typeof getReturnPeriod === 'function')
-      ? getReturnPeriod()
-      : (filterMode === 'month'
-      ? String(parseInt(monthFilter) + 1).padStart(2, '0') + yearFilter
-      : getFilingPeriod(filteredBills[0]?.invoiceDate || filteredExpenses[0]?.date || new Date().toISOString()));
+  const ret_period = getReturnPeriod();
 
     // Outward supplies — currently we only emit Table 3.1(a). Zero-rated / nil / exempt
     // require invoice-level categorization which is on the v1.5 roadmap; for now those
