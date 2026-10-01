@@ -1880,24 +1880,46 @@ function hrmEnsure() {
   if (!fs.existsSync(settingsFile)) {
     writeJSON(settingsFile, {
       pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
+      // Sites / locations (pick on employee form after State)
+      sites: [
+        { id: 'site_hq', name: 'Head Office', state: '' },
+      ],
+      establishmentCode: '', // EPFO establishment code
+      esicCode: '', // ESIC employer code
+      employerName: '',
     });
   }
 }
+/** Always use forward-slash relative keys so dirCache matches writes. */
+function hrmRel(subdir) {
+  return 'hrm/' + String(subdir || '').replace(/\\/g, '/');
+}
 function hrmReadAll(subdir) {
   hrmEnsure();
-  return readAllFromDir(path.join('hrm', subdir));
+  return readAllFromDir(hrmRel(subdir));
+}
+function hrmInvalidate(subdir) {
+  invalidateCache(hrmRel(subdir));
+  try { invalidateCache(path.join('hrm', subdir)); } catch { /* ignore */ }
 }
 function hrmGetConfig() {
   hrmEnsure();
   try {
-    return JSON.parse(fs.readFileSync(path.join(HRM_DIR, 'settings', 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(HRM_DIR, 'settings', 'config.json'), 'utf8'));
+    if (!Array.isArray(cfg.sites)) cfg.sites = [{ id: 'site_hq', name: 'Head Office', state: '' }];
+    return cfg;
   } catch {
-    return { pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0 };
+    return {
+      pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
+      sites: [{ id: 'site_hq', name: 'Head Office', state: '' }],
+      establishmentCode: '', esicCode: '', employerName: '',
+    };
   }
 }
 function hrmSaveConfig(cfg) {
   hrmEnsure();
   writeJSON(path.join(HRM_DIR, 'settings', 'config.json'), cfg);
+  hrmInvalidate('settings');
 }
 function hrmRound2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 function hrmCalcPF(baseWage, pfApp, pfCap) {
@@ -1951,7 +1973,15 @@ app.post('/api/hrm/employees', (req, res) => {
     }
   }
   emp.updatedAt = new Date().toISOString();
+  if (!emp.name || !String(emp.name).trim()) {
+    return res.status(400).json({ error: 'Employee name is required' });
+  }
+  // Coerce numeric salary fields
+  ['basic', 'hra', 'da', 'allowances'].forEach((k) => {
+    if (emp[k] != null && emp[k] !== '') emp[k] = Number(emp[k]) || 0;
+  });
   writeJSON(path.join(HRM_DIR, 'employees', safeFileName(emp.id) + '.json'), emp);
+  hrmInvalidate('employees');
   res.json(emp);
 });
 app.delete('/api/hrm/employees/:id', (req, res) => {
@@ -1961,6 +1991,7 @@ app.delete('/api/hrm/employees/:id', (req, res) => {
     const e = JSON.parse(fs.readFileSync(file, 'utf8'));
     e.deleted = true; e.isActive = false; e.updatedAt = new Date().toISOString();
     writeJSON(file, e);
+    hrmInvalidate('employees');
   }
   res.json({ ok: true });
 });
@@ -1969,12 +2000,15 @@ app.get('/api/hrm/minwages', (req, res) => res.json(hrmReadAll('minwages')));
 app.post('/api/hrm/minwages', (req, res) => {
   hrmEnsure();
   const row = { ...req.body, id: req.body.id || ('mw_' + Date.now().toString(36)) };
+  if (!row.state) return res.status(400).json({ error: 'State is required' });
   writeJSON(path.join(HRM_DIR, 'minwages', safeFileName(row.id) + '.json'), row);
+  hrmInvalidate('minwages');
   res.json(row);
 });
 app.delete('/api/hrm/minwages/:id', (req, res) => {
   const file = path.join(HRM_DIR, 'minwages', safeFileName(req.params.id) + '.json');
   if (fs.existsSync(file)) fs.unlinkSync(file);
+  hrmInvalidate('minwages');
   res.json({ ok: true });
 });
 
@@ -1993,6 +2027,7 @@ app.post('/api/hrm/attendance', (req, res) => {
   const key = `${year}_${month}`;
   const payload = { month, year, rows: rows || [], updatedAt: new Date().toISOString() };
   writeJSON(path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json'), payload);
+  hrmInvalidate('attendance');
   res.json(payload);
 });
 
@@ -2076,6 +2111,7 @@ app.post('/api/hrm/payroll/process', (req, res) => {
     processedAt: new Date().toISOString(),
   };
   writeJSON(existingFile, payload);
+  hrmInvalidate('payroll');
   res.json(payload);
 });
 
@@ -2089,6 +2125,7 @@ app.post('/api/hrm/payroll/lock', (req, res) => {
   data.locked = true;
   data.lockedAt = new Date().toISOString();
   writeJSON(file, data);
+  hrmInvalidate('payroll');
   res.json(data);
 });
 
@@ -2175,6 +2212,60 @@ app.get('/api/hrm/reports/esic', (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="ESIC_${month}_${year}.csv"`);
   res.send(lines.join('\r\n'));
+});
+
+// Attendance register CSV (Form-style for Indian shops / factories)
+app.get('/api/hrm/reports/attendance', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  if (!month || !year) return res.status(400).send('month and year required');
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+  const totalDays = new Date(year, month, 0).getDate();
+  let rows = [];
+  if (fs.existsSync(file)) rows = (JSON.parse(fs.readFileSync(file, 'utf8')).rows) || [];
+  const dayHeaders = [];
+  for (let d = 1; d <= totalDays; d++) dayHeaders.push('D' + d);
+  const header = ['Emp Code', 'Employee Name', ...dayHeaders, 'Payable Days'].join(',');
+  const lines = [header];
+  rows.forEach((r) => {
+    const cells = [r.employeeCode || '', `"${String(r.empName || '').replace(/"/g, '""')}"`];
+    for (let d = 1; d <= totalDays; d++) cells.push(r.days?.['D' + d] || '');
+    cells.push(r.payableDays ?? '');
+    lines.push(cells.join(','));
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="Attendance_${month}_${year}.csv"`);
+  res.send('\uFEFF' + lines.join('\r\n'));
+});
+
+// Wages register (Form XVII style summary) from processed payroll
+app.get('/api/hrm/reports/wages', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  if (!month || !year) return res.status(400).send('month and year required');
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).send('No payroll for this month — Process payroll first');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const header = [
+    'Emp Code', 'Name', 'Payable Days', 'Basic', 'HRA', 'DA', 'Allowances',
+    'Gross', 'PF Wages', 'PF EE', 'EPS', 'PF ER', 'ESI Wages', 'ESI EE', 'ESI ER', 'Net Salary',
+  ].join(',');
+  const lines = [header];
+  (data.rows || []).forEach((r) => {
+    lines.push([
+      r.employeeCode || '',
+      `"${String(r.name || '').replace(/"/g, '""')}"`,
+      r.payableDays ?? '',
+      r.basicEarned ?? 0, r.hraEarned ?? 0, r.daEarned ?? 0, r.allowancesEarned ?? 0,
+      r.grossEarnings ?? 0, r.pfWages ?? 0, r.pfEE ?? 0, r.eps ?? 0, r.pfER ?? 0,
+      r.esiWages ?? 0, r.esiEE ?? 0, r.esiER ?? 0, r.netSalary ?? 0,
+    ].join(','));
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="WagesRegister_${month}_${year}.csv"`);
+  res.send('\uFEFF' + lines.join('\r\n'));
 });
 
 function startServer(port) {

@@ -579,8 +579,7 @@ function App() {
 
   // P1: Grouped navigation (Sales / Orders / Parties / Money / Books / Compliance)
   const navItems = [
-    { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HRMS' },
-      { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
+    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
     // Sales
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
@@ -609,6 +608,8 @@ function App() {
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // System — Notifications, Dark Mode, Control Panel, Settings (as in product UI)
+    // HR — above Settings in the side menu
+    { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
