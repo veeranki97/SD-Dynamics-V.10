@@ -96,6 +96,39 @@ const parseSupplierName = (text) => {
 // Grand total — walks label patterns from most-specific to most-general,
 // returns the first match as a JS number. Indian rupee formatting has
 // commas we strip; a bare "Total" without a currency prefix is fine.
+
+/** Upscale + grayscale + contrast to improve Tesseract on phone photos of Indian tax invoices. */
+async function preprocessImageForOcr(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const maxW = 1800;
+    const scale = bmp.width > maxW ? maxW / bmp.width : (bmp.width < 900 ? 1.5 : 1);
+    const w = Math.round(bmp.width * scale);
+    const h = Math.round(bmp.height * scale);
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
+    const img = ctx.getImageData(0, 0, w, h);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // grayscale + mild contrast
+      let y = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      y = (y - 128) * 1.35 + 128;
+      y = y < 0 ? 0 : y > 255 ? 255 : y;
+      d[i] = d[i + 1] = d[i + 2] = y;
+    }
+    ctx.putImageData(img, 0, 0);
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    return blob || file;
+  } catch {
+    return file;
+  }
+}
+
 const parseGrandTotal = (text) => {
   const patterns = [
     /grand\s*total[^0-9-]{0,10}(?:rs\.?|inr|₹)?\s*([\d,]+\.?\d*)/i,
@@ -392,7 +425,18 @@ export default function BillOCR({ onClose, onExtracted }) {
           }
         },
       });
-      const { data } = await worker.recognize(file);
+      const prepped = await preprocessImageForOcr(file);
+      const { data } = await worker.recognize(prepped);
+      // Confidence is mean word confidence 0–100. Client OCR on phone photos is often <40.
+      const conf = Number(data.confidence) || 0;
+      if (conf > 0 && conf < 55) {
+        try {
+          toast(
+            `OCR confidence only ${conf.toFixed(0)}% — numbers may be wrong. Check every amount before saving. Tip: use a flat scan, good light, no glare.`,
+            'warning'
+          );
+        } catch { /* */ }
+      }
       await worker.terminate();
       worker = null;
       setRawText(data.text);

@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { getChartPrefs, chartColor } from '../utils/chartPrefs';
 
+/**
+ * Home dashboard charts — layout aligned to SD GAS dashboard:
+ * Sales Trend (line) | GST Breakdown (stacked by month)
+ * Top Clients (horizontal bar) | Top Sites (pie)
+ * Sales by State (horizontal bar) | Aging Summary (bar buckets)
+ * KPI numbers stay in Dashboard.jsx (unchanged).
+ */
 export default function DashboardCharts({ stats }) {
   const salesRef = useRef(null);
   const gstRef = useRef(null);
@@ -17,26 +24,30 @@ export default function DashboardCharts({ stats }) {
         const { Chart, registerables } = await import('chart.js');
         if (cancelled) return;
         Chart.register(...registerables);
-        
-        // Destroy existing global charts to prevent ghosting/flashing
+
         charts.current.forEach(c => { try { c.destroy(); } catch {} });
         charts.current = [];
-        
+
         const prefs = getChartPrefs() || {};
         const s = stats || {};
-        
+
         const mk = (canvas, cfg) => {
           if (!canvas) return;
-          // Extra safety: Check DOM for rogue Chart instances and destroy them
           const existing = Chart.getChart(canvas);
           if (existing) existing.destroy();
-          
           charts.current.push(new Chart(canvas, cfg));
         };
-        
-        const baseOpts = { responsive: true, maintainAspectRatio: false };
 
-        // Sales trend from byMonth (always present when bills exist)
+        const baseOpts = { responsive: true, maintainAspectRatio: false };
+        const inrTick = (v) => {
+          const n = Number(v) || 0;
+          if (Math.abs(n) >= 1e7) return (n / 1e7).toFixed(1) + ' Cr';
+          if (Math.abs(n) >= 1e5) return (n / 1e5).toFixed(1) + ' L';
+          if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(0) + ' K';
+          return String(n);
+        };
+
+        // 1) Sales Trend — line (or bar from prefs), months on X
         if (prefs.showSalesTrend !== false) {
           let labels = [];
           let data = [];
@@ -61,33 +72,78 @@ export default function DashboardCharts({ stats }) {
                 fill: prefs.salesChart !== 'bar',
               }],
             },
-            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
-          });
-        }
-
-        if (prefs.showGstBreakdown !== false) {
-          const gst = s.gstBreakdown || {};
-          const gdata = [Number(gst.cgst) || 0, Number(gst.sgst) || 0, Number(gst.igst) || 0];
-          mk(gstRef.current, {
-            type: 'bar',
-            data: {
-              labels: ['CGST', 'SGST', 'IGST'],
-              datasets: [{
-                label: 'GST',
-                data: gdata,
-                backgroundColor: [chartColor('blue'), chartColor('green'), chartColor('purple')],
-              }],
+            options: {
+              ...baseOpts,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { beginAtZero: true, ticks: { callback: inrTick } },
+                x: { ticks: { maxRotation: 0 } },
+              },
             },
-            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
           });
         }
 
+        // 2) GST Breakdown — stacked bar by month (IGST / CGST / SGST) like GAS
+        if (prefs.showGstBreakdown !== false) {
+          const gbm = s.gstByMonth || {};
+          let months = (s.monthKeys && s.monthKeys.length)
+            ? s.monthKeys
+            : Object.keys(gbm).sort().slice(-6);
+          if (!months.length) months = ['No data'];
+          const hasMonthly = months.some(m => gbm[m] && (gbm[m].cgst || gbm[m].sgst || gbm[m].igst));
+          if (hasMonthly) {
+            mk(gstRef.current, {
+              type: 'bar',
+              data: {
+                labels: months,
+                datasets: [
+                  { label: 'IGST', data: months.map(m => Number(gbm[m]?.igst) || 0), backgroundColor: chartColor('purple'), stack: 'gst' },
+                  { label: 'CGST', data: months.map(m => Number(gbm[m]?.cgst) || 0), backgroundColor: chartColor('blue'), stack: 'gst' },
+                  { label: 'SGST', data: months.map(m => Number(gbm[m]?.sgst) || 0), backgroundColor: chartColor('green'), stack: 'gst' },
+                ],
+              },
+              options: {
+                ...baseOpts,
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
+                scales: {
+                  x: { stacked: true, ticks: { maxRotation: 0 } },
+                  y: { stacked: true, beginAtZero: true, ticks: { callback: inrTick } },
+                },
+              },
+            });
+          } else {
+            // Fallback: single totals bar (legacy)
+            const gst = s.gstBreakdown || {};
+            mk(gstRef.current, {
+              type: 'bar',
+              data: {
+                labels: ['CGST', 'SGST', 'IGST'],
+                datasets: [{
+                  label: 'GST',
+                  data: [Number(gst.cgst) || 0, Number(gst.sgst) || 0, Number(gst.igst) || 0],
+                  backgroundColor: [chartColor('blue'), chartColor('green'), chartColor('purple')],
+                }],
+              },
+              options: {
+                ...baseOpts,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
+              },
+            });
+          }
+        }
+
+        // 3) Top Clients — horizontal bar (GAS style)
         if (prefs.showTopClients !== false) {
           const tc = (s.topClients || []).map(x => Array.isArray(x) ? { name: x[0], amount: x[1] } : x);
+          const horiz = prefs.clientsChart !== 'pie';
           mk(clientsRef.current, {
             type: prefs.clientsChart === 'pie' ? 'pie' : 'bar',
             data: {
-              labels: tc.length ? tc.map(x => x.name || '—') : ['No data'],
+              labels: tc.length ? tc.map(x => {
+                const n = x.name || '—';
+                return n.length > 18 ? n.slice(0, 16) + '…' : n;
+              }) : ['No data'],
               datasets: [{
                 label: 'Revenue',
                 data: tc.length ? tc.map(x => Number(x.amount) || 0) : [0],
@@ -98,12 +154,17 @@ export default function DashboardCharts({ stats }) {
             },
             options: {
               ...baseOpts,
+              indexAxis: horiz && prefs.clientsChart !== 'pie' ? 'y' : 'x',
               plugins: { legend: { display: prefs.clientsChart === 'pie', position: 'bottom' } },
-              scales: prefs.clientsChart === 'pie' ? undefined : { y: { beginAtZero: true } },
+              scales: prefs.clientsChart === 'pie' ? undefined : {
+                x: { beginAtZero: true, ticks: { callback: inrTick } },
+                y: { ticks: { font: { size: 10 } } },
+              },
             },
           });
         }
 
+        // 4) Top Sites — pie
         if (prefs.showTopSites !== false) {
           const ts = s.topSites || [];
           mk(sitesRef.current, {
@@ -117,10 +178,11 @@ export default function DashboardCharts({ stats }) {
                   : ['#e2e8f0'],
               }],
             },
-            options: { ...baseOpts, plugins: { legend: { position: 'bottom' } } },
+            options: { ...baseOpts, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
           });
         }
 
+        // 5) Sales by State — horizontal bar (GAS style)
         if (prefs.showSalesByState !== false) {
           const ss = s.salesByState || [];
           mk(stateRef.current, {
@@ -133,33 +195,45 @@ export default function DashboardCharts({ stats }) {
                 backgroundColor: chartColor(prefs.theme || 'blue'),
               }],
             },
-            options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+            options: {
+              ...baseOpts,
+              indexAxis: 'y',
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { beginAtZero: true, ticks: { callback: inrTick } },
+                y: { ticks: { font: { size: 10 } } },
+              },
+            },
           });
         }
 
+        // 6) Aging Summary — 0-30 / 31-60 / 61-90 / 90+
         if (prefs.showAging !== false) {
-          const ag = s.aging || {};
+          const a = s.aging || {};
           mk(agingRef.current, {
-            type: prefs.agingChart === 'doughnut' ? 'doughnut' : 'bar',
+            type: 'bar',
             data: {
-              labels: ['0–30', '31–60', '61–90', '90+'],
+              labels: ['0-30', '31-60', '61-90', '90+'],
               datasets: [{
                 label: 'Outstanding',
                 data: [
-                  Number(ag.d0_30) || 0,
-                  Number(ag.d31_60) || 0,
-                  Number(ag.d61_90) || 0,
-                  Number(ag.d90p || ag.d90) || 0,
+                  Number(a.d0_30) || 0,
+                  Number(a.d31_60) || 0,
+                  Number(a.d61_90) || 0,
+                  Number(a.d90p) || 0,
                 ],
                 backgroundColor: [
-                  chartColor('green'), chartColor('blue'), chartColor('amber'), chartColor('red'),
+                  chartColor('green'),
+                  chartColor('amber'),
+                  chartColor('purple'),
+                  chartColor('red') || '#ef4444',
                 ],
               }],
             },
             options: {
               ...baseOpts,
-              plugins: { legend: { display: prefs.agingChart === 'doughnut', position: 'bottom' } },
-              scales: prefs.agingChart === 'doughnut' ? undefined : { y: { beginAtZero: true } },
+              plugins: { legend: { display: false } },
+              scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
             },
           });
         }
@@ -167,8 +241,6 @@ export default function DashboardCharts({ stats }) {
         console.warn('[DashboardCharts]', e);
       }
     })();
-    
-    // Strict Cleanup on Unmount
     return () => {
       cancelled = true;
       charts.current.forEach(c => { try { c.destroy(); } catch {} });
@@ -177,42 +249,30 @@ export default function DashboardCharts({ stats }) {
   }, [stats]);
 
   const prefs = getChartPrefs() || {};
-  const card = {
-    background: 'var(--card, #fff)',
-    borderRadius: 12,
-    padding: '12px 14px',
-    border: '1px solid var(--border, #e2e8f0)',
-    minHeight: 240,
-  };
-  const title = { margin: '0 0 8px', fontSize: 14, fontWeight: 600 };
-  const wrap = { position: 'relative', height: 170 };
-
-  // FIX: Converted the <Cell /> component into a pure rendering function.
-  // This prevents React from destroying and rebuilding the `<canvas>` 
-  // elements on every tab switch, completely fixing the "blank charts" bug.
-  const renderCell = (show, label, cref) => {
-    if (show === false) return null;
-    return (
-      <div style={card}>
-        <h3 style={title}>{label}</h3>
-        <div style={wrap}><canvas ref={cref} /></div>
+  const card = (title, show, ref) => (
+    show === false ? null : (
+      <div className="glass-panel" style={{ padding: '0.75rem 1rem', minHeight: 260 }}>
+        <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 600, opacity: 0.85 }}>{title}</h3>
+        <div style={{ height: 200, position: 'relative' }}>
+          <canvas ref={ref} />
+        </div>
       </div>
-    );
-  };
+    )
+  );
 
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-      gap: 12,
-      marginTop: 12,
+      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+      gap: '1rem',
+      marginBottom: '1.25rem',
     }}>
-      {renderCell(prefs.showSalesTrend !== false, "Sales trend", salesRef)}
-      {renderCell(prefs.showGstBreakdown !== false, "GST breakdown", gstRef)}
-      {renderCell(prefs.showTopClients !== false, "Top clients", clientsRef)}
-      {renderCell(prefs.showTopSites !== false, "Top sites", sitesRef)}
-      {renderCell(prefs.showSalesByState !== false, "Sales by state", stateRef)}
-      {renderCell(prefs.showAging !== false, "Aging", agingRef)}
+      {card('Sales Trend', prefs.showSalesTrend, salesRef)}
+      {card('GST Breakdown', prefs.showGstBreakdown, gstRef)}
+      {card('Top Clients', prefs.showTopClients, clientsRef)}
+      {card('Top Sites', prefs.showTopSites, sitesRef)}
+      {card('Sales by State', prefs.showSalesByState, stateRef)}
+      {card('Aging Summary', prefs.showAging, agingRef)}
     </div>
   );
 }

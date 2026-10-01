@@ -288,6 +288,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     const topSites = Object.entries(bySite).sort((a,b) => b[1]-a[1]).slice(0, 6).map(([name, amount]) => ({ name, amount }));
     const salesByState = Object.entries(byState).sort((a,b) => b[1]-a[1]).slice(0, 8).map(([name, amount]) => ({ name, amount }));
     let gstC = 0, gstS = 0, gstI = 0;
+    const gstByMonth = {}; // { '2026-04': { cgst, sgst, igst } } — chart only
     bills.forEach(b => {
       const typ = String(b.invoiceType || 'tax-invoice').toLowerCase();
       if (typ.includes('quot') || typ.includes('challan') || typ.includes('proforma')) return;
@@ -302,9 +303,18 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         // Unknown split: put full tax under IGST so chart is not empty
         gstI += Number(b.totalTaxAmount) || 0;
       }
+      const idate = b.data?.details?.invoiceDate || b.invoiceDate || '';
+      if (idate.length >= 7) {
+        const m = idate.slice(0, 7);
+        if (!gstByMonth[m]) gstByMonth[m] = { cgst: 0, sgst: 0, igst: 0 };
+        gstByMonth[m].cgst += c;
+        gstByMonth[m].sgst += s;
+        if (c || s || ig) gstByMonth[m].igst += ig;
+        else if (b.totalTaxAmount) gstByMonth[m].igst += Number(b.totalTaxAmount) || 0;
+      }
     });
     const gstBreakdown = { cgst: gstC, sgst: gstS, igst: gstI };
-    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging, gstBreakdown };
+    return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging, gstBreakdown, gstByMonth };
   }, [bills]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
