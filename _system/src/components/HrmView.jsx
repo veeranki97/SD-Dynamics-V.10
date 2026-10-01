@@ -73,6 +73,45 @@ export default function HrmView() {
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const applyMinWageFromMaster = useCallback((nextForm) => {
+    const state = (nextForm.state || '').trim();
+    const skill = (nextForm.skillCategory || 'Unskilled').trim();
+    if (!state || !minWages?.length) return nextForm;
+    const rows = minWages.filter((m) =>
+      String(m.state || '').toLowerCase() === state.toLowerCase()
+      && String(m.skillCategory || '').toLowerCase() === skill.toLowerCase()
+    );
+    if (!rows.length) {
+      // try state-only match (any skill)
+      const byState = minWages.filter((m) => String(m.state || '').toLowerCase() === state.toLowerCase());
+      if (!byState.length) return nextForm;
+      byState.sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
+      const pick = byState[0];
+      const basicDay = Number(pick.basicPerDay) || 0;
+      const daDay = Number(pick.daComponent) || 0;
+      // monthly approx 26 days for basic suggestion
+      const monthly = Math.round((basicDay + daDay) * 26);
+      return {
+        ...nextForm,
+        basic: monthly || nextForm.basic,
+        da: Math.round(daDay * 26) || nextForm.da,
+        _minWageNote: `Suggested from min wages: ${pick.state} / ${pick.skillCategory} (₹${basicDay}/day basic)`,
+      };
+    }
+    rows.sort((a, b) => String(b.effectiveFrom || '').localeCompare(String(a.effectiveFrom || '')));
+    const pick = rows[0];
+    const basicDay = Number(pick.basicPerDay) || 0;
+    const daDay = Number(pick.daComponent) || 0;
+    const monthly = Math.round((basicDay + daDay) * 26);
+    return {
+      ...nextForm,
+      basic: monthly || nextForm.basic,
+      da: Math.round(daDay * 26) || nextForm.da,
+      _minWageNote: `From min wages: ${pick.state} · ${pick.skillCategory} · ₹${basicDay}/day × 26 = ₹${monthly}/mo`,
+    };
+  }, [minWages]);
+
+
   const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [month, year]);
 
   const sitesForState = useMemo(() => {
@@ -553,7 +592,7 @@ export default function HrmView() {
       )}
 
       {tab === 'exports' && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 640 }}>
+        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
           <h3 style={{ marginTop: 0 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             Process payroll for the selected month before ECR / ESIC / wages register. Attendance CSV works after attendance is saved.
@@ -568,7 +607,7 @@ export default function HrmView() {
       )}
 
       {tab === 'settings' && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 720 }}>
+        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
           <h3 style={{ marginTop: 0 }}>HR Settings</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             PF wage ceiling default ₹15,000; ESI eligibility typically when gross ≤ ₹21,000 (update if law changes). Sites below feed the employee form location picker (filter by state).
@@ -642,9 +681,9 @@ export default function HrmView() {
       {/* Employee modal */}
       {form && (
         <div className="modal-overlay" onClick={() => setForm(null)}>
-          <div className="modal-content" style={{ maxWidth: 720, maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: 1100, maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="section-title">{form.id ? 'Edit employee' : 'New employee'}</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(140px, 1fr))', gap: '10px 12px', alignItems: 'end' }}>
               {[
                 ['name', 'Full name *'], ['employeeCode', 'Emp code (auto if blank)'],
                 ['fatherName', "Father's / Husband's name"], ['designation', 'Designation'],
@@ -683,7 +722,10 @@ export default function HrmView() {
                 <select
                   className="form-input"
                   value={form.state || ''}
-                  onChange={(e) => setForm({ ...form, state: e.target.value, site: '', siteId: '' })}
+                  onChange={(e) => {
+                    const next = applyMinWageFromMaster({ ...form, state: e.target.value, site: '', siteId: '' });
+                    setForm(next);
+                  }}
                 >
                   <option value="">Select state</option>
                   {(INDIAN_STATES || []).map((s) => <option key={s} value={s}>{s}</option>)}
@@ -715,10 +757,16 @@ export default function HrmView() {
               </div>
               <div className="form-group">
                 <label className="form-label">Skill category</label>
-                <select className="form-input" value={form.skillCategory || 'Unskilled'} onChange={(e) => setForm({ ...form, skillCategory: e.target.value })}>
+                <select className="form-input" value={form.skillCategory || 'Unskilled'} onChange={(e) => setForm(applyMinWageFromMaster({ ...form, skillCategory: e.target.value }))}>
                   {SKILL_CATS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+              {form._minWageNote ? (
+                <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--primary, #1e40af)', background: 'var(--surface-2, #f1f5f9)', padding: '6px 10px', borderRadius: 6 }}>
+                  {form._minWageNote}
+                </div>
+              ) : null}
+
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
               <label><input type="checkbox" checked={!!form.pfApplicable} onChange={(e) => setForm({ ...form, pfApplicable: e.target.checked })} /> PF applicable</label>

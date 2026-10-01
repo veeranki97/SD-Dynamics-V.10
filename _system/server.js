@@ -1752,119 +1752,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.get('{*path}', (req, res) => {
-  if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
-  if (fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
-  }
-  // Build not ready yet — serve friendly waiting page (auto-refreshes every 3s).
-  return servePlaceholder(req, res);
-});
-
-function servePlaceholder(req, res) {
-    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
-    res.status(503).send(`<!doctype html>
-<html><head><meta charset="utf-8"><title>SD Dynamics — building…</title>
-<meta http-equiv="refresh" content="3">
-<style>
-  body { font-family: -apple-system, Segoe UI, Inter, sans-serif; max-width: 560px;
-         margin: 6rem auto; padding: 2rem; color: #1e293b; line-height: 1.55; }
-  h1 { color: #1e40af; margin: 0 0 0.5rem; }
-  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
-  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #cbd5e1;
-             border-top-color: #1e40af; border-radius: 50%; animation: spin 1s linear infinite;
-             vertical-align: middle; margin-right: 6px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .muted { color: #64748b; font-size: 0.9em; }
-  .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px; margin-top: 1rem; }
-</style></head>
-<body>
-  <h1>SD Dynamics</h1>
-  <p><span class="spinner"></span> The app is still building. This page refreshes every 3 seconds.</p>
-  <div class="box">
-    <p style="margin:0 0 0.5rem"><strong>Local install?</strong></p>
-    <p style="margin:0">If you started the server but never built the frontend, run:</p>
-    <p style="margin:0.5rem 0 0"><code>npm run build</code></p>
-    <p class="muted" style="margin:0.5rem 0 0">…then reload this page.</p>
-  </div>
-  <div class="box">
-    <p style="margin:0 0 0.5rem"><strong>StackBlitz / Codespaces?</strong></p>
-    <p style="margin:0">First-time build takes ~30 seconds inside browser sandboxes. Sit tight.</p>
-  </div>
-  <p class="muted" style="margin-top:1.5rem">Server is running on port ${req.socket.localPort} · API health: <a href="/api/version">/api/version</a></p>
-</body></html>`);
-}
-
-// v1.10.0 — Global error handler. Registered LAST so all preceding
-// route handlers can forward errors to it. Express 5 auto-catches
-// synchronous throws and async rejections from route handlers, so we
-// no longer need try/catch around every writeJSON call. Server-side
-// logs full detail; client sees a generic JSON error with a stable
-// code — no leaked stack traces or absolute filesystem paths.
-// Preserves upstream status codes from body-parser (413 payload too
-// large, 400 malformed JSON) so clients can differentiate.
-// eslint-disable-next-line no-unused-vars — 4-arg signature is required by Express
-app.use((err, req, res, next) => {
-  const status = Number(err && (err.status || err.statusCode)) || 500;
-  let code = 'server-error';
-  if (status === 413) code = 'payload-too-large';
-  else if (status === 400) code = 'bad-request';
-  else if (status === 404) code = 'not-found';
-  errRes(res, status, code, err);
-});
-
-// ============================================================
-// Error log + graceful shutdown
-// ============================================================
-// ERRORS_LOG was declared once at the top of this file (v1.10.0)
-// where errRes() needs it. See line ~145.
-
-// v1.10.0 — log rotation. Previously `data/errors.log` grew unbounded;
-// a tight failure loop (e.g. daily backup hitting a corrupted template)
-// would fill the disk. Now we keep only the last ~200KB. Called
-// opportunistically from logFatal — no separate timer.
-const ERRORS_LOG_MAX = 200 * 1024;
-function rotateErrorsIfLarge() {
-  try {
-    if (!fs.existsSync(ERRORS_LOG)) return;
-    const stat = fs.statSync(ERRORS_LOG);
-    if (stat.size <= ERRORS_LOG_MAX) return;
-    // Read the tail we want to keep, then rewrite atomically.
-    const fd = fs.openSync(ERRORS_LOG, 'r');
-    const keep = Buffer.alloc(ERRORS_LOG_MAX);
-    fs.readSync(fd, keep, 0, ERRORS_LOG_MAX, stat.size - ERRORS_LOG_MAX);
-    fs.closeSync(fd);
-    // Trim to next newline so we don't leave a half-line at the top.
-    const s = keep.toString('utf-8');
-    const nl = s.indexOf('\n');
-    writeFileAtomic(ERRORS_LOG, (nl >= 0 ? s.slice(nl + 1) : s));
-  } catch { /* ignore */ }
-}
-
-function logFatal(err, source = 'fatal') {
-  try {
-    rotateErrorsIfLarge();
-    const ts = new Date().toISOString();
-    const msg = err && err.stack ? err.stack : String(err);
-    fs.appendFileSync(ERRORS_LOG, `[${ts}] [${source}] ${msg}\n`, 'utf-8');
-  } catch { /* nothing we can do if even appending fails */ }
-}
-
-// Last-resort handlers — log the error but do NOT call process.exit so the
-// running server keeps serving healthy requests. Per Node best-practice,
-// uncaughtException leaves the process in an unknown state, so we write the
-// log and let the OS / a wrapper script decide whether to restart.
-process.on('uncaughtException', (err) => logFatal(err, 'uncaughtException'));
-process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
-
-// Note: /api/health used to live below the SPA catch-all here, so the
-// catch-all was swallowing every request to it and returning "No such
-// endpoint". Moved above the catch-all in v1.10.0. See earlier in file.
-
-// Try ports starting from STARTING_PORT (persisted preference) until one is available.
-// Bound to 127.0.0.1 explicitly so the server can NEVER be reached from the LAN —
-// every byte stays on the user's machine, which the privacy promise depends on.
-let activeServer = null;
 
 // ============================================================
 // HRM / Payroll API (JSON-file storage under data/hrm/)
@@ -2267,6 +2154,120 @@ app.get('/api/hrm/reports/wages', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="WagesRegister_${month}_${year}.csv"`);
   res.send('\uFEFF' + lines.join('\r\n'));
 });
+
+app.get('{*path}', (req, res) => {
+  if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  // Build not ready yet — serve friendly waiting page (auto-refreshes every 3s).
+  return servePlaceholder(req, res);
+});
+
+function servePlaceholder(req, res) {
+    if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
+    res.status(503).send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>SD Dynamics — building…</title>
+<meta http-equiv="refresh" content="3">
+<style>
+  body { font-family: -apple-system, Segoe UI, Inter, sans-serif; max-width: 560px;
+         margin: 6rem auto; padding: 2rem; color: #1e293b; line-height: 1.55; }
+  h1 { color: #1e40af; margin: 0 0 0.5rem; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #cbd5e1;
+             border-top-color: #1e40af; border-radius: 50%; animation: spin 1s linear infinite;
+             vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .muted { color: #64748b; font-size: 0.9em; }
+  .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px; margin-top: 1rem; }
+</style></head>
+<body>
+  <h1>SD Dynamics</h1>
+  <p><span class="spinner"></span> The app is still building. This page refreshes every 3 seconds.</p>
+  <div class="box">
+    <p style="margin:0 0 0.5rem"><strong>Local install?</strong></p>
+    <p style="margin:0">If you started the server but never built the frontend, run:</p>
+    <p style="margin:0.5rem 0 0"><code>npm run build</code></p>
+    <p class="muted" style="margin:0.5rem 0 0">…then reload this page.</p>
+  </div>
+  <div class="box">
+    <p style="margin:0 0 0.5rem"><strong>StackBlitz / Codespaces?</strong></p>
+    <p style="margin:0">First-time build takes ~30 seconds inside browser sandboxes. Sit tight.</p>
+  </div>
+  <p class="muted" style="margin-top:1.5rem">Server is running on port ${req.socket.localPort} · API health: <a href="/api/version">/api/version</a></p>
+</body></html>`);
+}
+
+// v1.10.0 — Global error handler. Registered LAST so all preceding
+// route handlers can forward errors to it. Express 5 auto-catches
+// synchronous throws and async rejections from route handlers, so we
+// no longer need try/catch around every writeJSON call. Server-side
+// logs full detail; client sees a generic JSON error with a stable
+// code — no leaked stack traces or absolute filesystem paths.
+// Preserves upstream status codes from body-parser (413 payload too
+// large, 400 malformed JSON) so clients can differentiate.
+// eslint-disable-next-line no-unused-vars — 4-arg signature is required by Express
+app.use((err, req, res, next) => {
+  const status = Number(err && (err.status || err.statusCode)) || 500;
+  let code = 'server-error';
+  if (status === 413) code = 'payload-too-large';
+  else if (status === 400) code = 'bad-request';
+  else if (status === 404) code = 'not-found';
+  errRes(res, status, code, err);
+});
+
+// ============================================================
+// Error log + graceful shutdown
+// ============================================================
+// ERRORS_LOG was declared once at the top of this file (v1.10.0)
+// where errRes() needs it. See line ~145.
+
+// v1.10.0 — log rotation. Previously `data/errors.log` grew unbounded;
+// a tight failure loop (e.g. daily backup hitting a corrupted template)
+// would fill the disk. Now we keep only the last ~200KB. Called
+// opportunistically from logFatal — no separate timer.
+const ERRORS_LOG_MAX = 200 * 1024;
+function rotateErrorsIfLarge() {
+  try {
+    if (!fs.existsSync(ERRORS_LOG)) return;
+    const stat = fs.statSync(ERRORS_LOG);
+    if (stat.size <= ERRORS_LOG_MAX) return;
+    // Read the tail we want to keep, then rewrite atomically.
+    const fd = fs.openSync(ERRORS_LOG, 'r');
+    const keep = Buffer.alloc(ERRORS_LOG_MAX);
+    fs.readSync(fd, keep, 0, ERRORS_LOG_MAX, stat.size - ERRORS_LOG_MAX);
+    fs.closeSync(fd);
+    // Trim to next newline so we don't leave a half-line at the top.
+    const s = keep.toString('utf-8');
+    const nl = s.indexOf('\n');
+    writeFileAtomic(ERRORS_LOG, (nl >= 0 ? s.slice(nl + 1) : s));
+  } catch { /* ignore */ }
+}
+
+function logFatal(err, source = 'fatal') {
+  try {
+    rotateErrorsIfLarge();
+    const ts = new Date().toISOString();
+    const msg = err && err.stack ? err.stack : String(err);
+    fs.appendFileSync(ERRORS_LOG, `[${ts}] [${source}] ${msg}\n`, 'utf-8');
+  } catch { /* nothing we can do if even appending fails */ }
+}
+
+// Last-resort handlers — log the error but do NOT call process.exit so the
+// running server keeps serving healthy requests. Per Node best-practice,
+// uncaughtException leaves the process in an unknown state, so we write the
+// log and let the OS / a wrapper script decide whether to restart.
+process.on('uncaughtException', (err) => logFatal(err, 'uncaughtException'));
+process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
+
+// Note: /api/health used to live below the SPA catch-all here, so the
+// catch-all was swallowing every request to it and returning "No such
+// endpoint". Moved above the catch-all in v1.10.0. See earlier in file.
+
+// Try ports starting from STARTING_PORT (persisted preference) until one is available.
+// Bound to 127.0.0.1 explicitly so the server can NEVER be reached from the LAN —
+// every byte stays on the user's machine, which the privacy promise depends on.
+let activeServer = null;
 
 function startServer(port) {
   const server = app.listen(port, '127.0.0.1', () => {
