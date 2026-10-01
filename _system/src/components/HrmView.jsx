@@ -107,7 +107,7 @@ export default function HrmView() {
       ...nextForm,
       basic: monthly || nextForm.basic,
       da: Math.round(daDay * 26) || nextForm.da,
-      _minWageNote: `From min wages: ${pick.state} · ${pick.skillCategory} · ₹${basicDay}/day × 26 = ₹${monthly}/mo`,
+      _minWageNote: `From min wages: ${pick.state} · ${pick.skillCategory} · ₹${basicDay}/day /mo (from master) · was ₹${monthly}/mo`,
     };
   }, [minWages]);
 
@@ -124,7 +124,7 @@ export default function HrmView() {
     try {
       setEmployees(await api('/hrm/employees'));
     } catch (e) {
-      toast(e.message || 'Failed to load employees', 'error');
+      console.error(e); toast((e && e.message) || 'Failed to load employees — is server running?', 'error');
     }
   }, []);
   const loadDash = useCallback(async () => {
@@ -150,9 +150,11 @@ export default function HrmView() {
   useEffect(() => {
     if (tab === 'dashboard') loadDash();
     if (tab === 'attendance') loadAtt();
-    if (tab === 'payroll') loadPayroll();
+    if (tab === 'payroll' || tab === 'filings' || tab === 'registers') loadPayroll();
+    if (tab === 'registers' || tab === 'attendance') loadAtt();
     if (tab === 'minwages') loadMinWages();
-  }, [tab, month, year, loadDash, loadAtt, loadPayroll, loadMinWages]);
+    if (tab === 'employees') loadEmployees();
+  }, [tab, month, year, loadDash, loadAtt, loadPayroll, loadMinWages, loadEmployees]);
 
   const saveEmp = async () => {
     if (!form?.name?.trim()) { toast('Employee name is required', 'warning'); return; }
@@ -359,6 +361,8 @@ export default function HrmView() {
     { id: 'directory', label: 'Employees' },
     { id: 'attendance', label: 'Attendance' },
     { id: 'payroll', label: 'Payroll' },
+    { id: 'filings', label: 'ECR / ESIC' },
+    { id: 'registers', label: 'Registers' },
     { id: 'minwages', label: 'Min Wages' },
     { id: 'exports', label: 'ECR / ESIC / Registers' },
     { id: 'settings', label: 'HR Settings' },

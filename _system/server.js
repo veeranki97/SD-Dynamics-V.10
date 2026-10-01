@@ -2155,6 +2155,129 @@ app.get('/api/hrm/reports/wages', (req, res) => {
   res.send('\uFEFF' + lines.join('\r\n'));
 });
 
+
+// ---- HRM CLRA registers (must be before SPA catch-all) ----
+app.get('/api/hrm/reports/form-t', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const key = year + '_' + month;
+    const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+    if (!fs.existsSync(attFile)) return res.status(404).send('No attendance for this month — save attendance first');
+    const att = JSON.parse(fs.readFileSync(attFile, 'utf8'));
+    const emps = {};
+    hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+    const days = new Date(year, month, 0).getDate();
+    const header = ['Sl.No', 'Name of the Employee', 'M/F'];
+    for (let d = 1; d <= days; d++) header.push(String(d));
+    header.push('No. of payable Days', 'Total OT Hrs');
+    const lines = [header.join(',')];
+    let i = 0;
+    (att.rows || []).forEach(r => {
+      i += 1;
+      const e = emps[r.empId] || {};
+      const row = [i, String(e.name || r.empName || '').replace(/,/g, ' '), (e.gender || 'M').toString().slice(0, 1)];
+      for (let d = 1; d <= days; d++) row.push(String((r.days && r.days['D' + d]) || ''));
+      row.push(r.payableDays != null ? r.payableDays : '', r.otHours != null ? r.otHours : '');
+      lines.push(row.join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="FormT_Muster_' + month + '_' + year + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).send(e.message || 'Form T failed');
+  }
+});
+
+app.get('/api/hrm/reports/form-xvii', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const key = year + '_' + month;
+    const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+    if (!fs.existsSync(file)) return res.status(404).send('Process payroll first');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const header = ['Sl.No','Name of Workman','UAN','ESI','Designation','No.of working days','Daily Rate','Basic Wages','Dearness Allowance','Over Time','Others','Total','ESI 0.75%','PF 12%','Total Deductions','Net Amount Paid'];
+    const lines = [header.join(',')];
+    let i = 0;
+    (data.rows || []).forEach(r => {
+      if (!(Number(r.grossEarnings) > 0)) return;
+      i += 1;
+      const daily = r.payableDays ? Math.round((Number(r.basicEarned) / r.payableDays) * 100) / 100 : 0;
+      const ded = (Number(r.esiEE) || 0) + (Number(r.pfEE) || 0);
+      lines.push([
+        i, String(r.name || '').replace(/,/g, ' '), r.uan || '', r.esicNumber || '',
+        String(r.designation || '').replace(/,/g, ' '), r.payableDays || 0, daily,
+        r.basicEarned || 0, r.daEarned || 0, 0,
+        (Number(r.hraEarned) || 0) + (Number(r.taEarned) || 0) + (Number(r.allowancesEarned) || 0),
+        r.grossEarnings || 0, r.esiEE || 0, r.pfEE || 0, ded, r.netSalary || 0
+      ].join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="FormXVII_Wages_' + month + '_' + year + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).send(e.message || 'Form XVII failed');
+  }
+});
+
+// ---- Reset document counters (testing) — does NOT delete bills ----
+app.post('/api/meta/resetCounters', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {});
+    const keys = Object.keys(meta).filter(k => k.startsWith('counter_'));
+    keys.forEach(k => { meta[k] = 0; });
+    // optional: body.startNumber
+    if (req.body && req.body.startNumber != null) {
+      const n = Math.max(0, Number(req.body.startNumber) || 0);
+      keys.forEach(k => { meta[k] = n; });
+    }
+    writeJSON(META_PATH, meta);
+    res.json({ success: true, reset: keys, meta: Object.fromEntries(keys.map(k => [k, meta[k]])) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Monthly bills export for auditor (CSV) ----
+app.get('/api/bills/export-month', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).json({ error: 'month and year required (1-12, YYYY)' });
+    const bills = readAllFromDir('bills');
+    const rows = bills.filter(b => {
+      const d = String(b.invoiceDate || b.data?.details?.invoiceDate || '');
+      if (!d) return false;
+      const dt = new Date(d);
+      if (Number.isNaN(dt.getTime())) return false;
+      return (dt.getMonth() + 1) === month && dt.getFullYear() === year;
+    });
+    const header = ['InvoiceNumber','Date','Type','Client','GSTIN','Taxable','CGST','SGST','IGST','Total','Status','PaidAmount','Site','WorkOrder'];
+    const lines = [header.join(',')];
+    rows.forEach(b => {
+      const t = b.data?.totals || {};
+      const c = b.data?.client || {};
+      const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      lines.push([
+        esc(b.invoiceNumber || b.id), esc(b.invoiceDate), esc(b.invoiceType || b.data?.invoiceType),
+        esc(b.clientName || c.name), esc(c.gstin),
+        t.subtotal ?? t.subTotal ?? '', t.cgst ?? '', t.sgst ?? '', t.igst ?? '',
+        b.totalAmount ?? t.grandTotal ?? t.total ?? '',
+        esc(b.status), b.paidAmount ?? 0,
+        esc(b.site || b.data?.details?.site || ''), esc(b.workOrderId || b.data?.details?.workOrder || ''),
+      ].join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="Invoices_' + year + '_' + String(month).padStart(2,'0') + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('{*path}', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
   if (fs.existsSync(indexPath)) {
