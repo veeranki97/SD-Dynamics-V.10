@@ -155,8 +155,8 @@ export function journalFromPayment(bill, paymentAmount, mode = 'bank', paymentMe
     id: 'jnl_pay_' + (bill.id || bill.invoiceNumber) + '_' + payId,
     date: payDate,
     narration: isAdvance
-      ? `Advance received — ${party || 'customer'}`
-      : `Receipt against ${bill.invoiceNumber || bill.id || ''} — ${party || 'customer'}`,
+      ? `Advance received against ${bill.invoiceNumber || bill.id || paymentMeta.againstDoc || 'document'}${party ? ' — ' + party : ''}`
+      : `Receipt against ${bill.invoiceNumber || bill.id || ''}${party ? ' — ' + party : ''}`,
     refType: isAdvance ? 'advance' : 'payment',
     refId: bill.id || bill.invoiceNumber,
     party,
@@ -174,6 +174,40 @@ export function journalFromPayment(bill, paymentAmount, mode = 'bank', paymentMe
 
 
 /** Reversing entry for a prior payment journal (unpaid / void receipt). */
+
+/**
+ * When a Proforma advance is converted to a Tax Invoice, move liability
+ * Advance from Customers → Sundry Debtors (no second Bank entry).
+ * Cash book should only show the original advance inflow + later balance receipt.
+ */
+export function journalApplyCustomerAdvance(bill, amount, meta = {}) {
+  const amt = money(amount);
+  if (amt <= 0) return null;
+  const party = bill.clientName || bill.data?.client?.name || meta.party || '';
+  const inv = bill.invoiceNumber || bill.id || '';
+  const src = meta.sourceDocNumber || meta.againstSourceDoc || '';
+  return {
+    id: 'jnl_adv_apply_' + inv + '_' + (meta.id || Date.now()),
+    date: meta.date || bill.invoiceDate || new Date().toISOString().split('T')[0],
+    narration: src
+      ? `Advance applied to ${inv} (from ${src})${party ? ' — ' + party : ''}`
+      : `Advance applied to ${inv}${party ? ' — ' + party : ''}`,
+    refType: 'advance-application',
+    refId: inv,
+    party,
+    clientName: party,
+    againstInvoice: inv,
+    invoiceNumber: inv,
+    site: bill.site || bill.data?.site || null,
+    costCenterId: bill.costCenterId || bill.data?.costCenterId || null,
+    workOrderId: bill.workOrderId || bill.data?.workOrderId || null,
+    entries: [
+      { account: ACCOUNTS.ADVANCE_RECEIVED, debit: amt, credit: 0, party },
+      { account: ACCOUNTS.DEBTORS, debit: 0, credit: amt, party },
+    ],
+  };
+}
+
 export function journalReversePayment(originalJournal, reason = 'Payment reversed') {
   if (!originalJournal?.entries?.length) return null;
   return {

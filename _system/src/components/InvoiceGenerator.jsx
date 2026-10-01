@@ -7,7 +7,7 @@ import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, 
 // isValidIndianGSTIN used in save validation
 import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
-import { journalFromTaxInvoice } from '../utils/ledger';
+import { journalFromTaxInvoice, journalApplyCustomerAdvance } from '../utils/ledger';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction, promptAction } from './ConfirmModal';
@@ -1878,6 +1878,23 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         if (postsJournal) {
           const jnl = journalFromTaxInvoice(bill);
           if (jnl) await saveJournal(jnl, { overwrite: true });
+          // PI/Quotation → Tax Invoice: apply transferred advances to Debtors
+          // (do NOT post Bank again — cash already hit on original advance receipt)
+          const srcNo = bill.data?.details?.convertedFrom
+            || editingBill?._sourceDocNumber
+            || editingBill?._sourceProformaNumber
+            || '';
+          const isConvert = !!(editingBill?._convertToType || srcNo);
+          const advancePaid = Number(bill.paidAmount) || 0;
+          if (isConvert && advancePaid > 0.009) {
+            const applyAmt = Math.min(advancePaid, Number(bill.totalAmount) || 0);
+            const adj = journalApplyCustomerAdvance(bill, applyAmt, {
+              sourceDocNumber: srcNo,
+              id: 'conv',
+              date: bill.invoiceDate,
+            });
+            if (adj) await saveJournal(adj, { overwrite: true });
+          }
         }
       } catch (jErr) {
         console.warn('Journal post skipped:', jErr);

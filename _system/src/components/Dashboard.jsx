@@ -1498,7 +1498,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
-            <p className="stat-label">Total Invoiced</p>
+            <p className="stat-label">Total Invoiced <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(incl. GST)</span></p>
             {Object.entries(stats.byCurrency).map(([cur, v]) => (
               <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
                 {formatCurrency(v.total, cur)}
