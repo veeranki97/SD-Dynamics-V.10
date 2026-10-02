@@ -17,7 +17,7 @@ Your data never leaves your computer. No cloud. No signup. No tracking. Open-sou
 
 <a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge&label=%E2%AC%87%EF%B8%8F%20Download&color=16a34a&labelColor=15803d" alt="Download the latest version" height="48"></a>
 
-<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 2, 2026</sub>
+<sub>Always the newest version · about 16 MB · Windows,  ZIP · Last Updated: October 2, 2026</sub>
 
 [⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [⚡ 3-Step Install](#install-in-60-seconds--one-launcher-per-platform) &nbsp;|&nbsp; [🧾 First Invoice in 5 Minutes](#your-first-invoice-in-5-minutes) &nbsp;|&nbsp; [🐛 Report Bug](https://github.com/veeranki97/SD-Dynamics-V.10/issues)
 
