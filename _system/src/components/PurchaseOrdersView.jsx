@@ -77,176 +77,164 @@ function printPO(po, profile, fingerprint) {
       || ps.signatureImage || ps.signature || '';
   } catch { sigSrc = (profile && (profile.signature || profile.signatureImage)) || ''; }
   const t = calcPOTotals(po.items, po.taxRate, po.vendorState, profile?.state);
-  const terms = (po.terms || po.notes || profile?.defaultTerms ||
-    '1. Please quote PO number on all invoices and delivery challans.\\n2. Goods/services subject to inspection and approval.\\n3. Payment as per agreed terms.').replace(/\\n/g, '<br/>');
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const company = esc(profile?.businessName || profile?.name || 'SAI DURGA');
+  const cAddr = esc([profile?.address, profile?.city, profile?.state, profile?.pincode].filter(Boolean).join(', '));
+  const cGst = esc(profile?.gstin || '');
+  const cPhone = esc(profile?.phone || profile?.mobile || '');
+  const cEmail = esc(profile?.email || '');
+  const vendorName = esc(po.vendorName || po.vendor || '');
+  const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
+  const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
+  const vendorPhone = esc(po.vendorPhone || '');
+  const shipSite = esc(po.shipToSite || po.site || po.deliverySite || '');
+  const shipAddr = esc(po.shipToAddress || po.deliveryAddress || '');
+  const shipState = esc(po.shipToState || po.deliveryState || '');
+  const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
+  const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
+    '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
+    .replace(/\n/g, '<br/>');
+  const notes = esc(po.deliveryNotes || po.instructions || '');
   const rows = (po.items || []).map((it, i) => {
     const amt = calcItemAmount(it);
     return `<tr>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${i + 1}</td>
-      <td style="border:1px solid #000;padding:5px">${(it.description || '').replace(/</g,'&lt;')}</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${it.hsn || ''}</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${it.qty || 0}</td>
-      <td style="border:1px solid #000;padding:5px;text-align:center">${it.unit || ''}</td>
-      <td style="border:1px solid #000;padding:5px;text-align:right">${Number(it.rate || 0).toFixed(2)}</td>
-      <td style="border:1px solid #000;padding:5px;text-align:right">${amt.toFixed(2)}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:center">${i + 1}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px">${esc(it.description)}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:center">${esc(it.hsn)}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:center">${esc(it.unit || 'EA')}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:right">${Number(it.qty || 0)}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:right">${inr(it.rate)}</td>
+      <td style="border:1px solid #1e293b;padding:6px 8px;text-align:right">${inr(amt)}</td>
     </tr>`;
   }).join('');
-  const taxBlock = t.isInterstate
-    ? `<tr>
-        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right"><b>IGST @ ${po.taxRate || 0}%</b></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right">${t.igst.toFixed(2)}</td>
-      </tr>`
-    : `<tr>
-        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right"><b>CGST</b></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right">${t.cgst.toFixed(2)}</td>
-      </tr>
-      <tr>
-        <td colspan="5" style="border:1px solid #000;padding:5px"></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right"><b>SGST</b></td>
-        <td style="border:1px solid #000;padding:5px;text-align:right">${t.sgst.toFixed(2)}</td>
-      </tr>`;
-  const html = `<!DOCTYPE html><html><head><title>${po.poNumber || 'PO'}</title>
-<meta charset="utf-8"/>
+  const taxLines = t.isInterstate
+    ? `<div class="tot-row"><span>IGST (${Number(po.taxRate || 0).toFixed(2)}%)</span><span>₹${inr(t.igst)}</span></div>`
+    : `<div class="tot-row"><span>CGST (${(Number(po.taxRate || 0) / 2).toFixed(2)}%)</span><span>₹${inr(t.cgst)}</span></div>
+       <div class="tot-row"><span>SGST (${(Number(po.taxRate || 0) / 2).toFixed(2)}%)</span><span>₹${inr(t.sgst)}</span></div>`;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(po.poNumber || 'PO')}</title>
 <style>
-  @page { size: A4; margin: 12mm; }
+  @page { size: A4; margin: 10mm; }
   * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #000; margin: 0; }
-  table { border-collapse: collapse; width: 100%; }
-  .box { border: 1px solid #000; }
-  .hdr { font-size: 16px; font-weight: bold; text-align: center; padding: 8px; border: 1px solid #000; }
-  .cell { border: 1px solid #000; padding: 6px; vertical-align: top; }
-  .muted { color: #333; font-size: 10px; }
-  .sign { height: 70px; }
+  body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #0f172a; font-size: 11px; margin: 0; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
+  .top .co h1 { margin: 0; font-size: 18px; letter-spacing: 0.08em; color: #0f172a; }
+  .top .co .muted { color: #475569; font-size: 10px; line-height: 1.45; margin-top: 4px; }
+  .top .meta { text-align: right; }
+  .top .meta .doc { font-size: 16px; font-weight: 700; letter-spacing: 0.06em; }
+  .top .meta div { margin-top: 3px; font-size: 11px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1.5px solid #0f172a; margin-bottom: 10px; }
+  .grid2 .box { padding: 10px 12px; }
+  .grid2 .box + .box { border-left: 1.5px solid #0f172a; }
+  .grid2 .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; font-weight: 600; margin-bottom: 6px; }
+  .grid2 .name { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+  .subject { border: 1.5px solid #0f172a; border-top: none; padding: 8px 12px; margin-bottom: 10px; font-size: 11px; }
+  table.items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  table.items th { background: #f1f5f9; border: 1px solid #1e293b; padding: 7px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .bottom { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; margin-top: 4px; }
+  .notes { font-size: 10px; line-height: 1.45; color: #334155; }
+  .notes b { display: block; margin-bottom: 4px; color: #0f172a; }
+  .totals { border: 1.5px solid #0f172a; padding: 10px 12px; }
+  .tot-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; }
+  .tot-row.grand { border-top: 1.5px solid #0f172a; margin-top: 6px; padding-top: 8px; font-size: 13px; font-weight: 700; }
+  .terms { margin-top: 12px; border-top: 1px solid #cbd5e1; padding-top: 8px; font-size: 10px; color: #475569; }
+  .sign { margin-top: 18px; text-align: right; }
+  .sign img { max-height: 64px; max-width: 180px; object-fit: contain; display: block; margin: 0 0 6px auto; }
+  .sign .for { font-size: 11px; }
+  .sign .line { margin-top: 8px; border-top: 1px solid #0f172a; display: inline-block; min-width: 160px; padding-top: 4px; font-size: 10px; }
+  .fp { margin-top: 14px; font-size: 8px; color: #94a3b8; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 6px; }
 </style></head><body>
-<table class="box" style="width:100%">
-  <tr>
-    <td class="cell" style="width:55%">
-      <div style="font-size:14px;font-weight:bold">${profile?.businessName || 'Business'}</div>
-      <div class="muted">${[profile?.address, profile?.city, profile?.state, profile?.pin].filter(Boolean).join(', ')}</div>
-      <div class="muted">GSTIN: ${profile?.gstin || '—'} · PAN: ${profile?.pan || '—'}</div>
-      <div class="muted">Phone: ${profile?.phone || '—'} · Email: ${profile?.email || '—'}</div>
-    </td>
-    <td class="cell" style="width:45%">
-      <div class="hdr" style="border:none;padding:4px 0">PURCHASE ORDER</div>
-      <table style="width:100%;font-size:11px">
-        <tr><td><b>PO No</b></td><td>${po.poNumber || ''}</td></tr>
-        <tr><td><b>Date</b></td><td>${po.date || ''}</td></tr>
-        <tr><td><b>Status</b></td><td>${po.status || 'Issued'}</td></tr>
-        <tr><td><b>Cost Center</b></td><td>${po.costCenterId || po.costCenter || '—'}</td></tr>
-      </table>
-    </td>
-  </tr>
-  <tr>
-    <td class="cell">
-      <b>Vendor (Bill From)</b><br/>
-      ${po.vendorName || ''}<br/>
-      <span class="muted">GSTIN: ${po.vendorGstin || '—'} · State: ${po.vendorState || '—'}</span>
-    </td>
-    <td class="cell">
-      <b>Ship To (Site)</b><br/>
-      ${po.site || po.shipToSite || 'Main Site'}<br/>
-      <span class="muted">${profile?.businessName || ''}</span>
-    </td>
-  </tr>
-</table>
-<table style="width:100%;margin-top:0">
-  <thead>
-    <tr style="background:#f3f4f6">
-      <th class="cell" style="width:4%">#</th>
-      <th class="cell">Description</th>
-      <th class="cell" style="width:10%">HSN</th>
-      <th class="cell" style="width:8%">Qty</th>
-      <th class="cell" style="width:8%">Unit</th>
-      <th class="cell" style="width:12%">Rate</th>
-      <th class="cell" style="width:12%">Amount</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rows || '<tr><td class="cell" colspan="7" style="text-align:center">No items</td></tr>'}
-    <tr>
-      <td colspan="5" class="cell"></td>
-      <td class="cell" style="text-align:right"><b>Taxable</b></td>
-      <td class="cell" style="text-align:right">${t.sub.toFixed(2)}</td>
-    </tr>
-    ${taxBlock}
-    <tr>
-      <td colspan="5" class="cell"></td>
-      <td class="cell" style="text-align:right"><b>Round Off</b></td>
-      <td class="cell" style="text-align:right">0.00</td>
-    </tr>
-    <tr>
-      <td colspan="5" class="cell"></td>
-      <td class="cell" style="text-align:right"><b>Grand Total</b></td>
-      <td class="cell" style="text-align:right"><b>${t.total.toFixed(2)}</b></td>
-    </tr>
-  </tbody>
-</table>
-<table style="width:100%;margin-top:0">
-  <tr>
-    <td class="cell" style="width:60%;height:90px">
-      <b>Terms &amp; Conditions</b>
-      <div class="muted" style="margin-top:6px;line-height:1.45">${terms}</div>
-    </td>
-    <td class="cell sign" style="width:40%;text-align:center;vertical-align:bottom">
-      <div style="text-align:right">
-        ${sigSrc ? `<img src="${sigSrc}" alt="Signature" style="max-height:56px;max-width:160px;display:block;margin:0 0 6px auto;object-fit:contain"/>` : ''}
-        <div>For <b>${(profile?.businessName || 'Company').replace(/</g,'&lt;')}</b></div>
-        <div style="margin-top:28px;border-top:1px solid #000;display:inline-block;min-width:140px;padding-top:4px;font-size:10px">Authorized Signatory</div>
-      </div>
-      <div style="height:48px"></div>
-      <div style="border-top:1px solid #000;margin-top:8px;padding-top:4px">Authorised Signatory</div>
-    </td>
-  </tr>
-</table>
-<div class="muted" style="margin-top:8px;font-size:9px">
-  SHA-256: ${fingerprint || '—'} · Computer generated PO — ${new Date().toLocaleString('en-IN')}
-</div>
+  <div class="top">
+    <div class="co">
+      <h1>${company.toUpperCase()}</h1>
+      <div class="muted">${cAddr}${cGst ? '<br/>GSTIN: ' + cGst : ''}${(cPhone || cEmail) ? '<br/>' + [cPhone, cEmail].filter(Boolean).join(' · ') : ''}</div>
+    </div>
+    <div class="meta">
+      <div class="doc">PURCHASE ORDER</div>
+      <div><b>PO No:</b> ${esc(po.poNumber)}</div>
+      <div><b>Date:</b> ${esc(po.date || po.poDate)}</div>
+      <div><b>Status:</b> ${esc(po.status || 'Issued')}</div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="box">
+      <div class="lbl">Supplier Details (To)</div>
+      <div class="name">${vendorName || '—'}</div>
+      <div>${vendorGst ? 'GSTIN: ' + vendorGst + '<br/>' : ''}${vendorPhone ? 'Phone: ' + vendorPhone + '<br/>' : ''}${vendorAddr || ''}</div>
+    </div>
+    <div class="box">
+      <div class="lbl">Delivery Details (Ship To)</div>
+      <div class="name">${shipSite || '—'}</div>
+      <div>${shipAddr || ''}${shipState ? (shipAddr ? '<br/>' : '') + 'State: ' + shipState : ''}</div>
+    </div>
+  </div>
+  ${subject ? `<div class="subject"><b>Subject:</b> ${subject}</div>` : ''}
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:5%">Sl</th>
+        <th>Description / Material</th>
+        <th style="width:10%">HSN/SAC</th>
+        <th style="width:8%">Unit</th>
+        <th style="width:8%">Qty</th>
+        <th style="width:12%">Unit Rate</th>
+        <th style="width:14%">Amount (₹)</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows || '<tr><td colspan="7" style="border:1px solid #1e293b;padding:12px;text-align:center">No items</td></tr>'}
+    </tbody>
+  </table>
+  <div class="bottom">
+    <div class="notes">
+      ${notes ? `<b>Notes / Instructions</b>${notes.replace(/\n/g, '<br/>')}` : ''}
+      <div class="terms"><b>Terms &amp; Conditions</b><br/>${terms}</div>
+    </div>
+    <div class="totals">
+      <div class="tot-row"><span>Subtotal</span><span>₹${inr(t.sub)}</span></div>
+      ${taxLines}
+      <div class="tot-row"><span>Round Off</span><span>₹0.00</span></div>
+      <div class="tot-row grand"><span>Grand Total</span><span>₹${inr(t.total)}</span></div>
+    </div>
+  </div>
+  <div class="sign">
+    ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : ''}
+    <div class="for">For <b>${company}</b></div>
+    <div class="line">Authorized Signatory</div>
+  </div>
+  <div class="fp">SHA-256: ${esc(fingerprint) || '—'} · Generated securely by SD Dynamics · ${new Date().toLocaleString('en-IN')}</div>
 </body></html>`;
 
-  // Hidden iframe print — more reliable than blob + window.open (onload often
-  // never fires for blob URLs; popups can open blank). Same pattern as invoice print.
   try {
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('title', 'PO Print');
-    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
-    document.body.appendChild(iframe);
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      // Fallback: blob tab
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const w = window.open(url, '_blank');
-      if (!w) {
-        URL.revokeObjectURL(url);
-        alert('Pop-up blocked. Please allow pop-ups to print Purchase Orders.');
-        return;
-      }
-      setTimeout(() => {
-        try { w.focus(); w.print(); } catch (e) { console.error(e); }
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      }, 500);
-      return;
+    let iframe = document.getElementById('sd-po-print-frame');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'sd-po-print-frame';
+      iframe.setAttribute('title', 'PO Print');
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      document.body.appendChild(iframe);
     }
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument || win.document;
     doc.open();
     doc.write(html);
     doc.close();
-    const win = iframe.contentWindow;
     const doPrint = () => {
       try {
         win.focus();
         win.print();
       } catch (e) {
         console.error('Print failed', e);
+        try {
+          const w = window.open('', '_blank');
+          if (!w) { alert('Pop-up blocked. Please allow pop-ups to print Purchase Orders.'); return; }
+          w.document.write(html);
+          w.document.close();
+          setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 300);
+        } catch (e2) { console.error(e2); }
       }
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch { /* already removed */ }
-      }, 60_000);
     };
-    // Images (signature) may load async — small delay then print
-    setTimeout(doPrint, sigSrc ? 400 : 150);
+    setTimeout(doPrint, sigSrc ? 450 : 180);
   } catch (e) {
     console.error('printPO failed', e);
     alert('Failed to generate PO print. Check browser console.');
