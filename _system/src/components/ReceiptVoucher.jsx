@@ -470,7 +470,7 @@ export default function ReceiptVoucher() {
       {/* Add Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px' }}>
             <h3 className="section-title">{editingId ? 'Edit Payment Receipt' : 'New Payment Receipt'}</h3>
             <div style={{ marginBottom: '1rem' }}>
               <label className="form-label">Transaction type</label>
@@ -527,7 +527,7 @@ export default function ReceiptVoucher() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="form-group">
                 <label className="form-label">Receipt No</label>
                 <input type="text" className="form-input" value={form.receiptNo} onChange={e => updateField('receiptNo', e.target.value)} />
@@ -536,7 +536,7 @@ export default function ReceiptVoucher() {
                 <label className="form-label">Date</label>
                 <input type="date" className="form-input" value={form.date} onChange={e => updateField('date', e.target.value)} />
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Received From (Client Name) *</label>
                 <input type="text" className="form-input" list="rcpt-party-list" value={form.clientName} onChange={e => updateField('clientName', e.target.value)} placeholder={form.paymentType==='vendor'?'Select or type vendor…':'Client name'} />
                 <datalist id="rcpt-party-list">
@@ -601,7 +601,7 @@ export default function ReceiptVoucher() {
                 </>
               )}
 
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Note (optional)</label>
                 <input type="text" className="form-input" value={form.note} onChange={e => updateField('note', e.target.value)} />
               </div>

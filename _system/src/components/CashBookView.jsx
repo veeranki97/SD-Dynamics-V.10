@@ -22,6 +22,68 @@ function exportCashCsv(rows) {
   a.click();
 }
 
+
+function exportCashPdf({ title, subtitle, company, rows, mode, dayDate, closing }) {
+  const w = window.open('', '_blank');
+  if (!w) return;
+  const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let body = '';
+  if (mode === 'day') {
+    body = (rows || []).map(r => `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${esc(r.type)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${esc(r.ref)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${esc(r.name)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.inflow ? '₹'+inr(r.inflow) : '—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.outflow ? '₹'+inr(r.outflow) : '—'}</td>
+    </tr>`).join('');
+    const tin = (rows||[]).reduce((s,r)=>s+(Number(r.inflow)||0),0);
+    const tout = (rows||[]).reduce((s,r)=>s+(Number(r.outflow)||0),0);
+    body += `<tr style="font-weight:700;background:#f8fafc">
+      <td colspan="3" style="padding:8px;text-align:right">Total Voucher Value For The Day:</td>
+      <td style="padding:8px;text-align:right">₹${inr(tin)}</td>
+      <td style="padding:8px;text-align:right">₹${inr(tout)}</td>
+    </tr>`;
+  } else {
+    body = (rows || []).map(r => `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${esc(r.date)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${esc(r.name)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb">${esc(r.type)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.inflow ? '₹'+inr(r.inflow) : '—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.outflow ? '₹'+inr(r.outflow) : '—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:right;font-weight:600">₹${inr(r.balance)}</td>
+    </tr>`).join('');
+  }
+  const headCols = mode === 'day'
+    ? '<th>Voucher Type</th><th>Voucher No.</th><th>Particulars</th><th style="text-align:right">Inward (₹)</th><th style="text-align:right">Outward (₹)</th>'
+    : '<th>Date</th><th>Party / Particulars</th><th>Type</th><th style="text-align:right">Money In (Dr)</th><th style="text-align:right">Money Out (Cr)</th><th style="text-align:right">Running Bal</th>';
+  const period = mode === 'day' ? `Report Period: ${esc(dayDate)}` : 'Account: Main Cashbook';
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title>
+<style>
+@page{size:A4;margin:12mm}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#0f172a;margin:0}
+.hdr{text-align:center;border-bottom:2.5px solid #1e3a5f;padding-bottom:10px;margin-bottom:12px}
+.hdr h1{margin:0;font-size:20px;letter-spacing:0.1em;color:#1e3a5f}
+.hdr .doc{margin-top:6px;font-size:13px;font-weight:700;letter-spacing:0.08em;color:#334155}
+.meta{display:flex;justify-content:space-between;margin-bottom:12px;font-size:11px;color:#475569}
+.close{text-align:right}.close .lbl{font-size:9px;text-transform:uppercase;color:#64748b}
+.close .amt{font-size:16px;font-weight:700;color:#0f172a}
+table{width:100%;border-collapse:collapse}
+thead th{background:#f1f5f9;padding:8px;border-bottom:2px solid #94a3b8;font-size:9px;text-transform:uppercase;color:#475569;text-align:left}
+.foot{margin-top:16px;font-size:9px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:8px}
+</style></head><body>
+<div class="hdr"><h1>${esc(company).toUpperCase()}</h1><div class="doc">${esc(subtitle)}</div></div>
+<div class="meta"><div>${period}<br/>Generated on: ${new Date().toLocaleString('en-IN')}</div>
+${mode !== 'day' ? `<div class="close"><div class="lbl">Closing Balance</div><div class="amt">₹${inr(closing)}</div></div>` : ''}
+</div>
+<table><thead><tr>${headCols}</tr></thead><tbody>${body || '<tr><td colspan="6" style="padding:16px;text-align:center;color:#94a3b8">No entries</td></tr>'}</tbody></table>
+<div class="foot">This is a computer-generated document from ${esc(company)}. No signature is required.</div>
+<script>setTimeout(function(){window.print()},250)</script>
+</body></html>`);
+  w.document.close();
+}
+
+
 export default function CashBookView() {
   const [receipts, setReceipts] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -111,7 +173,19 @@ export default function CashBookView() {
         <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Banknote size={22} /> Cash Book
         </h2>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => exportCashCsv(rows)}>Export CSV</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => exportCashCsv(rows)}>Export CSV</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={async () => {
+            let company = 'SAI DURGA';
+            try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
+            if (tab === 'day') {
+              const dayRows = rows.filter(r => r.date === dayDate);
+              exportCashPdf({ title: 'Day Book', subtitle: 'VOUCHER LOG (DAY BOOK)', company, rows: dayRows, mode: 'day', dayDate });
+            } else {
+              exportCashPdf({ title: 'Cash Book', subtitle: 'CASHBOOK LEDGER', company, rows, mode: 'ledger', closing });
+            }
+          }}>{tab === 'day' ? 'Export Day Book PDF' : 'Export Cash Book PDF'}</button>
+        </div>
         <p className="page-subtitle">Running balance from Journal (Bank/Cash) — same source as General Ledger</p>
       </div>
 

@@ -861,16 +861,12 @@ function App() {
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
       >
-        <div className="sidebar-brand">
-          <div className="sidebar-logo sidebar-logo-animated" title={profile?.businessName || 'SD Dynamics'}>
-            {profile?.logo ? (
-              <img src={profile.logo} alt="" className="sidebar-logo-img" />
-            ) : (
-              <span className="sidebar-logo-mark" aria-hidden>SD</span>
-            )}
+        <div className="sidebar-header sidebar-brand">
+          <div className="logo-wrapper sidebar-logo-animated" title="SD Dynamics" aria-hidden>
+            <span className="brand-icon-mark">SD</span>
           </div>
           <div className="sidebar-brand-text">
-            <h2 className="sidebar-title">{(typeof localStorage !== 'undefined' && localStorage.getItem('sd_brand_title')) || 'SD Dynamics'}</h2>
+            <h1 className="brand-name sidebar-title">{(typeof localStorage !== 'undefined' && localStorage.getItem('sd_brand_title')) || 'SD Dynamics'}</h1>
             <p className="sidebar-subtitle">{(typeof localStorage !== 'undefined' && localStorage.getItem('sd_brand_subtitle')) || 'Service ERP'}</p>
           </div>
           <button

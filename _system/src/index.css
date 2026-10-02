@@ -3679,3 +3679,69 @@ div.stats-grid.stats-grid-kpi-4 .stat-value {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
+
+
+/* ===== Clean SD sidebar header (letter mark, not full logo image) ===== */
+.sidebar-header.sidebar-brand,
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+.logo-wrapper,
+.sidebar-logo-animated {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  animation: sd-brand-in 0.5s ease-out, sd-logo-glow 2.8s ease-in-out infinite;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+.brand-icon-mark {
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+}
+.brand-name.sidebar-title,
+.sidebar-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: inherit;
+}
+.sidebar-subtitle {
+  margin: 0.1rem 0 0;
+  font-size: 0.65rem;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Hide any full company logo in the nav brand (use Settings logo only on PDFs) */
+.sidebar-brand .sidebar-logo-img,
+.sidebar-header .sidebar-logo-img {
+  display: none !important;
+}
+@keyframes sd-brand-in {
+  from { opacity: 0; transform: scale(0.85) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes sd-logo-glow {
+  0%, 100% { box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35); }
+  50% { box-shadow: 0 2px 16px rgba(56, 189, 248, 0.55); }
+}
+.logo-wrapper:hover,
+.sidebar-logo-animated:hover {
+  transform: scale(1.06);
+  transition: transform 0.2s ease;
+}

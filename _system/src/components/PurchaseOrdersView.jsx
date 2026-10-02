@@ -114,31 +114,31 @@ function printPO(po, profile, fingerprint) {
        <div class="tot-row"><span>SGST (${(Number(po.taxRate || 0) / 2).toFixed(2)}%)</span><span>₹${inr(t.sgst)}</span></div>`;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(po.poNumber || 'PO')}</title>
 <style>
-  @page { size: A4; margin: 10mm; }
+  @page { size: A4; margin: 8mm; }
   * { box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #0f172a; font-size: 11px; margin: 0; }
-  .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px; }
   .top .co h1 { margin: 0; font-size: 18px; letter-spacing: 0.08em; color: #0f172a; }
   .top .co .muted { color: #475569; font-size: 10px; line-height: 1.45; margin-top: 4px; }
   .top .meta { text-align: right; }
   .top .meta .doc { font-size: 16px; font-weight: 700; letter-spacing: 0.06em; }
   .top .meta div { margin-top: 3px; font-size: 11px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1.5px solid #0f172a; margin-bottom: 10px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 2px solid #0f172a; margin-bottom: 10px; }
   .grid2 .box { padding: 10px 12px; }
-  .grid2 .box + .box { border-left: 1.5px solid #0f172a; }
+  .grid2 .box + .box { border-left: 2px solid #0f172a; }
   .grid2 .lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; font-weight: 600; margin-bottom: 6px; }
   .grid2 .name { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
-  .subject { border: 1.5px solid #0f172a; border-top: none; padding: 8px 12px; margin-bottom: 10px; font-size: 11px; }
+  .subject { border: 2px solid #0f172a; border-top: none; padding: 8px 12px; margin-bottom: 10px; font-size: 11px; }
   table.items { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
   table.items th { background: #f1f5f9; border: 1px solid #1e293b; padding: 7px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
   .bottom { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; margin-top: 4px; }
   .notes { font-size: 10px; line-height: 1.45; color: #334155; }
   .notes b { display: block; margin-bottom: 4px; color: #0f172a; }
-  .totals { border: 1.5px solid #0f172a; padding: 10px 12px; }
+  .totals { border: 2px solid #0f172a; padding: 10px 12px; }
   .tot-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 11px; }
   .tot-row.grand { border-top: 1.5px solid #0f172a; margin-top: 6px; padding-top: 8px; font-size: 13px; font-weight: 700; }
   .terms { margin-top: 12px; border-top: 1px solid #cbd5e1; padding-top: 8px; font-size: 10px; color: #475569; }
-  .sign { margin-top: 18px; text-align: right; }
+  .sign { margin-top: 12px; text-align: right; }
   .sign img { max-height: 64px; max-width: 180px; object-fit: contain; display: block; margin: 0 0 6px auto; }
   .sign .for { font-size: 11px; }
   .sign .line { margin-top: 8px; border-top: 1px solid #0f172a; display: inline-block; min-width: 160px; padding-top: 4px; font-size: 10px; }

@@ -517,8 +517,7 @@ export default function ExpenseTracker() {
                       ...f,
                       workOrderId: id,
                       costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
-                      site: resolveWoSite(wo) || f.site || '',
-                      site: wo?.site || f.site || '',
+                      site: resolveWoSite(wo) || wo?.site || f.site || '',
                     }));
                   }}>
                   <option value="">— None —</option>
