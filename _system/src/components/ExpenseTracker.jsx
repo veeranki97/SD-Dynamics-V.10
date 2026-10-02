@@ -451,25 +451,33 @@ export default function ExpenseTracker() {
                   onChange={e => updateField('vendorGstin', e.target.value)} placeholder="For ITC claim" maxLength={15} />
               </div>
               <div className="form-group">
-                <label className="form-label">Work Order</label>
-                <input type="text" className="form-input" list="wo-datalist" value={form.workOrderId || ''}
-                  placeholder="Type or select WO..."
-                  onChange={e => {
-                    const val = e.target.value;
-                    const wo = workOrders.find(w => w.woNumber === val || w.id === val);
-                    setForm(f => ({
-                      ...f,
-                      workOrderId: val,
-                      costCenterId: wo ? (resolveWoCostCenter(wo) || wo?.costCenterId || f.costCenterId || '') : f.costCenterId,
-                      site: wo ? (resolveWoSite(wo) || wo?.site || f.site || '') : f.site,
-                    }));
-                  }} />
-                <datalist id="wo-datalist">
-                  {workOrders.map(wo => (
-                    <option key={wo.id} value={wo.woNumber}>{wo.woNumber || wo.id} — {wo.clientName || wo.title || ''}</option>
-                  ))}
-                </datalist>
-              </div>
+  <label className="form-label">Work Order</label>
+  <input type="text" className="form-input" list="wo-datalist" 
+    value={(() => {
+      const v = form.workOrderId || '';
+      if (!v) return '';
+      // Translate the internal ID into the readable WO Number for display
+      const wo = workOrders.find(w => w.id === v);
+      return wo ? (wo.woNumber || wo.id) : v;
+    })()}
+    placeholder="Type or select WO..."
+    onChange={e => {
+      const val = e.target.value;
+      const wo = workOrders.find(w => w.woNumber === val || w.id === val);
+      setForm(f => ({
+        ...f,
+        // Store the database ID internally, even though they see the WO Number
+        workOrderId: wo ? wo.id : val,
+        costCenterId: wo ? (resolveWoCostCenter(wo) || wo?.costCenterId || f.costCenterId || '') : f.costCenterId,
+        site: wo ? (resolveWoSite(wo) || wo?.site || f.site || '') : f.site,
+      }));
+    }} />
+  <datalist id="wo-datalist">
+    {workOrders.map(wo => (
+      <option key={wo.id} value={wo.woNumber}>{wo.woNumber || wo.id} — {wo.clientName || wo.title || ''}</option>
+    ))}
+  </datalist>
+</div>
               <div className="form-group">
                 <label className="form-label">Cost Center *</label>
                 <select className="form-input" value={form.costCenterId || ''}
