@@ -50,7 +50,7 @@ This version includes all stable features developed to date:
 - ✅ P&L Statement (Revenue - Direct Costs = GP; + Other Income - Indirect = NP)
 - ✅ Balance Sheet (A = L + E, reconciliation flag)
 - ✅ Cash Flow (indirect method, buckets, daily balance)
-- ✅ Cost Centers (hierarchy, allocation)
+- ✅ Cost Centres (hierarchy, allocation)
 - ✅ Opening balances (OPENING voucher)
 - ✅ Period locks (lock invoices by date range)
 - ✅ Fiscal year management
@@ -67,7 +67,7 @@ This version includes all stable features developed to date:
 - ✅ Payment receipt entry
 - ✅ Multiple payment modes (Cash, Check, Bank, NEFT, UPI, Credit)
 - ✅ Bulk payment import
-- ✅ Payment reversals / voids
+- ✅ Payment reversals/voids
 - ✅ Overpayment block (validates against invoice total)
 - ✅ Client credit application (pay with a previous credit note)
 
@@ -81,11 +81,8 @@ This version includes all stable features developed to date:
 - ✅ Trash bin UI (restore/purge forever)
 
 #### **Security & Access Control**
-- ✅ Session management (Cache + Properties fallback, 6h max)
 - ✅ Role-based access control (admin, accountant, viewer, guest)
-- ✅ Email OTP login (6-digit, 5-min window)
 - ✅ Immutable audit log (hash-chained, user/timestamp/before/after)
-- ✅ Admin PIN (hashed, OTP fallback)
 - ✅ CORS lockdown (localhost only, no wildcard)
 - ✅ Path traversal protection (all file operations safe)
 - ✅ Body size limit (5 MB) & validation
@@ -149,8 +146,6 @@ This version includes all stable features developed to date:
 
 #### **Platform Support**
 - ✅ Windows (HTA launcher, PowerShell install)
-- ✅ macOS (shell launcher)
-- ✅ Linux (Bash launcher)
 - ✅ Offline operation (PWA service worker)
 - ✅ Localhost-only binding (data never leaves machine)
 
@@ -194,23 +189,18 @@ This version includes all stable features developed to date:
 ### Short-term (Next 2-3 months)
 
 - [ ] **Profile Isolation** — Each business gets its own ledger (currently all share)
-- [ ] **Invoice Approval Workflow** — Draft → Pending → Approved → Issued
 - [ ] **Payment Reminders** — Email alerts for overdue invoices
-- [ ] **Item-level Batch Tracking** — Manufacture date, expiry, batch codes
-- [ ] **Stock Ledger** — FIFO/LIFO/weighted-average costing
 - [ ] **E-invoicing Integration** — IRN via GSP partner (needs IP whitelisting)
 - [ ] **Bank CSV Import** — Match statement rows to invoices
+- [ ] **Audit Report (PDF)** — CA-ready summary for lender/ITR
 - [ ] **GST 2B Auto-Download** — Fetch from portal (GSTN API)
 
 ### Medium-term (3-6 months)
 
-- [ ] **Customer Portal** — Clients log in with email OTP, view/pay invoices
 - [ ] **Mobile App** — React Native wrapper (share backend)
 - [ ] **API for 3rd-party** — Let Tally/Zoho read/write SD Dynamics data
-- [ ] **Financial Ratios Dashboard** — DSCR, current ratio, debtor days, etc.
 - [ ] **Budget vs Actual** — Track spending against budget heads
 - [ ] **Multi-currency Ledger** — Store all in INR but display in foreign currency
-- [ ] **Audit Report (PDF)** — CA-ready summary for lender/ITR
 - [ ] **E-way Bill Auto-Generate** — Pre-fill from invoice data
 
 ### Long-term (6-12 months)
@@ -220,8 +210,6 @@ This version includes all stable features developed to date:
 - [ ] **Godown Stock Master** — Multiple warehouses, transfer tracking
 - [ ] **GST 2A Matching** — Cross-check purchase lines against seller's GSTR-1
 - [ ] **Advance-tax Computation** — Q1/Q2/Q3/Q4 installments with surcharge
-- [ ] **Fixed Asset Register** — Depreciation schedules, disposals
-- [ ] **WBTR (Workmen's Benefit) Tracking** — Sect 11 computation
 - [ ] **Trade Receivables Aging** — Group invoices by age (0-30, 30-60, etc.)
 
 ---
@@ -231,7 +219,6 @@ This version includes all stable features developed to date:
 | Limitation | Workaround | Target Fix |
 |---|---|---|
 | All businesses share same Chart of Accounts | Export COA JSON before profile switch | v2.4.0 (Profile Isolation) |
-| No multi-warehouse stock tracking | Manage manually in products | v2.5.0 (Godown module) |
 | Fixed asset depreciation manual | Spreadsheet tracking | v2.6.0 (Asset register) |
 | E-invoicing requires manual IRN upload | Use GSP portal for IRN | v2.4.0 (GSP integration) |
 | No PO-to-invoice auto-match | Manual bill entry | v2.4.0 (PO matching) |
@@ -311,7 +298,7 @@ This version includes all stable features developed to date:
 - Advanced financial statements
 - Work orders + cost centers
 
-**Contributors:** Veeranki Bharath Kumar, community testers, CA advisors
+**Contributors:** Bharath Kumar, community testers, CA advisors
 
 ---
 
