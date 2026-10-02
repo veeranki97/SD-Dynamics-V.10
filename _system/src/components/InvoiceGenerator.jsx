@@ -20,6 +20,7 @@ import HelpButton from './HelpButton';
 import { getClientCredit, planCreditApplication } from '../utils/clientCredit';
 import ClientModal from './ClientModal';
 import { toast } from './Toast';
+import QRCode from 'qrcode';
 
 // Rich text editor component that works with contentEditable properly
 function RichEditor({ value, onChange, placeholder, toolbar = false }) {
@@ -2726,7 +2727,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     // ----- Barcode / QR of invoice number -----
     if (!isThermalPdf && (ps.invoiceQrEnabled || ps.invoiceBarcodeEnabled)) {
       // Use the qrcode library that's already a dep for UPI QR
-      const QRCode = (await import('qrcode')).default;
+      /* QRCode static import */
       const qrPayload = ps.invoiceQrUrl
         ? ps.invoiceQrUrl.replace(/\{invoice_number\}/g, encodeURIComponent(details.invoiceNumber))
         : details.invoiceNumber;
@@ -2755,7 +2756,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
     // ----- Feedback / Review QR -----
     if (!isThermalPdf && ps.feedbackQrEnabled && ps.feedbackQrUrl) {
-      const QRCode = (await import('qrcode')).default;
+      /* QRCode static import */
       try {
         const dataUrl = await QRCode.toDataURL(ps.feedbackQrUrl, { errorCorrectionLevel: 'M', margin: 0, width: 200 });
         pdf.setPage(pdf.getNumberOfPages());

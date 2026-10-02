@@ -1,8 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
+import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber } from '../store';
+import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
 import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
 import { openWhatsAppShare } from '../utils/share';
@@ -93,7 +97,7 @@ function ReceiptModal({ target, onClose }) {
     try {
       await saveBill({ ...bill, status: 'cancelled', paidAmount: 0 }, { overwrite: true });
       try {
-        const { logActivity } = await import('../store');
+        /* logActivity: static import */
         await logActivity({ entityType: 'invoice', entityId: bill.invoiceNumber || bill.id, action: 'cancel' });
       } catch { /* */ }
       toast('Invoice cancelled', 'success');
@@ -1146,15 +1150,15 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     })) return;
     setBulkBusy(true);
     try {
-      const { jsPDF } = await import('jspdf');
-      const html2canvas = (await import('html2canvas')).default;
+      /* jsPDF static */
+      /* html2canvas static */
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       // Build each bill in a hidden container, snap it, add as a page.
       // Reuses InvoicePreview via a dynamic import so its CSS + fonts
       // are hydrated once, then reused for each iteration.
-      const InvoicePreviewMod = await import('./InvoicePreview');
-      const { createRoot } = await import('react-dom/client');
-      const { createElement } = await import('react');
+      const InvoicePreviewMod = { default: InvoicePreview };
+      /* createRoot static */
+      /* createElement static */
       const container = document.createElement('div');
       container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
       document.body.appendChild(container);
@@ -1242,11 +1246,11 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   // desktop / browsers that don't support file sharing yet).
   const generateSingleBillPdfBlob = async (bill) => {
     const data = bill.data || {};
-    const { jsPDF } = await import('jspdf');
-    const html2canvas = (await import('html2canvas')).default;
-    const InvoicePreviewMod = await import('./InvoicePreview');
-    const { createRoot } = await import('react-dom/client');
-    const { createElement } = await import('react');
+    /* jsPDF static */
+    /* html2canvas static */
+    const InvoicePreviewMod = { default: InvoicePreview };
+    /* createRoot static */
+    /* createElement static */
     const container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
     document.body.appendChild(container);

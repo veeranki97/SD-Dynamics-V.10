@@ -327,10 +327,10 @@ export default function ExpenseTracker() {
       {/* Filters */}
       <div className="glass-panel p-4 mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="search-box" style={{ maxWidth: '300px' }}>
+          <div className="search-box" style={{ maxWidth: '350px' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
-              onChange={e => setSearch(e.target.value)} className="search-input" />
+              onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
           </div>
           <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="all">All Categories</option>
@@ -408,17 +408,31 @@ export default function ExpenseTracker() {
                 <label className="form-label">Against Invoice #</label>
                 <input type="text" className="form-input" value={form.againstInvoice || ''} list="exp-inv-list" placeholder="Select or type invoice"
                   onChange={e => {
-                    const val = e.target.value;
-                    updateField('againstInvoice', val);
-                    const bill = (billList||[]).find(b => b.invoiceNumber === val);
-                    if (bill) {
-                      setForm(f => ({
-                        ...f,
-                        workOrderId: bill.workOrderId || bill.woNumber || f.workOrderId,
-                        costCenterId: bill.costCenterId || f.costCenterId,
-                        site: bill.site || f.site
-                      }));
+                    const inv = e.target.value;
+                    const bill = (billList || []).find(b =>
+                      String(b.invoiceNumber || b.id || '') === inv ||
+                      String(b.invoiceNumber || '').toLowerCase() === inv.toLowerCase()
+                    );
+                    if (!bill) {
+                      updateField('againstInvoice', inv);
+                      return;
                     }
+                    // Auto-extract logic when invoice is found
+                    const rawWo = bill.workOrderId || bill.workOrder || bill.woId || bill.woNumber || '';
+                    const wo = (workOrders || []).find(w =>
+                      w.id === rawWo ||
+                      w.woNumber === rawWo ||
+                      String(w.woNumber || '').toLowerCase() === String(rawWo).toLowerCase()
+                    );
+                    const woId = wo?.id || '';
+                    const cc = resolveWoCostCenter(wo) || bill.costCenterId || bill.costCenter || '';
+                    setForm(f => ({
+                      ...f,
+                      againstInvoice: inv,
+                      workOrderId: woId || f.workOrderId || '',
+                      costCenterId: cc || f.costCenterId || '',
+                      site: resolveWoSite(wo) || bill.site || f.site || '',
+                    }));
                   }} />
                 <datalist id="exp-inv-list">
                   {(billList||[]).slice(0,200).map(b => <option key={b.id} value={b.invoiceNumber}>{b.clientName} ({b.invoiceNumber})</option>)}
@@ -430,7 +444,7 @@ export default function ExpenseTracker() {
                   onChange={e => updateField('invoiceNo', e.target.value)} placeholder="Supplier bill no." />
               </div>
 
-              {/* Row 4: Vendor GSTIN, Work Order, Cost Center */}
+              {/* Row 4: Vendor GSTIN, Work Order (Datalist), Cost Center */}
               <div className="form-group">
                 <label className="form-label">Vendor GSTIN</label>
                 <input type="text" className="form-input" value={form.vendorGstin}
@@ -446,13 +460,13 @@ export default function ExpenseTracker() {
                     setForm(f => ({
                       ...f,
                       workOrderId: val,
-                      costCenterId: wo ? (resolveWoCostCenter(wo) || f.costCenterId || '') : f.costCenterId,
+                      costCenterId: wo ? (resolveWoCostCenter(wo) || wo?.costCenterId || f.costCenterId || '') : f.costCenterId,
                       site: wo ? (resolveWoSite(wo) || wo?.site || f.site || '') : f.site,
                     }));
                   }} />
                 <datalist id="wo-datalist">
                   {workOrders.map(wo => (
-                    <option key={wo.id} value={wo.woNumber}>{wo.clientName || wo.title || ''}</option>
+                    <option key={wo.id} value={wo.woNumber}>{wo.woNumber || wo.id} — {wo.clientName || wo.title || ''}</option>
                   ))}
                 </datalist>
               </div>
