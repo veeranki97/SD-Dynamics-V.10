@@ -348,6 +348,8 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     try { localStorage.setItem('gst_dashboardColumns', JSON.stringify(visibleColumns)); } catch { /* ignore */ }
   }, [visibleColumns]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [revisionModal, setRevisionModal] = useState(null); // { invoiceNumber, rows }
+  const [revisionLoading, setRevisionLoading] = useState(false);
   const [paymentModal, setPaymentModal] = useState(null);
   // v1.10.9 — receipt modal state. Opens automatically after
   // recordPayment succeeds; can also be opened via openReceiptFor(...)
@@ -801,7 +803,23 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     loadBills();
   };
 
-  const openPaymentModal = (bill) => {
+  
+  const openRevisions = async (bill) => {
+    const inv = bill.invoiceNumber || bill.id;
+    setRevisionLoading(true);
+    setRevisionModal({ invoiceNumber: inv, rows: [] });
+    try {
+      const res = await fetch(`/api/invoice-revisions?invoice=${encodeURIComponent(inv)}`);
+      const rows = res.ok ? await res.json() : [];
+      setRevisionModal({ invoiceNumber: inv, rows: Array.isArray(rows) ? rows : [] });
+    } catch {
+      setRevisionModal({ invoiceNumber: inv, rows: [], error: 'Could not load revisions' });
+    } finally {
+      setRevisionLoading(false);
+    }
+  };
+
+const openPaymentModal = (bill) => {
     if ((bill.status || '') === 'cancelled') {
       toast('Cannot add payment to a cancelled invoice', 'warning');
       return;
@@ -1913,6 +1931,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
                         <ActionMenu items={[
                           { label: 'Edit', onClick: () => handleView(bill) },
                           { label: 'Download PDF', onClick: () => bulkExportPDF([bill]) },
+                          { label: 'Revisions', onClick: () => openRevisions(bill) },
                           { label: 'Duplicate', onClick: () => onDuplicate?.(bill) },
                           (bill.invoiceType === 'proforma' || bill.invoiceType === 'quotation' || bill.invoiceType === 'delivery-challan'
                             || String(bill.invoiceType||'').includes('proforma') || String(bill.invoiceType||'').includes('quot')
@@ -1943,7 +1962,41 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
 )}
 
       {/* Payment Modal */}
-      {paymentModal && (
+      
+      {revisionModal && (
+        <div className="modal-overlay" onClick={() => setRevisionModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <h3 className="section-title">Revisions — {revisionModal.invoiceNumber}</h3>
+            {revisionLoading && <p className="text-muted">Loading…</p>}
+            {revisionModal.error && <p style={{ color: '#dc2626' }}>{revisionModal.error}</p>}
+            {!revisionLoading && !(revisionModal.rows || []).length && (
+              <p className="text-muted">No revision snapshots yet. Save/edit this document once after revisions were enabled.</p>
+            )}
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: 360, overflow: 'auto' }}>
+              {(revisionModal.rows || []).map((r, i) => (
+                <li key={i} style={{
+                  padding: '10px 12px', borderBottom: '1px solid var(--border)',
+                  fontSize: 13,
+                }}>
+                  <strong>{r.action || 'SAVE'}</strong>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>
+                    {r.timestamp ? new Date(r.timestamp).toLocaleString('en-IN') : ''}
+                  </span>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                    {(r.snapshot && (r.snapshot.status || r.snapshot.invoiceType)) || ''}
+                    {r.snapshot?.totalAmount != null ? ` · ₹${Number(r.snapshot.totalAmount).toFixed(2)}` : ''}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 12, textAlign: 'right' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setRevisionModal(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+{paymentModal && (
         <div className="modal-overlay" onClick={() => setPaymentModal(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <h3 className="section-title">Record Payment</h3>

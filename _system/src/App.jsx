@@ -4,7 +4,7 @@ import HrmView from './components/HrmView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag , Banknote} from 'lucide-react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity} from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
 import { isModuleEnabled, getUpcomingFilings } from './utils';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
@@ -52,6 +52,8 @@ const BankFeedView = lazy(() => import('./components/BankFeedView'));
 const VoucherEntryView = lazy(() => import('./components/VoucherEntryView'));
 const ServiceRevenueReport = lazy(() => import('./components/ServiceRevenueReport'));
 const WorkflowRulesView = lazy(() => import('./components/WorkflowRulesView'));
+const SystemHealthView = lazy(() => import('./components/SystemHealthView'));
+const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
 import { getPrintSettings } from './utils/printSettings';
 
 // v1.10.4 — Lightweight Suspense fallback shown while a lazy view
@@ -93,7 +95,7 @@ function App() {
     } catch { /* sandboxed history API — fall through */ }
     const saved = sessionStorage.getItem('gst_currentView') || 'dashboard';
     // Guard: unknown / partially-updated views must not blank the whole app
-    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log']);
+    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders']);
     return known.has(saved) ? saved : 'dashboard';
   });
   const [profile, setProfile] = useState(null);
@@ -606,6 +608,8 @@ function App() {
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
+    { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
+    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
     { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'System' },
@@ -1119,6 +1123,12 @@ function App() {
         )}
         {currentView === 'hrm' ? <HrmView />
         : currentView === 'activity-log' ? <ActivityLogView />
+        : currentView === 'system-health' ? (
+          <Suspense fallback={<ViewLoading />}><SystemHealthView /></Suspense>
+        )
+        : currentView === 'payment-reminders' ? (
+          <Suspense fallback={<ViewLoading />}><PaymentRemindersView /></Suspense>
+        )
         : currentView === 'chart-settings' ? (
           <SettingsView onSaved={(p) => setProfile(p)} />
         ) : currentView === 'settings' && (
