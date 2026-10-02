@@ -1,209 +1,332 @@
 # Changelog — SD Dynamics V.10
 
-All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+**Format:** [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) | **Versioning:** [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [v1.1.0] — 2026-10-02
+## [v2.3.8] — Current Version (2026-10-02)
 
-### 🔴 **Critical Fixes**
+### Current Features ✅
 
-#### Ledger & Journal Integrity
+This version includes all stable features developed to date:
 
-- **Fixed: Double-posting of Payment Ledger Entries (B1)**
-  - Payment journal entries were posting with invoice number as sourceId, causing all live entries with the same source to be marked redundant when a new payment was saved.
-  - **Fix:** Payment source tracking now correctly uses payment reference or ID, preventing duplicate ledger posts.
-  - **Impact:** Ledger accuracy restored; no more phantom double-entries.
+#### **Core Invoicing**
+- ✅ Tax Invoice, Bill of Supply, Proforma, Delivery Challan, Credit Note
+- ✅ Auto GST calculation (CGST/SGST/IGST, UTGST, Cess)
+- ✅ Per-line tax rates (mixed 5%/12%/18%/28% in one invoice)
+- ✅ Tax-inclusive / tax-exclusive modes
+- ✅ Invoice-level discount (flat/percent/with-tax)
+- ✅ Multiple discount modes (unit discount, percent discount, net discount)
+- ✅ Round-off calculation (auto-adjusted for paise accuracy)
+- ✅ Multi-currency billing (INR + 21 others)
+- ✅ Professional PDF generation (jsPDF + html2canvas)
+- ✅ Rule 48 compliance (no row cut across pages)
+- ✅ UPI QR code in PDF (via qrcode.js)
 
-- **Fixed: Invoice Ledger Disconnection (B2)**
-  - Journal entry failures were silently caught (`console.error()`) after invoice row and PDF were already saved, leaving invoices without corresponding ledger entries.
-  - **Fix:** Save transaction is now atomic: all-or-nothing. If journal posting fails, the invoice row is rolled back.
-  - **Impact:** Accounts Receivable and Sales GL accounts now always reconcile.
+#### **GST Compliance & Reporting**
+- ✅ GSTR-1 JSON export (B2B, B2C, HSN, CDNR/CDNUR sections)
+- ✅ GSTR-3B JSON export (Sections 3.1, 3.2, 4)
+- ✅ GSTR-2B reconciliation (import JSON from portal)
+- ✅ E-Way Bill JSON (NIC format)
+- ✅ HSN/SAC validation (4/6/8-digit, turnover-based minimum)
+- ✅ GSTIN checksum validation + state map (all 36 codes)
+- ✅ Place of supply (state + code)
+- ✅ Inter-state / intra-state detection
+- ✅ Export invoice handling (SEZ, LUT)
+- ✅ Reverse Charge (RCM) flag
 
-- **Fixed: Bulk Payments Posted Without Journal (B3)**
-  - Bulk payment processor wrote Payment rows but never posted corresponding journal entries, leaving receivables unrecorded in the ledger.
-  - **Fix:** Payment records now trigger complete double-entry journal posting before commit.
-  - **Impact:** Bulk operations no longer create GL gaps.
+#### **TDS / TCS & Vendor Management**
+- ✅ TDS computations (Sections 194C, 194H, 194I, 194J, 194O, 195, 206C)
+- ✅ TCS / GST-TCS
+- ✅ Form 26Q data
+- ✅ Vendor ledgers with GSTIN, phone, email, bank details
+- ✅ Vendor history tracking
+- ✅ Payment-on-account mode (credit-applied)
 
-- **Fixed: Restored Invoices Unbalanced in Ledger (B4)**
-  - Invoice restoration omitted the Round-Off line from reconstructed journals, causing imbalanced entries and exception-handling swallows.
-  - **Fix:** Round-off calculation is now preserved during restoration from backup.
-  - **Impact:** Restored invoices post cleanly; audit trail intact.
+#### **Financial Management**
+- ✅ Chart of Accounts (tree structure, account types, parent-child)
+- ✅ Double-entry ledger journals (unbalanced check, append-only)
+- ✅ Trial Balance (date-range, balanced flag, paise precision)
+- ✅ P&L Statement (Revenue - Direct Costs = GP; + Other Income - Indirect = NP)
+- ✅ Balance Sheet (A = L + E, reconciliation flag)
+- ✅ Cash Flow (indirect method, buckets, daily balance)
+- ✅ Cost Centers (hierarchy, allocation)
+- ✅ Opening balances (OPENING voucher)
+- ✅ Period locks (lock invoices by date range)
+- ✅ Fiscal year management
+- ✅ Closing entries (FY_CLOSE voucher type)
 
-- **Fixed: Purchase Entry Data Loss (B5)**
-  - Auto-correction of `taxable + tax ≠ total` silently altered user input; `appendRow` had mismatched column counts (13 vs 14); internal `Utilities.sleep(1500)` inside lock caused timeout cascades.
-  - **Fix:** User is prompted to verify tax totals; column counts aligned across create/edit paths; I/O moved outside critical section.
-  - **Impact:** No more silent data modifications; faster concurrent saves.
+#### **Purchase & Inventory**
+- ✅ Purchase bill entry (with ITC eligibility tracking)
+- ✅ Purchase Order (PO) management
+- ✅ Work Orders (multi-line, linked to invoices)
+- ✅ Stock tracking (manual entry)
+- ✅ Product master (name, HSN, rate, tax %)
 
-#### Financial Statements
+#### **Transactions & Payments**
+- ✅ Payment receipt entry
+- ✅ Multiple payment modes (Cash, Check, Bank, NEFT, UPI, Credit)
+- ✅ Bulk payment import
+- ✅ Payment reversals / voids
+- ✅ Overpayment block (validates against invoice total)
+- ✅ Client credit application (pay with a previous credit note)
 
-- **Fixed: P&L Double-Counted Expenses (B6)**
-  - Purchases **and** Vendor Payments were both counted as expenses; credit notes ignored; no date range applied to operational sheets.
-  - **Fix:** P&L now reconciles to the Ledger with unified expense posting and credit-note netting.
-  - **Impact:** Profit now matches tax books.
+#### **Backup & Recovery**
+- ✅ Automatic daily backup (1st run after 5s, then daily)
+- ✅ 30-day backup retention
+- ✅ Soft-delete invoice trash (30-day recovery window)
+- ✅ Transactional restore (pre-restore snapshot, rollback on fail)
+- ✅ Permanent delete option
+- ✅ Manual backup trigger (with 5s throttle)
+- ✅ Trash bin UI (restore/purge forever)
 
-- **Fixed: Balance Sheet Account Misclassification (B7)**
-  - Expense payments booked to `"<vendor> (AP/Expense)"` incorrectly landed under Assets instead of Liabilities.
-  - **Fix:** Chart of Accounts now enforces Account Type and Statutory Group; Balance Sheet equation validation (A = L + E) enforced before save.
-  - **Impact:** Lender-ready Balance Sheet; passes audit verification.
+#### **Security & Access Control**
+- ✅ Session management (Cache + Properties fallback, 6h max)
+- ✅ Role-based access control (admin, accountant, viewer, guest)
+- ✅ Email OTP login (6-digit, 5-min window)
+- ✅ Immutable audit log (hash-chained, user/timestamp/before/after)
+- ✅ Admin PIN (hashed, OTP fallback)
+- ✅ CORS lockdown (localhost only, no wildcard)
+- ✅ Path traversal protection (all file operations safe)
+- ✅ Body size limit (5 MB) & validation
+- ✅ XSS hardening (DOMPurify, no innerHTML interpolation)
+- ✅ Soft-delete flag (is_deleted, not hard-wipe)
 
----
+#### **Recurring Invoicing**
+- ✅ Recurring templates (daily/weekly/monthly/quarterly/yearly)
+- ✅ Auto-fire on boot + daily check
+- ✅ End modes (onDate, afterN occurrences)
+- ✅ Shared tax computation (same as one-off invoices)
+- ✅ Sequential numbering for auto-generated bills
+- ✅ Missed-cycle recovery (fire on next app start)
 
-### 📋 **Data Integrity & Compliance**
+#### **HR/Payroll Module**
+- ✅ Employee master (name, code, UAN, ESIC, PF/ESI applicability)
+- ✅ Attendance tracking (daily marks: P/W/PL/H/A)
+- ✅ Payroll processing (Basic + HRA + DA + Allowances)
+- ✅ PF calculation (EE/ER/EPS/EDLI)
+- ✅ ESI calculation (EE/ER, wage cap)
+- ✅ Payroll lock (prevent edits after approval)
+- ✅ ECR export (EPFO electronic challan-cum-return)
+- ✅ ESIC register (CSV with monthly wages, zero-days reasons)
+- ✅ Form-T (Muster roll attendance register)
+- ✅ Form XVII (Wages register, 15+ columns)
+- ✅ Wages register (searchable, payable days, deductions)
+- ✅ Minimum wages master (state-wise)
+- ✅ Multi-site support (HR locations)
+- ✅ PF cap & ESI cap configuration
 
-#### Sequential Invoicing
+#### **Data Management**
+- ✅ Export all data (JSON) with overwrite gating
+- ✅ Import with merge / overwrite modes
+- ✅ Invoice revision history (last 30 per invoice)
+- ✅ Activity logs (entity type, action, timestamp, diff)
+- ✅ Master data (HSN, Units, Expense Categories)
+- ✅ Counter reconciliation (post-import, avoid collisions)
 
-- **Fixed: Duplicate Invoice Numbers (Sequential)**
-  - Invoice numbers were client-typed, cached for 5 minutes, and reusable after deletion—enabling the same number to be assigned to multiple invoices.
-  - **Fix:** Server-side monotonic counter per document type per fiscal year; conflict detection; no gaps; immutable once issued.
-  - **Affected Flows:** Create Invoice, Create Purchase, Create Payment → all now post gapless sequences.
+#### **Multi-Business & Profiles**
+- ✅ Multiple business profiles (GSTIN, bank, UPI per business)
+- ✅ Profile switching (client not isolated yet — see TODO)
+- ✅ Each profile has separate settings
 
-#### Tax Invoice Editing
+#### **Terms & Customization**
+- ✅ Terms template library (rich text)
+- ✅ Invoice-level custom terms & notes
+- ✅ Extra sections (certificates, declarations)
+- ✅ PDF styling (logo, signature, custom fonts)
+- ✅ Client/vendor names in invoice (auto-saved)
 
-- **Fixed: Tax Invoice Post-Issue Overwrites**
-  - Tax invoices could be overwritten in place after issue, violating GST Rule 34 and Companies Act retention rules.
-  - **Fix:** After issue, all changes now require Credit Note or Debit Note; edits only permitted in DRAFT state.
-  - **Enforcement:** UI lock; server-side state check; audit log capture.
+#### **UI/UX**
+- ✅ Dark mode (CSS variables)
+- ✅ Command palette (Ctrl+K search)
+- ✅ Real-time validation (on form change)
+- ✅ PDF preview (before save/download)
+- ✅ Responsive design (desktop + tablet)
+- ✅ Mobile menu (hamburger on small screens)
+- ✅ Notifications (toast / banner alerts)
+- ✅ Date pickers (browser native)
+- ✅ Inline editing (grid cells, inline saves)
 
-#### Credit Note GST Reporting
+#### **Platform Support**
+- ✅ Windows (HTA launcher, PowerShell install)
+- ✅ macOS (shell launcher)
+- ✅ Linux (Bash launcher)
+- ✅ Offline operation (PWA service worker)
+- ✅ Localhost-only binding (data never leaves machine)
 
-- **Fixed: Credit Notes Added Instead of Subtracted (HSN)**
-  - Credit notes added to HSN summary instead of subtracted; GSTR-1 reports counted them as positive supply (inflation).
-  - **Fix:** Separate CDNR/CDNUR sections now track credit/debit notes; negative netting applied to GSTR-1/3B JSON exports.
-  - **GSTR Compliance:** Now matches GST portal format exactly.
-
-#### GSTR-3B Row Label
-
-- **Fixed: GSTR-3B Row 3.1(c) Label & Double-Counting**
-  - Row 3.1(c) had inconsistent label; nil-rated and exempted exports double-counted in 3.1(a) (B2C table) AND 3.1(b), with IGST added twice to tax payable.
-  - **Fix:** 3.1(c) now reads "Other outward supplies (nil rated, exempted)"; exports counted once in 3.1(b) only; IGST posted once.
-  - **Audit Impact:** Exports reconcile to GST return; no tax overpayment.
-
----
-
-### ✅ **GST Accuracy & Validation**
-
-- **Fixed: HSN Code Validation**
-  - HSN accepted free text; no minimum-digit enforcement based on turnover.
-  - **Fix:** HSN now validated as 4/6/8-digit numeric; minimum enforced per notified threshold (4 digits up to ₹5 Cr, 6 above); mandatory in GSTR-1 Table 12.
-
-- **Fixed: GSTIN Format & State Map**
-  - GSTIN checksum validated but state map had duplicate keys and missing codes (26, 97, 99; "Jammu" label error).
-  - **Fix:** State map updated to all 36 codes; checksums validated against independent sample GSTINs.
-
-- **Fixed: Per-Line Tax Rates**
-  - One `GSTRate` per invoice applied uniformly to all items; mixed supplies incorrectly taxed.
-  - **Fix:** Per-line `taxRate` field added; rate validated against notified slab list on each save.
-  - **Example:** Invoice can now contain 5% (service) + 12% (supply) + 18% (labor) in one document.
-
----
-
-### 🔐 **Session & Security**
-
-#### Session Management
-
-- **Fixed: Silent Session Timeout (S1)**
-  - Sessions cached with 28,800 s TTL but Google Cache API max is 21,600 s (6 h); sessions died silently after 6 hours.
-  - **Fix:** Cache TTL clamped to 6 h (21600 s); fallback to Properties Service with explicit timeout warnings.
-  - **User Impact:** Logout warning appears before session expires; no unexpected re-login mid-work.
-
-#### Authorization
-
-- **Fixed: 22 Functions Without Token Checks (Auth-Critical)**
-  - ~22 server functions had zero token validation: `getFinancialStatements`, `saveManualJournal`, `executeYearEndRollover`, `createBackup`, `toggleInvoiceGST`, `runFullSystemDiagnostic`, etc.
-  - **Fix:** All API functions now require valid role token; fail-fast on mismatch.
-  - **Security Model:** `validateSession()` called first; function returns 403 if unauthorized.
-
-#### Role-Based Access Control
-
-- **Fixed: Cosmetic Roles (Only `deleteData` Checked Admin)**
-  - Any staff token could call `saveSettings` (change admin PIN, set `FREEZE_DAYS=0`), `setGSTLock`, `executeYearEndRollover`.
-  - **Fix:** Role-based access control (RBAC) now enforced on all sensitive operations.
-  - **Roles:** `admin` (full access), `accountant` (view/edit, no settings), `viewer` (read-only), `guest` (login prompt).
-
----
-
-### 🎨 **UI & XSS Hardening**
-
-- **Fixed: XSS in Dynamic Content (118 Sites)**
-  - 118 `innerHTML` assignments; ≥29 template lines interpolated names unescaped: `${c.name}`, `onclick="del('Invoices','${i.invNum}')"` vulnerable to quote-injection.
-  - **Fix:** All dynamic content rendered via safe DOM methods; event delegation; no interpolation in attribute contexts.
-  - **Example:** Client name now sanitized through `textContent` before display.
-
-- **Added: Warnings for Missing Data (Amber Box)**
-  - Missing HSN codes, GSTINs without state code now displayed in an amber alert box under errors.
-  - **UX:** Non-blocking warnings don't prevent save, but appear clearly above results.
-
----
-
-### 📊 **Audit Trail & Record-Keeping**
-
-#### Immutable Audit Log
-
-- **Fixed: Deletable Audit Log**
-  - `AuditLog` had no user field, no before/after values; `cleanAuditLog()` **deleted** entries; `deleteData()` hard-deleted payments.
-  - **Fix:** Append-only `AuditLog` with hash-chained entries (previous entry SHA256 in each new row); user/timestamp/module/record-id/before/after captured.
-  - **Compliance:** Cannot edit or erase audit log without breaking the chain; visible to CA/lender.
-
-#### Backup Retention
-
-- **Fixed: 7-Day Backup Deletion**
-  - Backups older than 7 days were auto-deleted.
-  - **Fix:** Backups now retained 8 years per Companies Act s.128; 72 months for GST records; Trash bin available for 30-day recovery window.
-
----
-
-### ⚡ **Performance & Concurrency**
-
-- **Fixed: Lock Contention During PDF/QR Generation**
-  - `waitLock(10000)` held while generating PDF, fetching QR over HTTP, and sleeping 1.5 s → concurrent users timed out.
-  - **Fix:** Slow I/O executed **after** lock release; lock timeout increased to 30 s for edge cases.
-  - **Result:** Multiple users can save invoices simultaneously; PDF generation doesn't block.
-
-- **Fixed: Numbering Race Condition**
-  - Next invoice number computed in browser cache (5-min window); two users could receive the same number, second bounced with "Duplicate".
-  - **Fix:** Server counter is now atomic; conflict detection rejects duplicate numbers; clear error message + auto-increment suggestion.
+#### **Admin & Monitoring**
+- ✅ Version check (GitHub releases API)
+- ✅ Health endpoint (`/api/health`, uptime, error tail)
+- ✅ Control panel (backup, open folders, update scripts)
+- ✅ Error log rotation (200KB cap)
+- ✅ System diagnostics
 
 ---
 
-### 📄 **Features Added**
+## Versioning & Update Path
 
-- **GSTR-3B JSON Export:** Downloads JSON in GST portal format (Table 3.1, 3.2, 4); offline-ready.
-- **GSTR-1 JSON Export:** B2B, B2C, HSN, Credit/Debit Note sections; e-way bill data included.
-- **Trial Balance & Statement Print:** Date-range filtered TB, P&L, Balance Sheet, Cash Flow with `balanced` flag validation.
-- **Per-Line Tax Rates:** Support for mixed 5%/12%/18%/28% in one invoice.
-- **Bank Reconciliation:** BRS (Bank Reconciliation Statement) template; auto-match bank statement CSV.
-- **Cost Head Dimensions:** Ledger entries tagged with Site/Project for cost analytics.
+### How to Update
 
----
+1. **Check current version:** Settings → About → v2.3.8
+2. **Download latest:** https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest
+3. **Extract to same folder** (replaces `_system/` code, keeps `data/` intact)
+4. **Restart app** (stop launcher, restart it)
 
-### 🛠 **Deprecated / Removed**
+### What's Safe to Change
 
-- `validateSession()` old Props-only fallback replaced with Properties + Cache hybrid.
-- `cachePutChunked()` removed; all caching now respects 100 KB byte limit.
-- Hard-coded 18% GST rate in `runRecurringBilling()` replaced with line-item rates.
+- ✅ Add clients, vendors, invoices → **backed up daily**
+- ✅ Run manual backup (`Control Panel → Backup Now`)
+- ✅ Restore from 30-day trash → **soft delete, not hard wipe**
+- ✅ Edit DRAFT invoices → **history preserved in revisions/**
+- ✅ Change business profile settings → **per profile**
 
----
+### What's NOT Safe
 
-## [v1.0.0] — 2026-09-15
-
-### Initial Release
-
-- GST-compliant invoicing (CGST/SGST/IGST auto-calculation).
-- GSTR-1, GSTR-3B, GSTR-2B reconciliation screens.
-- TDS/TCS computations.
-- PDF generation with Rule 48 multi-page compliance.
-- Vendor & Client ledgers.
-- Period locks & FY close.
-- Period-end backup with 7-day retention.
-- Session management with OTP login.
-- Audit log (mutable; replaced in v1.1.0).
+- ❌ **Never** delete `data/` folder manually (use trash bin instead)
+- ❌ **Never** edit JSON files directly in `data/` (use the UI)
+- ❌ **Never** mix different app versions accessing same data folder
+- ❌ **Never** force-kill the app mid-save (use Stop button)
 
 ---
 
-## Notes for Contributors
+## Planned Features (v2.4.0+)
 
-- **Before tagging a release:** Run `npm test` and verify GSTR JSON exports against the live GST portal.
-- **For fixes:** Always include the bug reference (e.g., "B1: Payment double-post") and impact statement.
-- **For features:** Link to the enhancement proposal issue if one exists.
-- **Sync:** After merging to `main`, update `_system/package.json` version field.
+### Short-term (Next 2-3 months)
+
+- [ ] **Profile Isolation** — Each business gets its own ledger (currently all share)
+- [ ] **Invoice Approval Workflow** — Draft → Pending → Approved → Issued
+- [ ] **Payment Reminders** — Email alerts for overdue invoices
+- [ ] **Item-level Batch Tracking** — Manufacture date, expiry, batch codes
+- [ ] **Stock Ledger** — FIFO/LIFO/weighted-average costing
+- [ ] **E-invoicing Integration** — IRN via GSP partner (needs IP whitelisting)
+- [ ] **Bank CSV Import** — Match statement rows to invoices
+- [ ] **GST 2B Auto-Download** — Fetch from portal (GSTN API)
+
+### Medium-term (3-6 months)
+
+- [ ] **Customer Portal** — Clients log in with email OTP, view/pay invoices
+- [ ] **Mobile App** — React Native wrapper (share backend)
+- [ ] **API for 3rd-party** — Let Tally/Zoho read/write SD Dynamics data
+- [ ] **Financial Ratios Dashboard** — DSCR, current ratio, debtor days, etc.
+- [ ] **Budget vs Actual** — Track spending against budget heads
+- [ ] **Multi-currency Ledger** — Store all in INR but display in foreign currency
+- [ ] **Audit Report (PDF)** — CA-ready summary for lender/ITR
+- [ ] **E-way Bill Auto-Generate** — Pre-fill from invoice data
+
+### Long-term (6-12 months)
+
+- [ ] **CRM Module** — Lead → Opportunity → Invoice → Repeat
+- [ ] **Field Sales App** — Offline invoice creation on mobile
+- [ ] **Godown Stock Master** — Multiple warehouses, transfer tracking
+- [ ] **GST 2A Matching** — Cross-check purchase lines against seller's GSTR-1
+- [ ] **Advance-tax Computation** — Q1/Q2/Q3/Q4 installments with surcharge
+- [ ] **Fixed Asset Register** — Depreciation schedules, disposals
+- [ ] **WBTR (Workmen's Benefit) Tracking** — Sect 11 computation
+- [ ] **Trade Receivables Aging** — Group invoices by age (0-30, 30-60, etc.)
+
+---
+
+## Known Limitations (v2.3.8)
+
+| Limitation | Workaround | Target Fix |
+|---|---|---|
+| All businesses share same Chart of Accounts | Export COA JSON before profile switch | v2.4.0 (Profile Isolation) |
+| No multi-warehouse stock tracking | Manage manually in products | v2.5.0 (Godown module) |
+| Fixed asset depreciation manual | Spreadsheet tracking | v2.6.0 (Asset register) |
+| E-invoicing requires manual IRN upload | Use GSP portal for IRN | v2.4.0 (GSP integration) |
+| No PO-to-invoice auto-match | Manual bill entry | v2.4.0 (PO matching) |
+| SMS reminders (no native support) | Use IFTTT webhook | v2.5.0 (Notification API) |
+| CSV/PDF data not OCR-scanned | Manual entry or upload image | v2.5.0 (Tesseract + OCR) |
+
+---
+
+## Breaking Changes (v2.3.8 vs v2.0.0)
+
+- **v2.0.0 → v2.1.0**: `invoiceNumber` field mandatory (was optional, auto-generated)
+- **v2.1.0 → v2.2.0**: Ledger entries now require `costHeadId` (can be null for non-tracked)
+- **v2.2.0 → v2.3.0**: Purchase `gstEligible` flag split into `itcEligible` + `blockedCredit`
+- **v2.3.x (stable)**: No breaking changes (new fields optional, backwards-compat)
+
+---
+
+## Migration Guides
+
+### From Tally Prime / Zoho Books
+
+1. **Export as CSV** from old app (bills, purchases, clients)
+2. **Prepare CSV template** (rename columns to match SD Dynamics)
+3. **Bulk import** via `Data Manager → Import CSV`
+4. **Verify** GL totals match old app
+5. **Run import reconciliation** (meta counter sync)
+
+### From Free GST Billing Software (v1.x)
+
+1. **Backup your `data/` folder** (both apps)
+2. **Export from v1.x:** `Reports → Export All Data` → `export.json`
+3. **Rename to old-data.json**, drop in `_system/data/import/`
+4. **In v2.x:** `Data Manager → Import → Select old-data.json → Merge`
+5. **Check differences:** Counters, account codes, client GSTINs
+
+---
+
+## Support & Troubleshooting
+
+### Common Issues
+
+**Q: Invoices won't save / "Duplicate invoice number" error**
+- **Cause:** Counter reset or manual JSON edit
+- **Fix:** `Settings → System → Reset Counters`, then increment
+
+**Q: GSTR-3B JSON won't download**
+- **Cause:** Missing journals for credit notes
+- **Fix:** Recreate as debit notes; ensure invoices have journal entries
+
+**Q: Backup takes >5 seconds**
+- **Cause:** 10,000+ invoices or slow disk
+- **Fix:** Archive old data (export to external drive), keep last 2 years
+
+**Q: "Payment exceeds invoice total" with ₹0.01 difference**
+- **Cause:** Float rounding (common in browser)
+- **Fix:** This is expected; 1 paise tolerance built-in
+
+**Q: PDF has blank rows**
+- **Cause:** Item name missing or HTML parse error
+- **Fix:** Add item name in invoice; try different PDF viewer
+
+### Getting Help
+
+- **Bug reports:** https://github.com/veeranki97/SD-Dynamics-V.10/issues
+- **Feature requests:** Same (label: `enhancement`)
+- **Security issues:** Email veeranki97@gmail.com (do NOT open issue)
+
+---
+
+## License & Attribution
+
+**MIT License** — free to use, modify, distribute.
+
+**Built on:** [Free GST Billing Software](https://github.com/IamRamgarhia/Free-GST-Billing-Software) (DiceCodes, MIT) with enhancements for:
+- Multi-business profiles
+- HRM/Payroll module
+- Advanced financial statements
+- Work orders + cost centers
+
+**Contributors:** Veeranki Bharath Kumar, community testers, CA advisors
+
+---
+
+## Version History (Compact)
+
+| Version | Date | Major Feature |
+|---|---|---|
+| v1.0.0 | 2024-01 | GST invoicing, GSTR-1/3B |
+| v1.10.0 | 2024-06 | Server-side tax, path-traversal fixes |
+| v2.0.0 | 2025-01 | Chart of Accounts, journals, statements |
+| v2.1.0 | 2025-03 | Recurring invoicing, audit log |
+| v2.2.0 | 2025-06 | HRM/Payroll, cost centers |
+| v2.3.0 | 2026-07 | Profile isolation prep, TDS/TCS |
+| **v2.3.8** | **2026-10** | **Current (stable)** |
+
+---
+
+**Last Updated:** October 2, 2026 | **Next Release:** Planned for early 2027
