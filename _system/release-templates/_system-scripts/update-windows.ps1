@@ -1,4 +1,4 @@
-# Free GST Billing - Windows updater.
+# SD Dynamics - Windows updater.
 #
 # Pulls the latest release ZIP from GitHub, extracts _system/ over
 # the existing one, re-runs npm install. Data folder is preserved.
@@ -12,7 +12,7 @@
 #     during rmdir could corrupt state
 
 $ErrorActionPreference = 'Stop'
-$Host.UI.RawUI.WindowTitle = 'Free GST Billing - Update'
+$Host.UI.RawUI.WindowTitle = 'SD Dynamics - Update'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SystemDir = $ScriptDir
@@ -20,14 +20,14 @@ $RootDir   = Split-Path -Parent $ScriptDir
 
 Write-Host ''
 Write-Host '  ============================================================'
-Write-Host '   Free GST Billing Software - Update'
+Write-Host '   SD Dynamics Software - Update'
 Write-Host '  ============================================================'
 Write-Host ''
 
 # --- Step 1: Belt-and-braces backup of data folder BEFORE anything ---
 $dataDir = Join-Path $SystemDir 'data'
 if (Test-Path $dataDir) {
-  $backupsHome = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'FreeGSTBill Backups'
+  $backupsHome = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'SDDynamics Backups'
   if (-not (Test-Path $backupsHome)) { New-Item -ItemType Directory -Path $backupsHome | Out-Null }
   $stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
   $preUpdateBackup = Join-Path $backupsHome "pre-update-$stamp.zip"
@@ -38,7 +38,7 @@ if (Test-Path $dataDir) {
 # --- Step 2: Find latest release ---
 Write-Host '  Checking latest release from GitHub...'
 try {
-  $api = Invoke-RestMethod -Uri 'https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest' -Headers @{ 'User-Agent' = 'FreeGSTBill-Updater' }
+  $api = Invoke-RestMethod -Uri 'https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest' -Headers @{ 'User-Agent' = 'SDDynamics-Updater' }
   $tag = $api.tag_name
   $zipAsset = $api.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
   if (-not $zipAsset) {
@@ -65,7 +65,7 @@ Write-Host '  Extracting...'
 Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
 
 # The extract may contain either the pretty release structure
-# (root has Free GST Billing.hta + _system/) or the source zipball
+# (root has SD Dynamics - WINDOWS.hta + _system/) or the source zipball
 # (root has IamRamgarhia-Free-GST-Billing-Software-HASH/).
 $extracted = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
 $candidateSystem = Join-Path $extracted.FullName '_system'
@@ -86,13 +86,16 @@ Get-ChildItem -Path $newSystem -Force | Where-Object { $_.Name -ne 'data' -and $
   Copy-Item -Path $_.FullName -Destination $dest -Recurse -Force
 }
 # If the new release ships new launcher/HTA files at root, refresh those too
-Get-ChildItem -Path $sourceRoot -File | Where-Object { $_.Extension -match '\.(hta|command|sh)$' -or $_.Name -match '^Free GST Billing' } | ForEach-Object {
+Get-ChildItem -Path $sourceRoot -File | Where-Object { $_.Extension -match '\.(hta|command|sh)$' -or $_.Name -match '^SD Dynamics' } | ForEach-Object {
   Copy-Item -Path $_.FullName -Destination (Join-Path $RootDir $_.Name) -Force
 }
 
 # --- Step 5: Reinstall dependencies (safest - new package.json may add packages) ---
 Write-Host '  Re-installing dependencies...'
 Push-Location $SystemDir
+# v1.10.69 - Node.js may live inside the app folder (see install-windows.ps1).
+$updNodeDir = Join-Path $SystemDir 'node'
+if (Test-Path (Join-Path $updNodeDir 'node.exe')) { $env:Path = "$updNodeDir;$env:Path" }
 npm install --omit=dev --no-audit --no-fund --loglevel=error
 Pop-Location
 

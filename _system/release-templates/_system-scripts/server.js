@@ -12,8 +12,12 @@ import { fileURLToPath } from 'url';
 // re-implemented totals inline and silently reintroduced every bug the
 // v1.10.1 extraction fixed. Same source of truth now.
 import { computeInvoiceTotals } from './src/utils.js';
+import { filterActiveRecords, softDeleteRecord, isSoftDeleted, isSubmitted } from './src/utils/softDelete.js';
+import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+try { /* ensure activity dir early */ } catch {}
 const DATA_DIR = path.join(__dirname, 'data');
 
 // Port choice — we deliberately default to a high, unusual number rather than
@@ -41,6 +45,8 @@ const STARTING_PORT = persistedPort || DEFAULT_PORT;
 const MAX_PORT_SCAN = 50; // 47371 → 47420 is enough headroom for any conceivable collision
 
 const app = express();
+app.use(auditMiddleware());
+
 
 // v1.10.0 — CORS lockdown. Previously `app.use(cors())` echoed
 // Access-Control-Allow-Origin: *, which meant any site the user visited
@@ -78,7 +84,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '5mb' }));
 
 // Ensure data directory and sub-directories exist
-const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases'];
+const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases', 'workorders', 'journals', 'purchaseorders', 'costcenters', 'accounts', 'budgets'];
 for (const dir of DIRS) {
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
@@ -164,19 +170,24 @@ const DIR_CACHE_TTL_MS = 5000;
 function invalidateCache(dir) { delete dirCache[dir]; }
 
 // Helper: read all JSON files from a directory (cached, 5s TTL)
-function readAllFromDir(dir) {
-  const entry = dirCache[dir];
+function readAllFromDir(dir, { includeDeleted = false } = {}) {
+  const cacheKey = includeDeleted ? dir + ':all' : dir;
+  const entry = dirCache[cacheKey];
   if (entry && (Date.now() - entry.at) < DIR_CACHE_TTL_MS) return entry.value;
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) return [];
-  const results = fs.readdirSync(dirPath)
+  let results = fs.readdirSync(dirPath)
     .filter(f => f.endsWith('.json'))
     .map(f => {
       try { return JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf-8')); }
       catch { return null; }
     })
     .filter(Boolean);
-  dirCache[dir] = { at: Date.now(), value: results };
+  // P1: hide soft-deleted records from normal list APIs
+  if (!includeDeleted) {
+    results = filterActiveRecords(results);
+  }
+  dirCache[cacheKey] = { at: Date.now(), value: results };
   return results;
 }
 
@@ -208,6 +219,158 @@ function deleteFile(filePath) {
 // ========================
 // BILLS
 // ========================
+/**
+ * Server-side GST recompute (Finding 12).
+ * Never trust browser-only tax figures for books / GSTR.
+ * Uses same intra/inter split rules as the client: same state → CGST+SGST, else IGST.
+ */
+function money2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function stateCodeFromGstin(gstin) {
+  const g = String(gstin || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+  if (g.length >= 2 && /^\d{2}/.test(g)) return g.slice(0, 2);
+  return '';
+}
+
+function normalizeStateKey(s) {
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isInterstateBill(profile, client, details) {
+  const hostGst = stateCodeFromGstin(profile?.gstin);
+  const clientGst = stateCodeFromGstin(client?.gstin);
+  if (hostGst && clientGst) return hostGst !== clientGst;
+  const hostState = normalizeStateKey(profile?.state);
+  const pos = normalizeStateKey(details?.placeOfSupply || client?.state);
+  if (hostState && pos) return hostState !== pos;
+  return false;
+}
+
+/**
+ * Canonical server-side tax rollup. Never trust browser-only totals.
+ * Proforma / quotation KEEP GST (display + stored totals) — only
+ * Bill of Supply / composition / delivery challan omit GST.
+ */
+function recomputeBillTax(bill) {
+  if (!bill || typeof bill !== 'object') return { bill, warnings: ['invalid bill'] };
+  const data = bill.data || {};
+  const items = Array.isArray(data.items) ? data.items : [];
+  const profile = data.profile || {};
+  const client = data.client || {};
+  const details = data.details || {};
+  const invType = String(data.invoiceType || bill.invoiceType || 'tax-invoice').toLowerCase();
+  const opts = { ...(data.invoiceOptions || {}) };
+  const omitGst = /bill-of-supply|composition/.test(invType)
+    || (invType.includes('delivery') && invType.includes('challan'));
+  const showGST = opts.showGST !== false && !omitGst;
+
+  let totals;
+  try {
+    totals = computeInvoiceTotals({
+      items,
+      profile,
+      client,
+      details,
+      showGST,
+      taxInclusive: !!(opts.taxInclusive || data.taxInclusive),
+      invoiceOptions: { ...opts, showGST },
+    });
+  } catch (e) {
+    console.warn('[tax] computeInvoiceTotals failed, falling back', e.message);
+    totals = null;
+  }
+
+  if (!totals) {
+    // Fallback arithmetic if utils import path fails
+    let taxable = 0, taxTotal = 0;
+    for (const it of items) {
+      const qty = Math.max(0, Number(it.quantity) || Number(it.qty) || 0);
+      const rate = Math.max(0, Number(it.rate) || 0);
+      const disc = Math.max(0, Number(it.discount) || 0);
+      let line = Math.max(0, qty * rate - disc);
+      const taxPct = showGST ? Math.max(0, Number(it.taxPercent) || Number(it.taxRate) || 0) : 0;
+      if ((opts.taxInclusive || data.taxInclusive) && taxPct > 0) {
+        const base = line / (1 + taxPct / 100);
+        taxable += base;
+        taxTotal += line - base;
+      } else {
+        taxable += line;
+        taxTotal += line * taxPct / 100;
+      }
+    }
+    taxable = money2(taxable);
+    taxTotal = money2(taxTotal);
+    const interstate = isInterstateBill(profile, client, details);
+    totals = {
+      taxableAmount: taxable,
+      cgst: showGST && !interstate ? money2(taxTotal / 2) : 0,
+      sgst: showGST && !interstate ? money2(taxTotal / 2) : 0,
+      igst: showGST && interstate ? taxTotal : 0,
+      totalTaxAmount: showGST ? taxTotal : 0,
+      total: money2(taxable + (showGST ? taxTotal : 0)),
+      isInterstate: interstate,
+    };
+  }
+
+  const cgst = money2(totals.cgst);
+  const sgst = money2(totals.sgst);
+  const igst = money2(totals.igst);
+  const utgst = money2(totals.utgst);
+  const cess = money2(totals.cess);
+  const taxAmt = money2(totals.totalTaxAmount ?? (cgst + sgst + igst + utgst + cess));
+  const grand = money2(totals.total);
+  const warnings = [];
+  const prevTotal = money2(bill.totalAmount);
+  const prevTax = money2(bill.totalTaxAmount);
+  if (Math.abs(prevTotal - grand) > 0.009 || Math.abs(prevTax - taxAmt) > 0.009) {
+    warnings.push(`Tax recalculated on server (client total ${prevTotal} → ${grand}, tax ${prevTax} → ${taxAmt})`);
+  }
+
+  const mergedTotals = {
+    ...(data.totals || {}),
+    ...totals,
+    cgst, sgst, igst, utgst, cess,
+    totalTax: taxAmt,
+    totalTaxAmount: taxAmt,
+    total: grand,
+    grandTotal: grand,
+  };
+
+  bill.totalAmount = grand;
+  bill.totalTaxAmount = taxAmt;
+  bill.data = {
+    ...data,
+    totals: mergedTotals,
+    serverTaxVerified: true,
+    serverTaxWarnings: warnings,
+  };
+  return { bill, warnings };
+}
+
+/** Reject fat-finger payments that exceed outstanding (Grand Total − paid). */
+function validateBillPayments(bill) {
+  const total = money2(bill.totalAmount);
+  const payments = Array.isArray(bill.payments) ? bill.payments : [];
+  let paid = 0;
+  for (const p of payments) {
+    const amt = money2(p.amount);
+    if (amt < 0) return { ok: false, error: 'Payment amount cannot be negative' };
+    paid = money2(paid + amt);
+  }
+  // Allow 1 paise rounding; reject overpayment (incl. 10× typos)
+  if (paid > total + 0.05) {
+    return {
+      ok: false,
+      error: `Payment ₹${paid.toFixed(2)} exceeds invoice grand total ₹${total.toFixed(2)}. Outstanding is ₹${Math.max(0, total - (money2(bill.paidAmount) || 0)).toFixed(2)}.`,
+    };
+  }
+  bill.paidAmount = paid;
+  return { ok: true };
+}
+
+
 app.get('/api/bills', (req, res) => {
   const bills = readAllFromDir('bills');
   bills.sort((a, b) => new Date(b.invoiceDate) - new Date(a.invoiceDate));
@@ -215,7 +378,7 @@ app.get('/api/bills', (req, res) => {
 });
 
 app.post('/api/bills', (req, res) => {
-  const bill = req.body;
+  let bill = req.body;
   if (!bill || !bill.id) return res.status(400).json({ error: 'Bill must have an id' });
   const filePath = path.join(DATA_DIR, 'bills', safeFileName(bill.id) + '.json');
 
@@ -231,8 +394,62 @@ app.post('/api/bills', (req, res) => {
       invoiceNumber: bill.id,
     });
   }
+
+  // Finding 12 / 18: server-side GST recompute (never trust browser-only tax)
+  let taxWarnings = [];
+  try {
+    if (typeof recomputeBillTax === 'function') {
+      const result = recomputeBillTax(bill);
+      bill = result.bill;
+      taxWarnings = result.warnings || [];
+    }
+  } catch (e) {
+    console.warn('[tax] recompute failed, storing client totals:', e.message);
+  }
+
+  const payCheck = validateBillPayments(bill);
+  if (!payCheck.ok) return res.status(400).json({ error: payCheck.error, code: 'payment-exceeds-invoice' });
+
+  // P2: default docstatus for financial invoices
+  if (bill.docstatus == null) {
+    const t = String(bill.invoiceType || bill.data?.invoiceType || 'tax-invoice').toLowerCase();
+    const nonFin = /quotation|delivery|challan|bill-of-supply|composition|proforma/.test(t);
+    bill.docstatus = nonFin ? 0 : 1;
+  }
+  const beforeBill = fs.existsSync(filePath) ? readJSON(filePath, null) : null;
+  // P2: lock submitted docs against full overwrite unless ?force=1 or payment-only
+  if (beforeBill && isSubmitted(beforeBill) && req.query.force !== '1') {
+    const statusOnly = bill.status !== beforeBill.status || bill.paidAmount !== beforeBill.paidAmount;
+    // allow payment status updates; block other field rewrites by merging
+    if (!statusOnly && JSON.stringify({ ...beforeBill, status: bill.status, paidAmount: bill.paidAmount, payments: bill.payments }) !== JSON.stringify(bill)) {
+      // soft lock: still allow save but stamp
+      bill.docstatus = beforeBill.docstatus;
+    }
+  }
   writeJSON(filePath, bill);
-  res.json({ success: true });
+  try {
+    const aDir = path.join(DATA_DIR, 'activity-logs');
+    fs.mkdirSync(aDir, { recursive: true });
+    const at = new Date().toISOString();
+    const aName = at.replace(/[:.]/g, '-') + '_invoice_' + safeFileName(String(bill.invoiceNumber || bill.id || 'x')) + '.json';
+    fs.writeFileSync(path.join(aDir, aName), JSON.stringify({
+      entityType: 'invoice', entityId: bill.invoiceNumber || bill.id,
+      action: typeof beforeBill !== 'undefined' && beforeBill ? 'update' : 'create',
+      user: 'server', at,
+      diff: { totalAmount: bill.totalAmount, status: bill.status },
+    }, null, 2));
+  } catch (ae) { console.warn('[activity]', ae.message); }
+  try {
+    auditChange({
+      entityType: 'bill',
+      entityId: bill.id,
+      action: beforeBill ? 'update' : 'create',
+      before: beforeBill,
+      after: bill,
+      baseDir: path.join(DATA_DIR, 'activity-logs'),
+    });
+  } catch { /* ignore audit failures */ };
+  res.json({ success: true, taxWarnings });
 });
 
 // v1.10.31 — Data-F9.1: block deletion of a bill that's a client-credit
@@ -286,14 +503,66 @@ app.delete('/api/bills/:id', (req, res) => {
       });
     }
   }
+  // Always reverse/trash the matching invoice journal so GL stays consistent
+  const trashInvoiceJournal = (billId, permanent) => {
+    try {
+      const jDir = path.join(DATA_DIR, 'journals');
+      if (!fs.existsSync(jDir)) return;
+      const candidates = [
+        'jnl_inv_' + safeFileName(billId) + '.json',
+        'jnl_inv_' + String(billId).replace(/[^a-zA-Z0-9._-]/g, '_') + '.json',
+      ];
+      // Also scan for refId match
+      let files = candidates.filter(f => fs.existsSync(path.join(jDir, f)));
+      if (!files.length) {
+        try {
+          for (const f of fs.readdirSync(jDir)) {
+            if (!f.startsWith('jnl_inv_') || !f.endsWith('.json')) continue;
+            try {
+              const j = JSON.parse(fs.readFileSync(path.join(jDir, f), 'utf8'));
+              if (j.refId === billId || j.refId === req.params.id) files.push(f);
+            } catch { /* skip */ }
+          }
+        } catch { /* skip */ }
+      }
+      const jTrash = path.join(DATA_DIR, 'trash', 'journals');
+      for (const f of files) {
+        const src = path.join(jDir, f);
+        if (!fs.existsSync(src)) continue;
+        if (permanent) {
+          try { fs.unlinkSync(src); } catch { /* ignore */ }
+        } else {
+          if (!fs.existsSync(jTrash)) fs.mkdirSync(jTrash, { recursive: true });
+          try { fs.renameSync(src, path.join(jTrash, f)); } catch {
+            try { fs.unlinkSync(src); } catch { /* ignore */ }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('trashInvoiceJournal', e.message);
+    }
+  };
+
   if (req.query.permanent === '1') {
     try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    trashInvoiceJournal(req.params.id, true);
     return res.json({ success: true, permanent: true });
   }
   try {
     const trashDir = path.join(DATA_DIR, 'trash');
     if (!fs.existsSync(trashDir)) fs.mkdirSync(trashDir, { recursive: true });
-    fs.renameSync(filePath, path.join(trashDir, fname));
+    try {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const marked = softDeleteRecord(raw, 'user');
+      writeJSON(path.join(trashDir, fname), marked);
+      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    } catch {
+      fs.renameSync(filePath, path.join(trashDir, fname));
+    }
+    trashInvoiceJournal(req.params.id, false);
+    try {
+      auditChange({ entityType: 'bill', entityId: req.params.id, action: 'soft_delete', before: { id: req.params.id }, after: { is_deleted: true } });
+    } catch { /* ignore */ }
     res.json({ success: true, trashed: true });
   } catch (err) {
     errRes(res, 500, 'server-error', err);
@@ -491,6 +760,214 @@ app.delete('/api/purchases/:id', (req, res) => {
 });
 
 // ========================
+// WORK ORDERS (custom addition)
+// ========================
+app.get('/api/workorders', (req, res) => {
+  try {
+    const list = readAllFromDir('workorders');
+    list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/workorders', (req, res) => {
+  try {
+    const wo = req.body;
+    if (!wo?.id) return res.status(400).json({ error: 'Missing id' });
+    const dir = path.join(DATA_DIR, 'workorders');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, safeFileName(wo.id) + '.json');
+    if (fs.existsSync(filePath) && !req.query.overwrite) {
+      return res.status(409).json({ error: 'Work Order already exists' });
+    }
+    writeJSON(filePath, wo);
+    res.json({ success: true, id: wo.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/workorders/:id', (req, res) => {
+  try {
+    const filePath = path.join(DATA_DIR, 'workorders', safeFileName(req.params.id) + '.json');
+    deleteFile(filePath);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========================
+// JOURNALS (simple double-entry — custom)
+// ========================
+app.get('/api/journals', (req, res) => {
+  try {
+    const list = readAllFromDir('journals');
+    list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/journals', (req, res) => {
+  try {
+    const j = req.body || {};
+    // P0: reject unbalanced journals
+    {
+      const entries = j.entries || [];
+      const dr = entries.reduce((s, e) => s + (Number(e.debit) || 0), 0);
+      const cr = entries.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+      if (entries.length && Math.abs(dr - cr) > 0.5) {
+        return res.status(400).json({ error: 'unbalanced_journal', debit: dr, credit: cr });
+      }
+    }
+    if (!j?.id) return res.status(400).json({ error: 'Missing id' });
+    const dir = path.join(DATA_DIR, 'journals');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    // Paise-safe money on every line; never mutate an existing journal (append-only)
+    j.entries = (j.entries || []).map(e => ({
+      ...e,
+      debit: money2(e.debit),
+      credit: money2(e.credit),
+    }));
+    let dest = path.join(dir, safeFileName(j.id) + '.json');
+    const overwrite = req.query.overwrite === '1' || req.query.overwrite === 'true' || j.overwrite === true
+      || String(j.id || '').startsWith('jnl_inv_');
+    // Payment / reversal journals are append-only — never overwrite history
+    if ((String(j.id || '').startsWith('jnl_pay_') || String(j.id || '').startsWith('jnl_rev_'))
+        && fs.existsSync(dest) && req.query.overwrite !== '1') {
+      j.id = j.id + '_' + Date.now().toString(36);
+      dest = path.join(dir, safeFileName(j.id) + '.json');
+    }
+    if (fs.existsSync(dest) && !overwrite) {
+      return res.status(409).json({
+        error: 'journal-exists',
+        message: 'A journal with this id already exists. Pass overwrite=1 to replace.',
+        id: j.id,
+      });
+    }
+    writeJSON(dest, j);
+    res.json({ success: true, id: j.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ========================
+// PURCHASE ORDERS (custom)
+// ========================
+app.get('/api/purchaseorders', (req, res) => {
+  try {
+    const list = readAllFromDir('purchaseorders');
+    list.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/purchaseorders', (req, res) => {
+  try {
+    const po = req.body;
+    if (!po?.id) return res.status(400).json({ error: 'Missing id' });
+    const dir = path.join(DATA_DIR, 'purchaseorders');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, safeFileName(po.id) + '.json');
+    if (fs.existsSync(filePath) && !req.query.overwrite) {
+      return res.status(409).json({ error: 'PO already exists' });
+    }
+    writeJSON(filePath, po);
+    res.json({ success: true, id: po.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/purchaseorders/:id', (req, res) => {
+  try {
+    deleteFile(path.join(DATA_DIR, 'purchaseorders', safeFileName(req.params.id) + '.json'));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// COST CENTERS
+app.get('/api/costcenters', (req, res) => {
+  try {
+    const list = readAllFromDir('costcenters');
+    if (!list.length) {
+      const root = { id: 'cc_company', name: 'Company', parentId: null, active: true };
+      const dir = path.join(DATA_DIR, 'costcenters');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      writeJSON(path.join(dir, 'cc_company.json'), root);
+      return res.json([root]);
+    }
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/costcenters', (req, res) => {
+  try {
+    const cc = req.body;
+    if (!cc?.id || !cc?.name) return res.status(400).json({ error: 'id and name required' });
+    const dir = path.join(DATA_DIR, 'costcenters');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    writeJSON(path.join(dir, safeFileName(cc.id) + '.json'), cc);
+    res.json({ success: true, id: cc.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/costcenters/:id', (req, res) => {
+  try {
+    deleteFile(path.join(DATA_DIR, 'costcenters', safeFileName(req.params.id) + '.json'));
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// CHART OF ACCOUNTS (simple tree)
+app.get('/api/accounts', (req, res) => {
+  try {
+    let list = readAllFromDir('accounts');
+    if (!list.length) {
+      const seed = [
+        { id: 'acc_assets', name: 'Assets', type: 'Assets', parentId: null, leaf: false },
+        { id: 'acc_current_assets', name: 'Current Assets', type: 'Assets', parentId: 'acc_assets', leaf: false },
+        { id: 'acc_bank', name: 'Bank', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_cash', name: 'Cash', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_debtors', name: 'Sundry Debtors', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_itc_cgst', name: 'Input CGST', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_itc_sgst', name: 'Input SGST', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_itc_igst', name: 'Input IGST', type: 'Assets', parentId: 'acc_current_assets', leaf: true },
+        { id: 'acc_liab', name: 'Liabilities', type: 'Liabilities', parentId: null, leaf: false },
+        { id: 'acc_creditors', name: 'Sundry Creditors', type: 'Liabilities', parentId: 'acc_liab', leaf: true },
+        { id: 'acc_out_cgst', name: 'Output CGST', type: 'Liabilities', parentId: 'acc_liab', leaf: true },
+        { id: 'acc_out_sgst', name: 'Output SGST', type: 'Liabilities', parentId: 'acc_liab', leaf: true },
+        { id: 'acc_out_igst', name: 'Output IGST', type: 'Liabilities', parentId: 'acc_liab', leaf: true },
+        { id: 'acc_equity', name: 'Equity', type: 'Equity', parentId: null, leaf: false },
+        { id: 'acc_capital', name: 'Capital', type: 'Equity', parentId: 'acc_equity', leaf: true },
+        { id: 'acc_re', name: 'Retained Earnings', type: 'Equity', parentId: 'acc_equity', leaf: true },
+        { id: 'acc_income', name: 'Income', type: 'Income', parentId: null, leaf: false },
+        { id: 'acc_sales', name: 'Sales', type: 'Income', parentId: 'acc_income', leaf: true },
+        { id: 'acc_exp', name: 'Expense', type: 'Expense', parentId: null, leaf: false },
+        { id: 'acc_direct', name: 'Direct Costs', type: 'Expense', parentId: 'acc_exp', leaf: true },
+        { id: 'acc_indirect', name: 'Indirect Expenses', type: 'Expense', parentId: 'acc_exp', leaf: true },
+      ];
+      const dir = path.join(DATA_DIR, 'accounts');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      seed.forEach(a => writeJSON(path.join(dir, a.id + '.json'), a));
+      list = seed;
+    }
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/accounts', (req, res) => {
+  try {
+    const a = req.body;
+    if (!a?.id || !a?.name) return res.status(400).json({ error: 'missing fields' });
+    const dir = path.join(DATA_DIR, 'accounts');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    writeJSON(path.join(dir, safeFileName(a.id) + '.json'), a);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ========================
 // BUSINESS PROFILES (multi-business)
 // ========================
 app.get('/api/profiles', (req, res) => {
@@ -517,6 +994,23 @@ app.delete('/api/profiles/:id', (req, res) => {
 // META (counters, etc.)
 // ========================
 const META_PATH = path.join(DATA_DIR, 'meta.json');
+
+// Must be registered BEFORE /api/meta/:key or Express treats "resetCounters" as a key.
+app.post('/api/meta/resetCounters', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {});
+    const keys = Object.keys(meta).filter(k => k.startsWith('counter_'));
+    keys.forEach(k => { meta[k] = 0; });
+    if (req.body && req.body.startNumber != null) {
+      const n = Math.max(0, Number(req.body.startNumber) || 0);
+      keys.forEach(k => { meta[k] = n; });
+    }
+    writeJSON(META_PATH, meta);
+    res.json({ success: true, reset: keys, meta: Object.fromEntries(keys.map(k => [k, meta[k]])) });
+  } catch (e) {
+    errRes(res, 500, 'server-error', e);
+  }
+});
 
 app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
@@ -794,12 +1288,13 @@ app.get('/api/check-update', async (req, res) => {
     // GitHub Releases API (for release notes). Both have a 4s timeout so a
     // flaky network can't lock the UI.
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 4000);
+    const t = setTimeout(() => ctrl.abort(), 12000);
     const [pkgRes, relRes] = await Promise.all([
-      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/_system/package.json', { signal: ctrl.signal }),
+      fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/_system/package.json', { signal: ctrl.signal })
+        .catch(() => fetch('https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/package.json', { signal: ctrl.signal })),
       fetch('https://api.github.com/repos/veeranki97/SD-Dynamics-V.10/releases/latest', {
         signal: ctrl.signal,
-        headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'FreeGSTBill-update-check' },
+        headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'SD-Dynamics-update-check' },
       }).catch(() => null),
     ]);
     clearTimeout(t);
@@ -831,7 +1326,7 @@ app.get('/api/check-update', async (req, res) => {
       releaseTag,
     });
   } catch {
-    res.json({ current: pkg.version, latest: null, updateAvailable: false, error: 'Could not check for updates' });
+    res.json({ current: pkg.version, latest: null, updateAvailable: false, error: 'Could not reach GitHub — check internet / firewall' });
   }
 });
 
@@ -1230,6 +1725,83 @@ function purgeOldTrash() {
 setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
 
 // v1.10.0 — Health-check endpoint moved here (was registered AFTER the
+
+// ---- Master data (HSN / Units / Expense categories) — survives port change ----
+const MASTER_DATA_PATH = path.join(DATA_DIR, 'master-data.json');
+app.get('/api/master-data', (req, res) => {
+  try {
+    const data = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    res.json(data);
+  } catch (e) {
+    res.json({ hsn: [], units: [], expenseCategories: [] });
+  }
+});
+app.post('/api/master-data', (req, res) => {
+  try {
+    const body = req.body || {};
+    const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
+    const next = {
+      hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
+      units: Array.isArray(body.units) ? body.units : (prev.units || []),
+      expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(MASTER_DATA_PATH, next);
+    res.json({ success: true, ...next });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Activity / audit logs (MUST be before SPA catch-all or GET returns 404) ----
+app.get('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 500);
+    const rows = files.map(f => {
+      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
+      catch { return { file: f }; }
+    });
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/activity-logs', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'activity-logs');
+    fs.mkdirSync(dir, { recursive: true });
+    const body = req.body || {};
+    const entry = {
+      entityType: body.entityType || 'app',
+      entityId: body.entityId || 'n/a',
+      action: body.action || 'event',
+      user: body.user || 'local',
+      at: body.at || new Date().toISOString(),
+      diff: body.diff || body.note || {},
+    };
+    const ts = String(entry.at).replace(/[:.]/g, '-');
+    const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
+    const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
+    fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
+    // Cap growth: keep newest 500 activity files (safe for 1000+ invoices)
+    try {
+      const all = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+      if (all.length > 500) {
+        for (const f of all.slice(0, all.length - 500)) {
+          try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore prune */ }
+    res.json({ success: true, file: path.basename(fp) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // SPA catch-all → every GET /api/health returned "No such endpoint" →
 // the UI's health-banner was permanently broken). Now registered
 // before the catch-all so it actually serves.
@@ -1257,6 +1829,514 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+
+// ============================================================
+// HRM / Payroll API (JSON-file storage under data/hrm/)
+// Port of Sai Durga GAS HR ERP — employees, attendance, payroll, PF/ESI
+// ============================================================
+const HRM_DIR = path.join(DATA_DIR, 'hrm');
+function hrmEnsure() {
+  ['employees', 'attendance', 'payroll', 'minwages', 'settings'].forEach(d => {
+    const p = path.join(HRM_DIR, d);
+    if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+  });
+  const settingsFile = path.join(HRM_DIR, 'settings', 'config.json');
+  if (!fs.existsSync(settingsFile)) {
+    writeJSON(settingsFile, {
+      pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
+      // Sites / locations (pick on employee form after State)
+      sites: [
+        { id: 'site_hq', name: 'Head Office', state: '' },
+      ],
+      establishmentCode: '', // EPFO establishment code
+      esicCode: '', // ESIC employer code
+      employerName: '',
+    });
+  }
+}
+/** Always use forward-slash relative keys so dirCache matches writes. */
+function hrmRel(subdir) {
+  return 'hrm/' + String(subdir || '').replace(/\\/g, '/');
+}
+function hrmReadAll(subdir) {
+  hrmEnsure();
+  return readAllFromDir(hrmRel(subdir));
+}
+function hrmInvalidate(subdir) {
+  invalidateCache(hrmRel(subdir));
+  try { invalidateCache(path.join('hrm', subdir)); } catch { /* ignore */ }
+}
+function hrmGetConfig() {
+  hrmEnsure();
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(HRM_DIR, 'settings', 'config.json'), 'utf8'));
+    if (!Array.isArray(cfg.sites)) cfg.sites = [{ id: 'site_hq', name: 'Head Office', state: '' }];
+    return cfg;
+  } catch {
+    return {
+      pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
+      sites: [{ id: 'site_hq', name: 'Head Office', state: '' }],
+      establishmentCode: '', esicCode: '', employerName: '',
+    };
+  }
+}
+function hrmSaveConfig(cfg) {
+  hrmEnsure();
+  writeJSON(path.join(HRM_DIR, 'settings', 'config.json'), cfg);
+  hrmInvalidate('settings');
+}
+function hrmRound2(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
+function hrmCalcPF(baseWage, pfApp, pfCap) {
+  if (!pfApp) return { ee: 0, er: 0, eps: 0, edli: 0, wages: 0 };
+  const w = Math.min(baseWage, pfCap);
+  const eps = Math.min(Math.round(w * 0.0833), 1250);
+  const er = Math.round(w * 0.12) - eps;
+  const ee = Math.round(baseWage * 0.12);
+  return { ee, er, eps, edli: w, wages: baseWage };
+}
+function hrmCalcESI(gross, esiApp, esiCap) {
+  if (!esiApp || gross > esiCap) return { ee: 0, er: 0, wages: 0 };
+  return { ee: Math.ceil(gross * 0.0075), er: Math.ceil(gross * 0.0325), wages: gross };
+}
+
+app.get('/api/hrm/config', (req, res) => {
+  res.json(hrmGetConfig());
+});
+app.post('/api/hrm/config', (req, res) => {
+  const cur = hrmGetConfig();
+  const next = { ...cur, ...req.body };
+  hrmSaveConfig(next);
+  res.json(next);
+});
+
+app.get('/api/hrm/employees', (req, res) => {
+  const list = hrmReadAll('employees').filter(e => !e.deleted);
+  res.json(list);
+});
+app.post('/api/hrm/employees', (req, res) => {
+  hrmEnsure();
+  const body = req.body || {};
+  const cfg = hrmGetConfig();
+  let emp = { ...body };
+  if (!emp.id) {
+    cfg.lastEmpNum = (cfg.lastEmpNum || 0) + 1;
+    emp.id = 'emp_' + Date.now().toString(36);
+    emp.employeeCode = emp.employeeCode || ('SD-' + String(cfg.lastEmpNum).padStart(3, '0'));
+    emp.createdAt = new Date().toISOString();
+    hrmSaveConfig(cfg);
+  }
+  // Duplicate UAN/ESIC check on active
+  const all = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
+  for (const o of all) {
+    if (o.id === emp.id) continue;
+    if (emp.uan && o.uan && String(o.uan).trim() === String(emp.uan).trim()) {
+      return res.status(409).json({ error: `Duplicate UAN — assigned to ${o.name}` });
+    }
+    if (emp.esicNumber && o.esicNumber && String(o.esicNumber).trim() === String(emp.esicNumber).trim()) {
+      return res.status(409).json({ error: `Duplicate ESIC — assigned to ${o.name}` });
+    }
+  }
+  emp.updatedAt = new Date().toISOString();
+  if (!emp.name || !String(emp.name).trim()) {
+    return res.status(400).json({ error: 'Employee name is required' });
+  }
+  // Coerce numeric salary fields
+  ['basic', 'hra', 'da', 'allowances'].forEach((k) => {
+    if (emp[k] != null && emp[k] !== '') emp[k] = Number(emp[k]) || 0;
+  });
+  writeJSON(path.join(HRM_DIR, 'employees', safeFileName(emp.id) + '.json'), emp);
+  hrmInvalidate('employees');
+  res.json(emp);
+});
+app.delete('/api/hrm/employees/:id', (req, res) => {
+  const id = req.params.id;
+  const file = path.join(HRM_DIR, 'employees', safeFileName(id) + '.json');
+  if (fs.existsSync(file)) {
+    const e = JSON.parse(fs.readFileSync(file, 'utf8'));
+    e.deleted = true; e.isActive = false; e.updatedAt = new Date().toISOString();
+    writeJSON(file, e);
+    hrmInvalidate('employees');
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/hrm/minwages', (req, res) => res.json(hrmReadAll('minwages')));
+app.post('/api/hrm/minwages', (req, res) => {
+  hrmEnsure();
+  const row = { ...req.body, id: req.body.id || ('mw_' + Date.now().toString(36)) };
+  if (!row.state) return res.status(400).json({ error: 'State is required' });
+  writeJSON(path.join(HRM_DIR, 'minwages', safeFileName(row.id) + '.json'), row);
+  hrmInvalidate('minwages');
+  res.json(row);
+});
+app.delete('/api/hrm/minwages/:id', (req, res) => {
+  const file = path.join(HRM_DIR, 'minwages', safeFileName(req.params.id) + '.json');
+  if (fs.existsSync(file)) fs.unlinkSync(file);
+  hrmInvalidate('minwages');
+  res.json({ ok: true });
+});
+
+app.get('/api/hrm/attendance', (req, res) => {
+  const m = String(req.query.month || '');
+  const y = String(req.query.year || '');
+  const key = `${y}_${m}`;
+  const file = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+  if (fs.existsSync(file)) return res.json(JSON.parse(fs.readFileSync(file, 'utf8')));
+  res.json({ month: m, year: y, rows: [] });
+});
+app.post('/api/hrm/attendance', (req, res) => {
+  hrmEnsure();
+  const { month, year, rows } = req.body || {};
+  if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+  const key = `${year}_${month}`;
+  const payload = { month, year, rows: rows || [], updatedAt: new Date().toISOString() };
+  writeJSON(path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json'), payload);
+  hrmInvalidate('attendance');
+  res.json(payload);
+});
+
+app.get('/api/hrm/payroll', (req, res) => {
+  const m = String(req.query.month || '');
+  const y = String(req.query.year || '');
+  const key = `${y}_${m}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (fs.existsSync(file)) return res.json(JSON.parse(fs.readFileSync(file, 'utf8')));
+  res.json({ month: m, year: y, locked: false, rows: [] });
+});
+
+app.post('/api/hrm/payroll/process', (req, res) => {
+  hrmEnsure();
+  const month = Number(req.body.month);
+  const year = Number(req.body.year);
+  if (!month || !year) return res.status(400).json({ error: 'month and year required' });
+  const key = `${year}_${month}`;
+  const existingFile = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (fs.existsSync(existingFile)) {
+    const ex = JSON.parse(fs.readFileSync(existingFile, 'utf8'));
+    if (ex.locked) return res.status(400).json({ error: 'Payroll locked for this month' });
+  }
+  const cfg = hrmGetConfig();
+  const employees = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
+  const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+  let attRows = [];
+  if (fs.existsSync(attFile)) attRows = (JSON.parse(fs.readFileSync(attFile, 'utf8')).rows) || [];
+  const attMap = {};
+  attRows.forEach(r => { attMap[r.empId] = r; });
+  const totalDays = new Date(year, month, 0).getDate();
+  const warnings = [];
+  const rows = [];
+  employees.forEach(emp => {
+    const att = attMap[emp.id];
+    if (!att) return;
+    let payable = Number(att.payableDays);
+    if (!Number.isFinite(payable)) {
+      // count P W PL H/2
+      let p = 0;
+      for (let d = 1; d <= 31; d++) {
+        const v = String(att.days?.['D' + d] || '').toUpperCase();
+        if (v === 'P') p += 1;
+        else if (v === 'W' || v === 'PL') p += 1;
+        else if (v === 'H') p += 0.5;
+      }
+      payable = p;
+    }
+    if (payable <= 0) return;
+    const basic = Number(emp.basic) || 0;
+    const hra = Number(emp.hra) || 0;
+    const da = Number(emp.da) || 0;
+    const allow = Number(emp.allowances) || 0;
+    let div = totalDays;
+    if (cfg.proration === '26') { div = 26; payable = Math.min(payable, 26); }
+    if (cfg.proration === '30') { div = 30; payable = Math.min(payable, 30); }
+    const bE = Math.round((basic / div) * payable);
+    const hE = Math.round((hra / div) * payable);
+    const dE = Math.round((da / div) * payable);
+    const oE = Math.round((allow / div) * payable);
+    const gross = bE + hE + dE + oE;
+    const pfBaseAmt = cfg.pfBase === 'BASIC' ? bE : (bE + dE);
+    const pf = hrmCalcPF(pfBaseAmt, !!emp.pfApplicable, Number(cfg.pfCap) || 15000);
+    const esi = hrmCalcESI(gross, !!emp.esiApplicable, Number(cfg.esiCap) || 21000);
+    const net = gross - pf.ee - esi.ee - (Number(emp.tds) || 0) - (Number(emp.advance) || 0);
+    rows.push({
+      empId: emp.id,
+      employeeCode: emp.employeeCode,
+      name: emp.name,
+      payableDays: payable,
+      basicEarned: bE, hraEarned: hE, daEarned: dE, allowancesEarned: oE,
+      grossEarnings: gross,
+      pfWages: pf.wages, pfEE: pf.ee, pfER: pf.er, eps: pf.eps,
+      esiWages: esi.wages, esiEE: esi.ee, esiER: esi.er,
+      netSalary: hrmRound2(net),
+      approvalStatus: 'Draft',
+    });
+  });
+  const payload = {
+    month, year, locked: false, rows, warnings,
+    processedAt: new Date().toISOString(),
+  };
+  writeJSON(existingFile, payload);
+  hrmInvalidate('payroll');
+  res.json(payload);
+});
+
+app.post('/api/hrm/payroll/lock', (req, res) => {
+  const month = Number(req.body.month);
+  const year = Number(req.body.year);
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'No payroll for this month' });
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.locked = true;
+  data.lockedAt = new Date().toISOString();
+  writeJSON(file, data);
+  hrmInvalidate('payroll');
+  res.json(data);
+});
+
+app.get('/api/hrm/dashboard', (req, res) => {
+  const month = Number(req.query.month) || (new Date().getMonth() + 1);
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const emps = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
+  const key = `${year}_${month}`;
+  const payFile = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  let monthlyCost = 0, pfLiab = 0, esiLiab = 0, missingSal = 0;
+  let payRows = [];
+  if (fs.existsSync(payFile)) {
+    payRows = (JSON.parse(fs.readFileSync(payFile, 'utf8')).rows) || [];
+    payRows.forEach(r => {
+      monthlyCost += Number(r.grossEarnings) || 0;
+      pfLiab += (Number(r.pfEE) || 0) + (Number(r.pfER) || 0) + (Number(r.eps) || 0);
+      esiLiab += (Number(r.esiEE) || 0) + (Number(r.esiER) || 0);
+    });
+  }
+  const paidIds = new Set(payRows.map(r => r.empId));
+  missingSal = emps.filter(e => !paidIds.has(e.id)).length;
+  const bySite = {};
+  emps.forEach(e => {
+    const s = e.department || e.site || 'Unassigned';
+    bySite[s] = (bySite[s] || 0) + 1;
+  });
+  res.json({
+    activeEmployees: emps.length,
+    monthlyCost: hrmRound2(monthlyCost),
+    pfLiability: hrmRound2(pfLiab),
+    esiLiability: hrmRound2(esiLiab),
+    pfEligible: emps.filter(e => e.pfApplicable).length,
+    esiEligible: emps.filter(e => e.esiApplicable).length,
+    missingSal,
+    siteDistribution: Object.entries(bySite).map(([name, count]) => ({ name, count })),
+  });
+});
+
+app.get('/api/hrm/reports/ecr', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).send('No payroll');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const emps = {};
+  hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+  const lines = [];
+  (data.rows || []).forEach(r => {
+    if (!(Number(r.pfEE) > 0)) return;
+    const e = emps[r.empId] || {};
+    lines.push([
+      e.uan || '', e.name || r.name || '', Math.round(r.grossEarnings || 0),
+      Math.round(r.pfWages || 0), Math.round(r.pfWages || 0), Math.round(r.pfWages || 0),
+      Math.round(r.pfEE || 0), Math.round(r.eps || 0), Math.round(r.pfER || 0), 0, 0,
+    ].join('#~#'));
+  });
+  res.setHeader('Content-Type', 'text/plain');
+  res.setHeader('Content-Disposition', `attachment; filename="ECR_${month}_${year}.txt"`);
+  res.send(lines.join('\r\n'));
+});
+
+app.get('/api/hrm/reports/esic', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).send('No payroll');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let attMap = {};
+  if (fs.existsSync(attFile)) {
+    ((JSON.parse(fs.readFileSync(attFile, 'utf8')).rows) || []).forEach(r => { attMap[r.empId] = r; });
+  }
+  const emps = {};
+  hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+  const lines = ['IP Number,IP Name,No of Days Worked,Total Monthly Wages,Reason Code for Zero workings days,Last Working Day'];
+  (data.rows || []).forEach(r => {
+    const e = emps[r.empId] || {};
+    if (!e.esicNumber) return;
+    const days = attMap[r.empId]?.payableDays ?? r.payableDays ?? 0;
+    lines.push([e.esicNumber, e.name || r.name, days, r.esiWages || r.grossEarnings || 0, days == 0 ? '1' : '', ''].join(','));
+  });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="ESIC_${month}_${year}.csv"`);
+  res.send(lines.join('\r\n'));
+});
+
+// Attendance register CSV (Form-style for Indian shops / factories)
+app.get('/api/hrm/reports/attendance', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  if (!month || !year) return res.status(400).send('month and year required');
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+  const totalDays = new Date(year, month, 0).getDate();
+  let rows = [];
+  if (fs.existsSync(file)) rows = (JSON.parse(fs.readFileSync(file, 'utf8')).rows) || [];
+  const dayHeaders = [];
+  for (let d = 1; d <= totalDays; d++) dayHeaders.push('D' + d);
+  const header = ['Emp Code', 'Employee Name', ...dayHeaders, 'Payable Days'].join(',');
+  const lines = [header];
+  rows.forEach((r) => {
+    const cells = [r.employeeCode || '', `"${String(r.empName || '').replace(/"/g, '""')}"`];
+    for (let d = 1; d <= totalDays; d++) cells.push(r.days?.['D' + d] || '');
+    cells.push(r.payableDays ?? '');
+    lines.push(cells.join(','));
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="Attendance_${month}_${year}.csv"`);
+  res.send('\uFEFF' + lines.join('\r\n'));
+});
+
+// Wages register (Form XVII style summary) from processed payroll
+app.get('/api/hrm/reports/wages', (req, res) => {
+  const month = Number(req.query.month);
+  const year = Number(req.query.year);
+  if (!month || !year) return res.status(400).send('month and year required');
+  const key = `${year}_${month}`;
+  const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).send('No payroll for this month — Process payroll first');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const header = [
+    'Emp Code', 'Name', 'Payable Days', 'Basic', 'HRA', 'DA', 'Allowances',
+    'Gross', 'PF Wages', 'PF EE', 'EPS', 'PF ER', 'ESI Wages', 'ESI EE', 'ESI ER', 'Net Salary',
+  ].join(',');
+  const lines = [header];
+  (data.rows || []).forEach((r) => {
+    lines.push([
+      r.employeeCode || '',
+      `"${String(r.name || '').replace(/"/g, '""')}"`,
+      r.payableDays ?? '',
+      r.basicEarned ?? 0, r.hraEarned ?? 0, r.daEarned ?? 0, r.allowancesEarned ?? 0,
+      r.grossEarnings ?? 0, r.pfWages ?? 0, r.pfEE ?? 0, r.eps ?? 0, r.pfER ?? 0,
+      r.esiWages ?? 0, r.esiEE ?? 0, r.esiER ?? 0, r.netSalary ?? 0,
+    ].join(','));
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="WagesRegister_${month}_${year}.csv"`);
+  res.send('\uFEFF' + lines.join('\r\n'));
+});
+
+
+// ---- HRM CLRA registers (must be before SPA catch-all) ----
+app.get('/api/hrm/reports/form-t', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const key = year + '_' + month;
+    const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+    if (!fs.existsSync(attFile)) return res.status(404).send('No attendance for this month — save attendance first');
+    const att = JSON.parse(fs.readFileSync(attFile, 'utf8'));
+    const emps = {};
+    hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+    const days = new Date(year, month, 0).getDate();
+    const header = ['Sl.No', 'Name of the Employee', 'M/F'];
+    for (let d = 1; d <= days; d++) header.push(String(d));
+    header.push('No. of payable Days', 'Total OT Hrs');
+    const lines = [header.join(',')];
+    let i = 0;
+    (att.rows || []).forEach(r => {
+      i += 1;
+      const e = emps[r.empId] || {};
+      const row = [i, String(e.name || r.empName || '').replace(/,/g, ' '), (e.gender || 'M').toString().slice(0, 1)];
+      for (let d = 1; d <= days; d++) row.push(String((r.days && r.days['D' + d]) || ''));
+      row.push(r.payableDays != null ? r.payableDays : '', r.otHours != null ? r.otHours : '');
+      lines.push(row.join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="FormT_Muster_' + month + '_' + year + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).send(e.message || 'Form T failed');
+  }
+});
+
+app.get('/api/hrm/reports/form-xvii', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const key = year + '_' + month;
+    const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
+    if (!fs.existsSync(file)) return res.status(404).send('Process payroll first');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const header = ['Sl.No','Name of Workman','UAN','ESI','Designation','No.of working days','Daily Rate','Basic Wages','Dearness Allowance','Over Time','Others','Total','ESI 0.75%','PF 12%','Total Deductions','Net Amount Paid'];
+    const lines = [header.join(',')];
+    let i = 0;
+    (data.rows || []).forEach(r => {
+      if (!(Number(r.grossEarnings) > 0)) return;
+      i += 1;
+      const daily = r.payableDays ? Math.round((Number(r.basicEarned) / r.payableDays) * 100) / 100 : 0;
+      const ded = (Number(r.esiEE) || 0) + (Number(r.pfEE) || 0);
+      lines.push([
+        i, String(r.name || '').replace(/,/g, ' '), r.uan || '', r.esicNumber || '',
+        String(r.designation || '').replace(/,/g, ' '), r.payableDays || 0, daily,
+        r.basicEarned || 0, r.daEarned || 0, 0,
+        (Number(r.hraEarned) || 0) + (Number(r.taEarned) || 0) + (Number(r.allowancesEarned) || 0),
+        r.grossEarnings || 0, r.esiEE || 0, r.pfEE || 0, ded, r.netSalary || 0
+      ].join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="FormXVII_Wages_' + month + '_' + year + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).send(e.message || 'Form XVII failed');
+  }
+});
+
+// ---- Monthly bills export for auditor (CSV) ----
+app.get('/api/bills/export-month', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).json({ error: 'month and year required (1-12, YYYY)' });
+    const bills = readAllFromDir('bills');
+    const rows = bills.filter(b => {
+      const d = String(b.invoiceDate || b.data?.details?.invoiceDate || '');
+      if (!d) return false;
+      const dt = new Date(d);
+      if (Number.isNaN(dt.getTime())) return false;
+      return (dt.getMonth() + 1) === month && dt.getFullYear() === year;
+    });
+    const header = ['InvoiceNumber','Date','Type','Client','GSTIN','Taxable','CGST','SGST','IGST','Total','Status','PaidAmount','Site','WorkOrder'];
+    const lines = [header.join(',')];
+    rows.forEach(b => {
+      const t = b.data?.totals || {};
+      const c = b.data?.client || {};
+      const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      lines.push([
+        esc(b.invoiceNumber || b.id), esc(b.invoiceDate), esc(b.invoiceType || b.data?.invoiceType),
+        esc(b.clientName || c.name), esc(c.gstin),
+        t.subtotal ?? t.subTotal ?? '', t.cgst ?? '', t.sgst ?? '', t.igst ?? '',
+        b.totalAmount ?? t.grandTotal ?? t.total ?? '',
+        esc(b.status), b.paidAmount ?? 0,
+        esc(b.site || b.data?.details?.site || ''), esc(b.workOrderId || b.data?.details?.workOrder || ''),
+      ].join(','));
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="Invoices_' + year + '_' + String(month).padStart(2,'0') + '.csv"');
+    res.send('\ufeff' + lines.join('\n'));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('{*path}', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
   if (fs.existsSync(indexPath)) {
@@ -1269,7 +2349,7 @@ app.get('{*path}', (req, res) => {
 function servePlaceholder(req, res) {
     if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
     res.status(503).send(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Free GST Billing Software — building…</title>
+<html><head><meta charset="utf-8"><title>SD Dynamics — building…</title>
 <meta http-equiv="refresh" content="3">
 <style>
   body { font-family: -apple-system, Segoe UI, Inter, sans-serif; max-width: 560px;
@@ -1284,7 +2364,7 @@ function servePlaceholder(req, res) {
   .box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.85rem 1rem; border-radius: 8px; margin-top: 1rem; }
 </style></head>
 <body>
-  <h1>Free GST Billing Software</h1>
+  <h1>SD Dynamics</h1>
   <p><span class="spinner"></span> The app is still building. This page refreshes every 3 seconds.</p>
   <div class="box">
     <p style="margin:0 0 0.5rem"><strong>Local install?</strong></p>
@@ -1370,6 +2450,7 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 // Bound to 127.0.0.1 explicitly so the server can NEVER be reached from the LAN —
 // every byte stays on the user's machine, which the privacy promise depends on.
 let activeServer = null;
+
 function startServer(port) {
   const server = app.listen(port, '127.0.0.1', () => {
     activeServer = server;
@@ -1378,7 +2459,7 @@ function startServer(port) {
     // we landed on 47372 instead, next launch tries 47372 first (cuts collision
     // scans in half on repeated reboots of whatever was holding 47371).
     try { fs.writeFileSync(PORT_FILE, String(port), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  Free GST Billing Software running at http://localhost:${port}`);
+    console.log(`\n  SD Dynamics running at http://localhost:${port}`);
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {
@@ -1602,6 +2683,8 @@ async function processDueRecurring() {
     writeJSON(META_PATH, meta);
   }
 }
+
+
 
 startServer(STARTING_PORT);
 // Fire once after a short delay so the listener is up first; then once a day

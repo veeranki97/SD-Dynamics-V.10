@@ -159,13 +159,12 @@ export default function ReceiptVoucher() {
       let receiptNo = form.receiptNo;
       if (!editingId) {
         try {
-          receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
-        {
-          const n = String(receiptNo || '');
-          const num = (n.match(/(\d+)\s*$/) || [])[1];
-          if (num) receiptNo = `PAY-${String(Number(num)).padStart(3, '0')}`;
-          else if (!n.startsWith('PAY')) receiptNo = n ? `PAY-${n}` : receiptNo;
-        }
+          let raw = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+          const n = String(raw || '');
+          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+          if (digits) receiptNo = `PAY-${String(Number(digits)).padStart(3, '0')}`;
+          else if (n.startsWith('PAY')) receiptNo = n;
+          else receiptNo = n ? `PAY-${n}` : receiptNo;
         } catch { /* fall back to peeked number */ }
       }
 
@@ -364,11 +363,11 @@ export default function ReceiptVoucher() {
       }
       // Master receipt for audit
       try {
-        const receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+        let receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
         {
           const n = String(receiptNo || '');
-          const num = (n.match(/(\d+)\s*$/) || [])[1];
-          if (num) receiptNo = `PAY-${String(Number(num)).padStart(3, '0')}`;
+          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+          if (digits) receiptNo = `PAY-${String(Number(digits)).padStart(3, '0')}`;
           else if (!n.startsWith('PAY')) receiptNo = n ? `PAY-${n}` : receiptNo;
         }
         await saveReceipt({

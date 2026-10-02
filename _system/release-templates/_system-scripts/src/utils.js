@@ -1,3 +1,43 @@
+
+/** India GSTIN: exactly 15 chars + basic format + state code map */
+export function isValidIndianGSTIN(gstin) {
+  if (!gstin || typeof gstin !== 'string') return { valid: false, message: 'GSTIN required' };
+  const g = gstin.toUpperCase().trim();
+  if (g.length !== 15) return { valid: false, message: 'GSTIN must be exactly 15 characters' };
+  const re = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+  if (!re.test(g)) return { valid: false, message: 'Invalid GSTIN format' };
+  // Mod-36 check digit (chars 0-13 → position 14), same math as EnterpriseCore validateGstin_
+  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let factor = 1;
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const codePoint = chars.indexOf(g[i]);
+    if (codePoint < 0) return { valid: false, message: 'Invalid GSTIN format' };
+    let product = factor * codePoint;
+    factor = factor === 1 ? 2 : 1;
+    product = Math.floor(product / 36) + (product % 36);
+    sum += product;
+  }
+  const checkCodePoint = (36 - (sum % 36)) % 36;
+  const expected = chars[checkCodePoint];
+  if (g[14] !== expected) {
+    return { valid: false, message: 'GSTIN check-digit failed.' };
+  }
+  return { valid: true, stateCode: g.slice(0, 2) };
+}
+
+export const GSTIN_STATE_MAP = {
+  '01':'Jammu and Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh',
+  '05':'Uttarakhand','06':'Haryana','07':'Delhi','08':'Rajasthan','09':'Uttar Pradesh',
+  '10':'Bihar','11':'Sikkim','12':'Arunachal Pradesh','13':'Nagaland','14':'Manipur',
+  '15':'Mizoram','16':'Tripura','17':'Meghalaya','18':'Assam','19':'West Bengal',
+  '20':'Jharkhand','21':'Odisha','22':'Chhattisgarh','23':'Madhya Pradesh','24':'Gujarat',
+  '25':'Daman and Diu','26':'Dadra and Nagar Haveli and Daman and Diu',
+  '27':'Maharashtra','29':'Karnataka','30':'Goa','31':'Lakshadweep','32':'Kerala','33':'Tamil Nadu',
+  '34':'Puducherry','35':'Andaman and Nicobar Islands','36':'Telangana','37':'Andhra Pradesh','38':'Ladakh',
+  '96':'Other Territory','97':'Other Territory','99':'Centre Jurisdiction'
+};
+
 export const numberToWords = (num) => {
   if (num === 0) return 'Zero Rupees Only';
 
@@ -197,6 +237,15 @@ export const TDS_TCS_THRESHOLD = 5_000_000;
 // Sum of an array of numbers, coercing safely.
 const sum = (arr) => arr.reduce((s, n) => s + (Number(n) || 0), 0);
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** Strip ₹ / commas / Indian grouping and round to 2 dp. */
+export function parseMoney(v) {
+  if (typeof v === 'number' && isFinite(v)) return r2(v);
+  const s = String(v ?? '').replace(/[₹Rs.\s]/g, '').replace(/,/g, '').trim();
+  const n = Number(s);
+  return r2(isFinite(n) ? n : 0);
+}
+export const moneyRound = r2;
 
 export function computeInvoiceTotals(opts) {
   // v1.10.33 — Destructure defaults only fire on `undefined`, not `null`.
@@ -437,12 +486,26 @@ export const INVOICE_TYPES = {
     showGST: true,
     description: 'Standard GST tax invoice',
   },
+  'quotation': {
+    label: 'Quotation',
+    prefix: 'QUO',
+    title: 'QUOTATION',
+    showGST: true,
+    description: 'Commercial quotation — does not post to ledger',
+  },
   'proforma': {
     label: 'Proforma / Estimate',
-    prefix: 'EST',
+    prefix: 'PI',
     title: 'PROFORMA INVOICE',
     showGST: true,
-    description: 'Quotation or estimate — not a legal tax document',
+    description: 'Proforma invoice — not a legal tax invoice',
+  },
+  'debit-note': {
+    label: 'Debit Note',
+    prefix: 'DN',
+    title: 'DEBIT NOTE',
+    showGST: true,
+    description: 'Debit note for adjustments',
   },
   'bill-of-supply': {
     label: 'Bill of Supply (No GST)',
@@ -473,19 +536,6 @@ export const INVOICE_TYPES = {
     description: 'For goods transport, job work, or supply on approval — not a tax document',
   },
 };
-
-// v1.10.67 (#66 item 7, @sangwanmail-eng) — which documents are actual sales.
-// A proforma/estimate is only a quote and a delivery challan moves goods
-// without selling them, so neither is turnover. A credit note reduces it. A
-// cancelled document counts for nothing at all (#66 item 12).
-export const SALES_INVOICE_TYPES = ['tax-invoice', 'bill-of-supply', 'composition'];
-export const isCancelledBill = (bill) => (bill?.status || '') === 'cancelled';
-export const countsAsSales = (bill) => !isCancelledBill(bill)
-  && SALES_INVOICE_TYPES.includes(bill?.invoiceType || 'tax-invoice');
-export const isCreditNote = (bill) => (bill?.invoiceType || '') === 'credit-note'
-  && !isCancelledBill(bill);
-// +1 for a sale, -1 for a credit note, 0 for quotes, challans and anything cancelled.
-export const salesSign = (bill) => (countsAsSales(bill) ? 1 : (isCreditNote(bill) ? -1 : 0));
 
 // Indian states list for dropdowns
 export const INDIAN_STATES = [
@@ -600,56 +650,6 @@ const GST_STATE_CODES = {
   'telangana': '36', 'ladakh': '38',
 };
 
-// v1.10.68 (#68, idea from @deppen12) — a GSTIN carries its own facts, so the
-// state can be filled in and a typo caught without any API key or internet:
-//   27 ABCDE1234F 2 Z 5
-//   |  |          | | +- checksum over the first 14 characters
-//   |  |          | +--- Z for a regular taxpayer (D = TDS, C = TCS)
-//   |  |          +----- which registration of that PAN in that state
-//   |  +---------------- the PAN, whose 4th letter is the kind of entity
-//   +------------------- the state (2011 census code)
-const GSTIN_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const PAN_ENTITY_TYPES = {
-  P: 'Individual', C: 'Company', F: 'Firm / LLP', H: 'HUF', A: 'Association of persons',
-  T: 'Trust', B: 'Body of individuals', L: 'Local authority', J: 'Artificial juridical person',
-  G: 'Government',
-};
-const GSTIN_TAXPAYER_TYPES = { Z: 'Regular', D: 'TDS deductor', C: 'TCS collector' };
-
-// Luhn mod 36 over the first 14 characters. Verified against real GSTINs:
-// it rejects a single mistyped or transposed character, which is the whole
-// point — a wrong GSTIN is only discovered when the return is rejected.
-export const gstinChecksumOk = (value) => {
-  const gstin = String(value || '').trim().toUpperCase();
-  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z][A-Z][0-9A-Z]$/.test(gstin)) return false;
-  let sum = 0;
-  for (let i = 0; i < 14; i += 1) {
-    const product = GSTIN_CHARS.indexOf(gstin[i]) * (i % 2 ? 2 : 1);
-    sum += Math.floor(product / 36) + (product % 36);
-  }
-  return GSTIN_CHARS[(36 - (sum % 36)) % 36] === gstin[14];
-};
-
-// Everything the number itself says. `state` is null for a code we do not
-// know (96/97/99 are used for foreign country, other territory and centre
-// jurisdiction), so callers can tell "unknown" from "wrong".
-export const decodeGstin = (value) => {
-  const gstin = String(value || '').trim().toUpperCase();
-  if (gstin.length !== 15) return null;
-  const stateCode = gstin.slice(0, 2);
-  const pan = gstin.slice(2, 12);
-  return {
-    gstin,
-    stateCode,
-    state: stateNameForCode(stateCode),
-    pan,
-    entityType: PAN_ENTITY_TYPES[pan[3]] || null,
-    registration: gstin[12],
-    taxpayerType: GSTIN_TAXPAYER_TYPES[gstin[13]] || null,
-    checksumOk: gstinChecksumOk(gstin),
-  };
-};
-
 // v1.10.31 — GST-H1: legacy codes normalized.
 // AP was reorganised in June 2014; old GSTINs with prefix `28` (before
 // bifurcation) should map to the current code `37` (Andhra Pradesh).
@@ -657,16 +657,6 @@ export const decodeGstin = (value) => {
 // Without normalisation, a `28ABCDE…` GSTIN and the current state "Andhra
 // Pradesh" produced different codes → interstate/intrastate mis-classification.
 const LEGACY_STATE_CODE_MAP = { '28': '37', '25': '26' };
-
-// v1.10.68 — code -> state name. Built from INDIAN_STATES so the value is
-// spelled exactly like the entry in the State dropdown: a title-cased copy
-// would read "Dadra And Nagar Haveli..." and match no option at all.
-const STATE_NAME_BY_CODE = INDIAN_STATES.reduce((acc, name) => {
-  const code = GST_STATE_CODES[name.trim().toLowerCase()];
-  if (code && !acc[code]) acc[code] = name;
-  return acc;
-}, {});
-export const stateNameForCode = (code) => STATE_NAME_BY_CODE[String(code || '').trim()] || null;
 
 // Get 2-digit GST state code from state name or GSTIN
 export const getStateCode = (stateOrGstin) => {
@@ -1278,8 +1268,8 @@ export const BUILTIN_UNITS = [
 // doesn't have to flip the unit dropdown 90% of the time.
 export const getDefaultUnitForMode = (mode) => {
   if (mode === 'services') return 'Hrs';
-  if (mode === 'mixed') return 'Pcs';
-  return 'Pcs'; // goods (default) - #66 item 2
+  if (mode === 'mixed') return 'Nos';
+  return 'Nos'; // goods (default)
 };
 
 // Filter units by invoice mode for the dropdown. Service mode hides
@@ -1317,7 +1307,25 @@ export const removeCustomUnit = (label) => {
   try { localStorage.setItem(CUSTOM_UNITS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
 };
 
-export const getAllUnits = () => [...BUILTIN_UNITS, ...getCustomUnits()];
+export const getAllUnits = () => {
+  const fromBuiltin = [...BUILTIN_UNITS, ...getCustomUnits()];
+  // Merge Master Data units (Cost Centres → Units tab)
+  let master = [];
+  try {
+    for (const key of ['freegstbill_custom_units', 'fgsb_custom_units']) {
+      const arr = JSON.parse(localStorage.getItem(key) || '[]');
+      if (Array.isArray(arr)) master = master.concat(arr.map(x => String(x || '').trim()).filter(Boolean));
+    }
+  } catch { /* ignore */ }
+  const seen = new Set(fromBuiltin.map(u => (u.label || u).toLowerCase()));
+  for (const label of master) {
+    if (!seen.has(label.toLowerCase())) {
+      seen.add(label.toLowerCase());
+      fromBuiltin.push({ label, value: label, custom: true });
+    }
+  }
+  return fromBuiltin;
+};
 
 export const getUnitUQC = (label) => {
   const u = getAllUnits().find(x => x.label === label);
@@ -1824,3 +1832,30 @@ export const CURRENCY_NAMES = {
   IDR: { major: 'Rupiah',   minor: 'Sen'   },
   NZD: { major: 'Dollars',  minor: 'Cents' },
 };
+
+
+/** Order / dispatch fields used by Tally & Boxed PDF layouts */
+export const ORDER_DETAIL_FIELDS = [
+  { key: 'deliveryNote', label: 'Delivery Note' },
+  { key: 'paymentTerms', label: 'Mode/Terms of Payment' },
+  { key: 'referenceNo', label: 'Reference No. & Date' },
+  { key: 'otherReferences', label: 'Other References' },
+  { key: 'buyerOrderNo', label: "Buyer's Order No." },
+  { key: 'buyerOrderDate', label: 'Buyer Order Date' },
+  { key: 'dispatchDocNo', label: 'Dispatch Doc No.' },
+  { key: 'deliveryNoteDate', label: 'Delivery Note Date' },
+  { key: 'dispatchedThrough', label: 'Dispatched through' },
+  { key: 'destination', label: 'Destination' },
+  { key: 'vehicleNo', label: 'Vehicle No.' },
+  { key: 'revisionNo', label: 'Revision No.' },
+  { key: 'periodFrom', label: 'Period From' },
+  { key: 'periodTo', label: 'Period To' },
+  { key: 'deliveryTerms', label: 'Terms of Delivery' },
+  { key: 'workDetails', label: 'Work Details' },
+];
+
+export function filledOrderDetails(details = {}) {
+  return ORDER_DETAIL_FIELDS
+    .map((f) => ({ ...f, value: details?.[f.key] || details?.[f.key.replace(/([A-Z])/g, (m) => m)] || '' }))
+    .filter((f) => f.value);
+}

@@ -1,11 +1,11 @@
-# Free GST Billing - Windows backup.
+# SD Dynamics - Windows backup.
 #
 # Zips the entire data/ folder into
-#   %USERPROFILE%\Documents\FreeGSTBill Backups\YYYY-MM-DD_HH-mm-ss.zip
+#   %USERPROFILE%\Documents\SDDynamics Backups\YYYY-MM-DD_HH-mm-ss.zip
 # Opens the folder in Explorer so the user knows where it went.
 
 $ErrorActionPreference = 'Stop'
-$Host.UI.RawUI.WindowTitle = 'Free GST Billing - Backup'
+$Host.UI.RawUI.WindowTitle = 'SD Dynamics - Backup'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SystemDir = $ScriptDir
@@ -17,7 +17,7 @@ if (-not (Test-Path $dataDir)) {
   exit 0
 }
 
-$backupsHome = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'FreeGSTBill Backups'
+$backupsHome = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'SDDynamics Backups'
 if (-not (Test-Path $backupsHome)) { New-Item -ItemType Directory -Path $backupsHome | Out-Null }
 
 $stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'

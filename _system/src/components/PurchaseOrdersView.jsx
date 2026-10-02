@@ -126,11 +126,8 @@ function printPO(po, profile, fingerprint) {
     padding: 0;
   }
   .sheet {
-    min-height: calc(100vh - 2mm);
-    display: flex;
-    flex-direction: column;
     border: 2px solid #0f172a;
-    padding: 8px 10px;
+    padding: 10px 12px 8px;
   }
   .top {
     display: flex;
@@ -180,13 +177,14 @@ function printPO(po, profile, fingerprint) {
     grid-template-columns: 1.15fr 0.85fr;
     gap: 0;
     border: 2px solid #0f172a;
-    flex: 1;
   }
   .notes {
     padding: 8px 10px;
     border-right: 2px solid #0f172a;
     font-size: 9.5px;
     line-height: 1.4;
+    min-height: 90px;
+    max-height: 160px;
   }
   .notes b { display: block; margin-bottom: 3px; }
   .totals { padding: 8px 10px; }
@@ -279,7 +277,7 @@ function printPO(po, profile, fingerprint) {
     </div>
     <div class="sign-row">
       <div class="sign">
-        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : ''}
+        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:48px"></div>'}
         <div>For <b>${company}</b></div>
         <div class="line">Authorized Signatory</div>
       </div>

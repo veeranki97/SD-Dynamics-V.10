@@ -426,8 +426,27 @@ app.post('/api/bills', (req, res) => {
       bill.docstatus = beforeBill.docstatus;
     }
   }
-  writeJSON(filePath, bill);
+    writeJSON(filePath, bill);
+  // Invoice revision history (GAS InvoiceRevisions equivalent)
   try {
+    const revDir = path.join(DATA_DIR, 'invoice-revisions');
+    if (!fs.existsSync(revDir)) fs.mkdirSync(revDir, { recursive: true });
+    const invKey = safeFileName(bill.id || bill.invoiceNumber || 'unknown');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const rev = {
+      timestamp: new Date().toISOString(),
+      action: beforeBill ? 'EDIT' : 'CREATE',
+      invoiceNumber: bill.invoiceNumber || bill.id,
+      snapshot: bill,
+      previous: beforeBill || null,
+    };
+    writeJSON(path.join(revDir, `${invKey}_${stamp}.json`), rev);
+    // keep last 30 revisions per invoice number prefix
+    const all = fs.readdirSync(revDir).filter(f => f.startsWith(invKey + '_')).sort();
+    while (all.length > 30) {
+      try { fs.unlinkSync(path.join(revDir, all.shift())); } catch {}
+    }
+  } catch (re) { console.warn('[revisions]', re.message); } try {
     const aDir = path.join(DATA_DIR, 'activity-logs');
     fs.mkdirSync(aDir, { recursive: true });
     const at = new Date().toISOString();
@@ -1754,6 +1773,27 @@ app.post('/api/master-data', (req, res) => {
 });
 
 // ---- Activity / audit logs (MUST be before SPA catch-all or GET returns 404) ----
+
+app.get('/api/invoice-revisions', (req, res) => {
+  try {
+    const dir = path.join(DATA_DIR, 'invoice-revisions');
+    if (!fs.existsSync(dir)) return res.json([]);
+    const inv = String(req.query.invoice || req.query.id || '').trim();
+    let files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+    if (inv) {
+      const key = safeFileName(inv);
+      files = files.filter(f => f.startsWith(key + '_'));
+    }
+    files.sort().reverse();
+    const out = files.slice(0, 100).map(f => {
+      try { return readJSON(path.join(dir, f), null); } catch { return null; }
+    }).filter(Boolean);
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/activity-logs', (req, res) => {
   try {
     const dir = path.join(DATA_DIR, 'activity-logs');

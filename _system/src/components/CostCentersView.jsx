@@ -62,6 +62,11 @@ export default function CostCentersView() {
 
   const addOrSave = async () => {
     if (!name.trim()) { toast('Name required', 'warning'); return; }
+    const nm = name.trim().toLowerCase();
+    if (list.some(c => (c.name || '').trim().toLowerCase() === nm && c.id !== editing?.id)) {
+      toast(`Duplicate cost centre: "${name.trim()}" already exists`, 'error');
+      return;
+    }
     const id = editing?.id || ('cc_' + Date.now().toString(36));
     await saveCostCenter({ id, name: name.trim(), parentId: parentId || null, active: true });
     setName(''); setParentId(''); setEditing(null);
@@ -105,8 +110,9 @@ export default function CostCentersView() {
       toast('HSN/SAC must be 2, 4, 6 or 8 digits', 'error');
       return;
     }
-    if (hsnList.includes(t)) { toast('Already in list', 'info'); return; }
-    setHsnList(addHsnCode(t));
+    const res = addHsnCode(t);
+    if (!res?.ok) { toast(res?.error || 'Duplicate HSN', 'error'); return; }
+    setHsnList(res.list);
     try { syncMasterDataToServer(); } catch (e) {}
     toast(`HSN/SAC ${t} saved — available on Invoice, WO, PO`, 'success');
   };
@@ -129,8 +135,9 @@ export default function CostCentersView() {
     if (v == null) return;
     const t = String(v).trim();
     if (!t) return;
-    if (unitList.includes(t)) { toast('Already in list', 'info'); return; }
-    setUnitList(saveUnitMaster(t));
+    const res = saveUnitMaster(t);
+    if (res && res.ok === false) { toast(res.error || 'Duplicate unit', 'error'); return; }
+    setUnitList(res?.list || getUnitMaster());
     try { syncMasterDataToServer(); } catch (e) {}
     toast(`Unit "${t}" saved`, 'success');
   };
@@ -153,8 +160,9 @@ export default function CostCentersView() {
     if (v == null) return;
     const t = String(v).trim();
     if (!t) return;
-    if (expList.includes(t)) { toast('Already in list', 'info'); return; }
-    setExpList(addExpenseCategory(t));
+    const res = addExpenseCategory(t);
+    if (!res?.ok) { toast(res?.error || 'Duplicate category', 'error'); return; }
+    setExpList(res.list);
     toast(`Category "${t}" saved`, 'success');
   };
 
@@ -164,7 +172,6 @@ export default function CostCentersView() {
     setExpList(removeExpenseCategory(c));
     toast('Removed', 'success');
   };
-
 
   const editHsn = async (oldCode) => {
     const v = await promptAction({
@@ -181,8 +188,10 @@ export default function CostCentersView() {
       return;
     }
     if (t !== oldCode) {
-      setHsnList(removeHsnCode(oldCode));
-      setHsnList(addHsnCode(t));
+      removeHsnCode(oldCode);
+      const res = addHsnCode(t);
+      if (!res?.ok) { toast(res?.error || 'Duplicate HSN', 'error'); setHsnList(getHsnMaster()); return; }
+      setHsnList(res.list);
       try { syncMasterDataToServer(); } catch (e) {}
     }
     toast(`HSN/SAC ${t} updated`, 'success');
@@ -199,8 +208,10 @@ export default function CostCentersView() {
     if (v == null) return;
     const t = String(v).trim();
     if (!t) return;
-    setUnitList(deleteUnitMaster(oldU));
-    setUnitList(saveUnitMaster(t));
+    deleteUnitMaster(oldU);
+    const res = saveUnitMaster(t);
+    if (res && res.ok === false) { toast(res.error || 'Duplicate unit', 'error'); setUnitList(getUnitMaster()); return; }
+    setUnitList(res?.list || getUnitMaster());
     try { syncMasterDataToServer(); } catch (e) {}
     toast(`Unit "${t}" updated`, 'success');
   };
@@ -216,8 +227,10 @@ export default function CostCentersView() {
     if (v == null) return;
     const t = String(v).trim();
     if (!t) return;
-    setExpList(removeExpenseCategory(oldC));
-    setExpList(addExpenseCategory(t));
+    removeExpenseCategory(oldC);
+    const res = addExpenseCategory(t);
+    if (!res?.ok) { toast(res?.error || 'Duplicate category', 'error'); setExpList(getExpenseCategories()); return; }
+    setExpList(res.list);
     toast(`Category "${t}" updated`, 'success');
   };
 

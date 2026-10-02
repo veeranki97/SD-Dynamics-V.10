@@ -1,0 +1,629 @@
+import { useState, useEffect } from 'react';
+import { Wallet, Plus, Edit3, Trash2, Search, X, Save, Download, Calendar } from 'lucide-react';
+import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity } from '../store';
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
+import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
+import { journalFromExpense } from '../utils/ledger';
+import UnassignedBanner from './UnassignedBanner';
+import { toast } from './Toast';
+import { getExpenseCategories, addExpenseCategory } from '../utils/masterData';
+import { confirmAction } from './ConfirmModal';
+
+// Each category is tagged with its ITR (Income Tax Return) head so the
+// v1.7.0+ ITR Filing Summary can auto-aggregate expenses under the correct
+// P&L line. Users don't have to think about heads — they pick the category
+// they already understand.
+//   - 'business'      → deductible business expense under section 37
+//   - 'depreciation'  → section 32 (asset purchases, capitalised then
+//                       depreciated per Rule 5)
+//   - 'salary'        → separately tracked; declared under section 40A(2)(b)
+//                       for related parties
+//   - 'notDeductible' → personal / drawings / capital / non-business
+const EXPENSE_CATEGORIES = [
+  { name: 'Office Rent',            itrHead: 'business' },
+  { name: 'Utilities',              itrHead: 'business' },
+  { name: 'Internet & Phone',       itrHead: 'business' },
+  { name: 'Software & Tools',       itrHead: 'business' },
+  { name: 'Travel',                 itrHead: 'business' },
+  { name: 'Meals & Entertainment',  itrHead: 'business' },
+  { name: 'Office Supplies',        itrHead: 'business' },
+  { name: 'Salary & Wages',         itrHead: 'salary' },
+  { name: 'Professional Fees',      itrHead: 'business' },
+  { name: 'Insurance',              itrHead: 'business' },
+  { name: 'Marketing & Ads',        itrHead: 'business' },
+  { name: 'Raw Materials',          itrHead: 'business' },
+  { name: 'Shipping & Courier',     itrHead: 'business' },
+  { name: 'Repairs & Maintenance',  itrHead: 'business' },
+  { name: 'Bank Charges',           itrHead: 'business' },
+  { name: 'GST Paid',               itrHead: 'business' },
+  { name: 'Asset Purchase',         itrHead: 'depreciation' },
+  { name: 'Personal / Drawings',    itrHead: 'notDeductible' },
+  { name: 'Other',                  itrHead: 'business' },
+];
+const CATEGORY_NAMES = EXPENSE_CATEGORIES.map(c => c.name);
+const EXTRA_CAT_KEY = 'fgsb_expense_categories';
+function loadExtraCats() {
+  try { return JSON.parse(localStorage.getItem(EXTRA_CAT_KEY) || '[]'); } catch { return []; }
+}
+
+const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
+
+const emptyForm = {
+  workOrderId: '',
+  againstInvoice: '',
+  receiptData: '',
+  receiptName: '',
+  claimStatus: 'Draft',
+  costCenterId: '',
+  site: '',
+  costSplits: [], // [{ costCenterId, pct }]
+  submittedBy: '',
+
+  date: (function(){const d=new Date();const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());})(),
+  description: '',
+  category: 'Other',
+  amount: '',
+  gstAmount: '',
+  gstPercent: '',
+  // P1 #15: interstate flag. When on, ITC on GST paid routes to IGST in
+  // GSTR-3B Table 4(A) instead of splitting 50/50 into CGST + SGST. Real
+  // scenario: AWS / Google / Adobe / SaaS bills from out-of-state offices.
+  // Off = intrastate = supplier and buyer in the same state.
+  interstate: false,
+  vendorName: '',
+  vendorGstin: '',
+  invoiceNo: '',
+  paymentMode: 'Bank Transfer',
+  note: '',
+};
+
+// v1.10.6 — audit L4: local copy removed, imported from utils above.
+
+export default function ExpenseTracker() {
+  const [expenses, setExpenses] = useState([]);
+  const [customCats, setCustomCats] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('fgsb_expense_categories') || '[]'); } catch { return []; }
+  });
+  const [newCatName, setNewCatName] = useState('');
+  const [workOrders, setWorkOrders] = useState([]);
+  const [expenseVendors, setExpenseVendors] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
+  // v1.10.65 (#58 item 3) — the business these records belong to.
+  const [ownerProfile, setOwnerProfile] = useState(null);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [fyFilter, setFyFilter] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ ...emptyForm });
+  const [masterCats, setMasterCats] = useState(() => {
+    try { return getExpenseCategories(); } catch { return []; }
+  });
+  const [woList, setWoList] = useState([]);
+  const [billList, setBillList] = useState([]);
+  useEffect(() => {
+    getAllWorkOrders().then(rows => {
+      setWoList(rows || []);
+      setWorkOrders(rows || []);
+    }).catch(() => {});
+    getAllBills().then(setBillList).catch(() => {});
+    getAllCostCenters().then(setCostCenters).catch(() => {});
+    getAllClients().then(all => {
+      setExpenseVendors((all || []).filter(c => c.isVendor || c.type === 'vendor' || c.partyType === 'vendor'));
+    }).catch(() => {});
+    try { setMasterCats(getExpenseCategories()); } catch { /* ignore */ }
+  }, []);
+
+  const fyOptions = getFYOptions();
+
+
+  // v1.10.65 (#58 item 3) — assign records saved before businesses were kept
+  // separate. Never automatic: only the user knows which business an old
+  // record belonged to, so guessing would file it into the wrong books.
+  const unassignedExpenses = expenses.filter(isUnassignedToBusiness);
+  const assignUnassignedExpenses = async () => {
+    await Promise.all(unassignedExpenses.map(r => saveExpense({
+      ...r,
+      ownerGstin: ownerProfile?.gstin || '',
+      ownerName: ownerProfile?.businessName || '',
+    })));
+    loadExpenses();
+    getAllWorkOrders().then(setWorkOrders).catch(() => {});
+    getAllClients().then(all => setExpenseVendors((all||[]).filter(c => c.isVendor || c.type === 'vendor'))).catch(() => {});
+    getAllCostCenters().then(setCostCenters).catch(() => {});
+  };
+
+  const loadExpenses = async () => {
+    try {
+      const [rows, prof] = await Promise.all([getAllExpenses(), getProfile().catch(() => null)]);
+      setOwnerProfile(prof);
+      // v1.10.65 (#58 item 3) — show only this business's records. Anything
+      // saved before businesses were separated has no owner recorded and is
+      // always shown, so nothing disappears from an existing ledger.
+      setExpenses((rows || []).filter(r => belongsToProfile(r, prof)));
+    } catch {
+      toast('Failed to load expenses', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (fyOptions[0]) setFyFilter(fyOptions[0].value);
+    loadExpenses();
+  }, []);
+
+  const filtered = expenses.filter(exp => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!(exp.description || '').toLowerCase().includes(q) &&
+          !(exp.vendorName || '').toLowerCase().includes(q) &&
+          !(exp.invoiceNo || '').toLowerCase().includes(q)) return false;
+    }
+    if (categoryFilter !== 'all' && exp.category !== categoryFilter) return false;
+    if (fyFilter) {
+      const fy = fyOptions.find(f => f.value === fyFilter);
+      if (fy && exp.date) {
+        if (exp.date < fy.from || exp.date > fy.to) return false;
+      }
+    }
+    return true;
+  });
+
+  const totalAmount = filtered.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalGST = filtered.reduce((s, e) => s + (e.gstAmount || 0), 0);
+
+  const openAdd = () => {
+    setForm({ ...emptyForm });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (exp) => {
+    setForm({
+      date: exp.date || '',
+      description: exp.description || '',
+      category: exp.category || 'Other',
+      amount: exp.amount || '',
+      gstAmount: exp.gstAmount || '',
+      gstPercent: exp.gstPercent || '',
+      vendorName: exp.vendorName || '',
+      vendorGstin: exp.vendorGstin || '',
+      invoiceNo: exp.invoiceNo || '',
+      paymentMode: exp.paymentMode || 'Bank Transfer',
+      interstate: !!exp.interstate,
+      workOrderId: exp.workOrderId || '',
+      againstInvoice: exp.againstInvoice || '',
+      receiptData: exp.receiptData || '',
+      receiptName: exp.receiptName || '',
+      note: exp.note || '',
+    });
+    setEditingId(exp.id);
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ ...emptyForm });
+  };
+
+  const handleSave = async () => {
+    if (!(form.costCenterId || '').trim()) { toast('Cost Center is required on every expense', 'error'); return; }
+    if (!form.description.trim()) { toast('Description is required', 'warning'); return; }
+    if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter a valid amount', 'warning'); return; }
+    try {
+      const expense = {
+        ...(editingId ? { id: editingId } : {}),
+        date: form.date,
+        description: form.description.trim(),
+        category: form.category,
+        amount: parseFloat(form.amount),
+        gstAmount: form.gstAmount ? parseFloat(form.gstAmount) : 0,
+        gstPercent: form.gstPercent ? parseFloat(form.gstPercent) : 0,
+        vendorName: form.vendorName.trim(),
+        vendorGstin: form.vendorGstin.trim(),
+        invoiceNo: form.invoiceNo.trim(),
+        paymentMode: form.paymentMode,
+        interstate: !!form.interstate,
+        note: form.note.trim(),
+        // Stamp the business this expense belongs to. `vendorGstin` above is
+        // the SUPPLIER — filing an expense under your own supplier would be
+        // exactly backwards, so the owner is kept in its own field.
+        ownerGstin: ownerProfile?.gstin || '',
+        ownerName: ownerProfile?.businessName || '',
+      };
+      // Traceability: prefer WO link
+      expense.workOrderId = form.workOrderId || '';
+      expense.againstInvoice = form.againstInvoice || form.invoiceNo || '';
+      expense.receiptData = form.receiptData || '';
+      expense.receiptName = form.receiptName || '';
+      if (!(form.costCenterId || '').trim()) {
+        toast('Cost Center is mandatory on every expense', 'error');
+        return;
+      }
+      expense.costCenterId = form.costCenterId;
+      expense.site = form.site || '';
+      expense.claimStatus = form.claimStatus || 'Draft';
+      if (!(expense.workOrderId || expense.againstInvoice || expense.receiptData)) {
+        toast('Link a Work Order / Invoice OR attach a receipt image/PDF', 'error');
+        return;
+      }
+      const saved = await saveExpense(expense);
+      const expId = (saved && saved.id) || expense.id || editingId;
+      // Post / refresh GL journal so Site–WO P&L and General Ledger include expenses
+      try {
+        const jnl = journalFromExpense({ ...expense, id: expId });
+        if (jnl) {
+          jnl.overwrite = true;
+          await saveJournal(jnl);
+        }
+      } catch (jerr) {
+        console.warn('[expense] journal post failed', jerr);
+      }
+      try {
+        await logActivity({
+          entityType: 'expense',
+          entityId: expId,
+          action: editingId ? 'update' : 'create',
+          diff: { amount: expense.amount, category: expense.category, description: expense.description },
+        });
+      } catch { /* ignore */ }
+      toast(editingId ? 'Expense updated' : 'Expense added', 'success');
+      closeForm();
+      loadExpenses();
+    } catch {
+      toast('Failed to save expense', 'error');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (await confirmAction({
+      title: 'Delete this expense?',
+      message: 'The row is removed from your expense ledger. Matching GL journal is voided. Any GST ITC claimed against this bill in past returns stays as filed.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })) {
+      try {
+        await deleteExpense(id);
+        // Void matching expense journal so GL no longer shows the cost
+        try {
+          const jnl = {
+            id: 'jnl_exp_' + id,
+            date: new Date().toISOString().split('T')[0],
+            narration: 'Expense deleted — voided',
+            refType: 'expense',
+            refId: id,
+            is_deleted: true,
+            void: true,
+            docstatus: 2,
+            entries: [],
+            overwrite: true,
+          };
+          await saveJournal(jnl);
+        } catch (jerr) {
+          console.warn('[expense] journal void failed', jerr);
+        }
+        try {
+          await logActivity({ entityType: 'expense', entityId: id, action: 'delete' });
+        } catch { /* ignore */ }
+        toast('Expense deleted', 'success');
+        loadExpenses();
+      } catch {
+        toast('Failed to delete', 'error');
+      }
+    }
+  };
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const handleGSTCalc = (val) => {
+    updateField('gstPercent', val);
+    if (val && form.amount) {
+      const base = parseFloat(form.amount);
+      const gst = (base * parseFloat(val)) / (100 + parseFloat(val));
+      updateField('gstAmount', Math.round(gst * 100) / 100);
+    }
+  };
+
+  const exportCSV = () => {
+    if (filtered.length === 0) { toast('No expenses to export', 'warning'); return; }
+    const headers = ['Date', 'Description', 'Category', 'Amount', 'GST Amount', 'GST %', 'Vendor', 'Vendor GSTIN', 'Invoice No', 'Payment Mode', 'Note'];
+    // v1.10.66 (#63) — toCsvLine neutralises formula-like text and quotes
+    // line breaks, which the old local escape let split a row in two.
+    const lines = [toCsvLine(headers)];
+    filtered.forEach(e => {
+      lines.push(toCsvLine([e.date, e.description, e.category, e.amount, e.gstAmount || 0, e.gstPercent || 0, e.vendorName, e.vendorGstin, e.invoiceNo, e.paymentMode, e.note]));
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'expenses.csv'; a.click();
+    URL.revokeObjectURL(url);
+    toast('Expenses CSV downloaded', 'success');
+  };
+
+  return (
+    <div className="dashboard-container">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Expenses</h1>
+          <p className="page-subtitle">Track business expenses for P&L and ITC claims</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
+          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Expense</button>
+        </div>
+      </div>
+
+      <UnassignedBanner
+        count={unassignedExpenses.length}
+        businessName={ownerProfile?.businessName}
+        noun="expense"
+        onAssign={assignUnassignedExpenses}
+      />
+
+      {/* Stats */}
+      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon-purple"><Wallet size={22} /></div>
+          <div><p className="stat-label">Total Expenses</p><h2 className="stat-value stat-value-purple">{formatCurrency(totalAmount)}</h2></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon-green"><Calendar size={22} /></div>
+          <div><p className="stat-label">GST Paid (ITC)</p><h2 className="stat-value stat-value-green">{formatCurrency(totalGST)}</h2></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon stat-icon-blue"><Wallet size={22} /></div>
+          <div><p className="stat-label">Entries</p><h2 className="stat-value">{filtered.length}</h2></div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="glass-panel p-4 mb-6">
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="search-box" style={{ maxWidth: '300px' }}>
+            <Search size={16} className="search-icon" />
+            <input type="text" placeholder="Search expenses..." value={search}
+              onChange={e => setSearch(e.target.value)} className="search-input" />
+          </div>
+          <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+            <option value="all">All Categories</option>
+            {[...CATEGORY_NAMES, ...customCats].map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
+            {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
+          </select>
+          {(search || categoryFilter !== 'all') && (
+            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
+          )}
+        </div>
+      </div>
+
+      {/* Add/Edit Modal */}
+      {showForm && (
+        <div className="modal-overlay" onClick={closeForm}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '760px', padding: '1rem 1.25rem' }}>
+            <h3 className="section-title">{editingId ? 'Edit Expense' : 'Add Expense'}</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input type="date" className="form-input" value={form.date} onChange={e => updateField('date', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <select className="form-input" value={form.category} onChange={e => updateField('category', e.target.value)}>
+                  <option value="">Select category</option>
+                  {[...new Set([...(masterCats || []), 'Other', 'Travel', 'Office', 'Utilities', 'Professional Fees', 'Subcontract', 'Material', 'Labour'])].map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  {/* legacy options below if any */}
+                  {CATEGORY_NAMES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">Description *</label>
+                <label className="form-label">Work Order (optional if receipt attached)</label>
+                <span className="field-hint">Use Work Order dropdown below</span>
+                <datalist id="exp-wo-list">
+                  {(woList||[]).map(w => <option key={w.id} value={w.woNumber}>{w.clientName} — {w.title||''}</option>)}
+                </datalist>
+                <label className="form-label">Against Invoice #</label>
+                <input type="text" className="form-input" value={form.againstInvoice || ''} list="exp-inv-list" placeholder="Select or type invoice"
+                  onChange={e => updateField('againstInvoice', e.target.value)} />
+                <datalist id="exp-inv-list">
+                  {(billList||[]).slice(0,200).map(b => <option key={b.id} value={b.invoiceNumber}>{b.clientName}</option>)}
+                </datalist>
+                <label className="form-label">Attach receipt (required if no WO/Invoice)</label>
+                <input type="file" accept="image/*,application/pdf" className="form-input"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 2_000_000) { toast('Receipt max 2MB', 'warning'); return; }
+                    const reader = new FileReader();
+                    reader.onload = () => setForm(prev => ({ ...prev, receiptData: reader.result, receiptName: f.name }));
+                    reader.readAsDataURL(f);
+                  }} />
+                {form.receiptName && <small style={{ color: '#059669' }}>Attached: {form.receiptName}</small>}
+                <input type="text" className="form-input" value={form.description}
+                  onChange={e => updateField('description', e.target.value)} placeholder="e.g. AWS Hosting - March" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount (incl. GST) *</label>
+                <input type="number" className="form-input" value={form.amount}
+                  onChange={e => { updateField('amount', e.target.value); if (form.gstPercent) handleGSTCalc(form.gstPercent); }}
+                  placeholder="0.00" min="0" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">GST % (for ITC)</label>
+                <input type="number" className="form-input" value={form.gstPercent}
+                  onChange={e => handleGSTCalc(e.target.value)} placeholder="18" min="0" max="28" />
+                {form.gstAmount > 0 && <p className="field-hint">GST: {formatCurrency(form.gstAmount)}</p>}
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vendor Name</label>
+                <select className="form-input" value={form.vendorName || ''}
+                  onChange={e => {
+                    const name = e.target.value;
+                    updateField('vendorName', name);
+                    const v = (expenseVendors || []).find(x => x.name === name);
+                    if (v?.gstin) updateField('vendorGstin', v.gstin);
+                  }}>
+                  <option value="">— Select vendor —</option>
+                  {(expenseVendors || []).map(v => (
+                    <option key={v.id || v.name} value={v.name}>{v.name}{v.gstin ? ` (${v.gstin})` : ''}</option>
+                  ))}
+                </select>
+                <input type="text" className="form-input" style={{ marginTop: 6 }} value={form.vendorName}
+                  onChange={e => updateField('vendorName', e.target.value)}
+                  placeholder="Or type vendor name if not in list" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vendor GSTIN</label>
+                <input type="text" className="form-input" value={form.vendorGstin}
+                  onChange={e => updateField('vendorGstin', e.target.value)} placeholder="For ITC claim" maxLength={15} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Invoice / Bill No</label>
+                <input type="text" className="form-input" value={form.invoiceNo}
+                  onChange={e => updateField('invoiceNo', e.target.value)} placeholder="Optional" />
+              </div>
+              
+              <div className="form-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Add Expense Category</label>
+                  <input className="form-input" value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" />
+                </div>
+                <button type="button" className="btn btn-secondary" onClick={() => {
+                  if (!newCatName.trim()) return;
+                  const next = [...new Set([...customCats, newCatName.trim()])];
+                  setCustomCats(next);
+                  localStorage.setItem('fgsb_expense_categories', JSON.stringify(next));
+                  addExpenseCategory(newCatName.trim());
+                  setMasterCats(getExpenseCategories());
+                  setForm(f => ({ ...f, category: newCatName.trim() }));
+                  setNewCatName('');
+                  toast('Category added', 'success');
+                }}>Add Category</button>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Work Order</label>
+                <span className="field-hint" style={{ display: 'block', marginBottom: 4, fontSize: '0.75rem' }}>
+                  Client WO + this expense = subcontract cost against that job / site for WO-wise P&amp;L.
+                </span>
+                <select className="form-input" value={form.workOrderId || ''}
+                  onChange={e => {
+                    const id = e.target.value;
+                    const wo = workOrders.find(w => w.id === id);
+                    setForm(f => ({
+                      ...f,
+                      workOrderId: id,
+                      costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
+                      site: resolveWoSite(wo) || wo?.site || f.site || '',
+                    }));
+                  }}>
+                  <option value="">— None —</option>
+                  {workOrders.map(wo => (
+                    <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.clientName || wo.title || ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Cost Center</label>
+                <select className="form-input" value={form.costCenterId || ''}
+                  onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                  <option value="">— None —</option>
+                  {costCenters.map(cc => (
+                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                  ))}
+                </select>
+              </div>
+<div className="form-group">
+                <label className="form-label">Payment Mode</label>
+                <select className="form-input" value={form.paymentMode} onChange={e => updateField('paymentMode', e.target.value)}>
+                  {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!form.interstate}
+                    onChange={e => updateField('interstate', e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
+                  <span>
+                    <strong>Inter-state expense</strong> — vendor charged IGST (different state)
+                    <span style={{ color: '#94a3b8', fontSize: '0.72rem', display: 'block' }}>
+                      Routes ITC to IGST in GSTR-3B. Common: AWS / Google / Adobe / SaaS billed from an out-of-state office. Tip: check the vendor's GSTIN — first 2 digits are their state code.
+                    </span>
+                  </span>
+                </label>
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">Note (optional)</label>
+                <input type="text" className="form-input" value={form.note}
+                  onChange={e => updateField('note', e.target.value)} placeholder="Any additional note..." />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button className="btn btn-secondary" onClick={closeForm}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSave}><Save size={16} /> {editingId ? 'Update' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expense Table */}
+      <div className="glass-panel">
+        <div className="table-header"><h3>Expense Records</h3></div>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <Wallet size={48} />
+            <p>{expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match your filters.'}</p>
+            {expenses.length === 0 && <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Expense</button>}
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table" style={{ minWidth: '800px' }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Category</th>
+                  <th>Vendor</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                  <th style={{ textAlign: 'right' }}>GST</th>
+                  <th>Mode</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(exp => (
+                  <tr key={exp.id}>
+                    <td className="text-muted">{exp.date ? new Date(exp.date).toLocaleDateString('en-IN') : ''}</td>
+                    <td className="font-medium">{exp.description}</td>
+                    <td><span className="type-badge">{exp.category}</span></td>
+                    <td className="text-muted">{exp.vendorName || '-'}</td>
+                    <td style={{ textAlign: 'right' }} className="font-bold">{formatCurrency(exp.amount)}</td>
+                    <td style={{ textAlign: 'right' }} className="text-muted">{exp.gstAmount ? formatCurrency(exp.gstAmount) : '-'}</td>
+                    <td className="text-muted">{exp.paymentMode}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="icon-btn icon-btn-blue" onClick={() => openEdit(exp)} title="Edit"><Edit3 size={15} /></button>
+                        <button className="icon-btn icon-btn-red" onClick={() => handleDelete(exp.id)} title="Delete"><Trash2 size={15} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ fontWeight: 'bold', borderTop: '2px solid var(--border)' }}>
+                  <td colSpan={4}>Total</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(totalAmount)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatCurrency(totalGST)}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

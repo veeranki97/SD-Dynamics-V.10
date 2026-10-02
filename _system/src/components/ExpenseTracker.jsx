@@ -6,45 +6,8 @@ import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness,
 import { journalFromExpense } from '../utils/ledger';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
-import { getExpenseCategories, addExpenseCategory } from '../utils/masterData';
+import { getExpenseCategories } from '../utils/masterData';
 import { confirmAction } from './ConfirmModal';
-
-// Each category is tagged with its ITR (Income Tax Return) head so the
-// v1.7.0+ ITR Filing Summary can auto-aggregate expenses under the correct
-// P&L line. Users don't have to think about heads — they pick the category
-// they already understand.
-//   - 'business'      → deductible business expense under section 37
-//   - 'depreciation'  → section 32 (asset purchases, capitalised then
-//                       depreciated per Rule 5)
-//   - 'salary'        → separately tracked; declared under section 40A(2)(b)
-//                       for related parties
-//   - 'notDeductible' → personal / drawings / capital / non-business
-const EXPENSE_CATEGORIES = [
-  { name: 'Office Rent',            itrHead: 'business' },
-  { name: 'Utilities',              itrHead: 'business' },
-  { name: 'Internet & Phone',       itrHead: 'business' },
-  { name: 'Software & Tools',       itrHead: 'business' },
-  { name: 'Travel',                 itrHead: 'business' },
-  { name: 'Meals & Entertainment',  itrHead: 'business' },
-  { name: 'Office Supplies',        itrHead: 'business' },
-  { name: 'Salary & Wages',         itrHead: 'salary' },
-  { name: 'Professional Fees',      itrHead: 'business' },
-  { name: 'Insurance',              itrHead: 'business' },
-  { name: 'Marketing & Ads',        itrHead: 'business' },
-  { name: 'Raw Materials',          itrHead: 'business' },
-  { name: 'Shipping & Courier',     itrHead: 'business' },
-  { name: 'Repairs & Maintenance',  itrHead: 'business' },
-  { name: 'Bank Charges',           itrHead: 'business' },
-  { name: 'GST Paid',               itrHead: 'business' },
-  { name: 'Asset Purchase',         itrHead: 'depreciation' },
-  { name: 'Personal / Drawings',    itrHead: 'notDeductible' },
-  { name: 'Other',                  itrHead: 'business' },
-];
-const CATEGORY_NAMES = EXPENSE_CATEGORIES.map(c => c.name);
-const EXTRA_CAT_KEY = 'fgsb_expense_categories';
-function loadExtraCats() {
-  try { return JSON.parse(localStorage.getItem(EXTRA_CAT_KEY) || '[]'); } catch { return []; }
-}
 
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
 
@@ -56,19 +19,14 @@ const emptyForm = {
   claimStatus: 'Draft',
   costCenterId: '',
   site: '',
-  costSplits: [], // [{ costCenterId, pct }]
+  costSplits: [],
   submittedBy: '',
-
   date: (function(){const d=new Date();const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());})(),
   description: '',
   category: 'Other',
   amount: '',
   gstAmount: '',
   gstPercent: '',
-  // P1 #15: interstate flag. When on, ITC on GST paid routes to IGST in
-  // GSTR-3B Table 4(A) instead of splitting 50/50 into CGST + SGST. Real
-  // scenario: AWS / Google / Adobe / SaaS bills from out-of-state offices.
-  // Off = intrastate = supplier and buyer in the same state.
   interstate: false,
   vendorName: '',
   vendorGstin: '',
@@ -77,18 +35,11 @@ const emptyForm = {
   note: '',
 };
 
-// v1.10.6 — audit L4: local copy removed, imported from utils above.
-
 export default function ExpenseTracker() {
   const [expenses, setExpenses] = useState([]);
-  const [customCats, setCustomCats] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('fgsb_expense_categories') || '[]'); } catch { return []; }
-  });
-  const [newCatName, setNewCatName] = useState('');
   const [workOrders, setWorkOrders] = useState([]);
   const [expenseVendors, setExpenseVendors] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
-  // v1.10.65 (#58 item 3) — the business these records belong to.
   const [ownerProfile, setOwnerProfile] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -96,11 +47,10 @@ export default function ExpenseTracker() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
-  const [masterCats, setMasterCats] = useState(() => {
-    try { return getExpenseCategories(); } catch { return []; }
-  });
+  const [masterCats, setMasterCats] = useState([]);
   const [woList, setWoList] = useState([]);
   const [billList, setBillList] = useState([]);
+
   useEffect(() => {
     getAllWorkOrders().then(rows => {
       setWoList(rows || []);
@@ -111,15 +61,14 @@ export default function ExpenseTracker() {
     getAllClients().then(all => {
       setExpenseVendors((all || []).filter(c => c.isVendor || c.type === 'vendor' || c.partyType === 'vendor'));
     }).catch(() => {});
-    try { setMasterCats(getExpenseCategories()); } catch { /* ignore */ }
+    try { 
+      const cats = getExpenseCategories();
+      setMasterCats(Array.isArray(cats) ? cats : []);
+    } catch { /* ignore */ }
   }, []);
 
   const fyOptions = getFYOptions();
 
-
-  // v1.10.65 (#58 item 3) — assign records saved before businesses were kept
-  // separate. Never automatic: only the user knows which business an old
-  // record belonged to, so guessing would file it into the wrong books.
   const unassignedExpenses = expenses.filter(isUnassignedToBusiness);
   const assignUnassignedExpenses = async () => {
     await Promise.all(unassignedExpenses.map(r => saveExpense({
@@ -137,9 +86,6 @@ export default function ExpenseTracker() {
     try {
       const [rows, prof] = await Promise.all([getAllExpenses(), getProfile().catch(() => null)]);
       setOwnerProfile(prof);
-      // v1.10.65 (#58 item 3) — show only this business's records. Anything
-      // saved before businesses were separated has no owner recorded and is
-      // always shown, so nothing disappears from an existing ledger.
       setExpenses((rows || []).filter(r => belongsToProfile(r, prof)));
     } catch {
       toast('Failed to load expenses', 'error');
@@ -195,6 +141,9 @@ export default function ExpenseTracker() {
       receiptData: exp.receiptData || '',
       receiptName: exp.receiptName || '',
       note: exp.note || '',
+      costCenterId: exp.costCenterId || '',
+      site: exp.site || '',
+      claimStatus: exp.claimStatus || 'Draft',
     });
     setEditingId(exp.id);
     setShowForm(true);
@@ -225,31 +174,24 @@ export default function ExpenseTracker() {
         paymentMode: form.paymentMode,
         interstate: !!form.interstate,
         note: form.note.trim(),
-        // Stamp the business this expense belongs to. `vendorGstin` above is
-        // the SUPPLIER — filing an expense under your own supplier would be
-        // exactly backwards, so the owner is kept in its own field.
         ownerGstin: ownerProfile?.gstin || '',
         ownerName: ownerProfile?.businessName || '',
       };
-      // Traceability: prefer WO link
       expense.workOrderId = form.workOrderId || '';
       expense.againstInvoice = form.againstInvoice || form.invoiceNo || '';
       expense.receiptData = form.receiptData || '';
       expense.receiptName = form.receiptName || '';
-      if (!(form.costCenterId || '').trim()) {
-        toast('Cost Center is mandatory on every expense', 'error');
-        return;
-      }
       expense.costCenterId = form.costCenterId;
       expense.site = form.site || '';
       expense.claimStatus = form.claimStatus || 'Draft';
+      
       if (!(expense.workOrderId || expense.againstInvoice || expense.receiptData)) {
         toast('Link a Work Order / Invoice OR attach a receipt image/PDF', 'error');
         return;
       }
       const saved = await saveExpense(expense);
       const expId = (saved && saved.id) || expense.id || editingId;
-      // Post / refresh GL journal so Site–WO P&L and General Ledger include expenses
+      
       try {
         const jnl = journalFromExpense({ ...expense, id: expId });
         if (jnl) {
@@ -284,7 +226,6 @@ export default function ExpenseTracker() {
     })) {
       try {
         await deleteExpense(id);
-        // Void matching expense journal so GL no longer shows the cost
         try {
           const jnl = {
             id: 'jnl_exp_' + id,
@@ -324,11 +265,17 @@ export default function ExpenseTracker() {
     }
   };
 
+  const handleVendorSelect = (name) => {
+    updateField('vendorName', name);
+    const matched = (expenseVendors || []).find(v => v.name.toLowerCase() === name.toLowerCase());
+    if (matched?.gstin) {
+      updateField('vendorGstin', matched.gstin);
+    }
+  };
+
   const exportCSV = () => {
     if (filtered.length === 0) { toast('No expenses to export', 'warning'); return; }
     const headers = ['Date', 'Description', 'Category', 'Amount', 'GST Amount', 'GST %', 'Vendor', 'Vendor GSTIN', 'Invoice No', 'Payment Mode', 'Note'];
-    // v1.10.66 (#63) — toCsvLine neutralises formula-like text and quotes
-    // line breaks, which the old local escape let split a row in two.
     const lines = [toCsvLine(headers)];
     filtered.forEach(e => {
       lines.push(toCsvLine([e.date, e.description, e.category, e.amount, e.gstAmount || 0, e.gstPercent || 0, e.vendorName, e.vendorGstin, e.invoiceNo, e.paymentMode, e.note]));
@@ -382,12 +329,12 @@ export default function ExpenseTracker() {
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '300px' }}>
             <Search size={16} className="search-icon" />
-            <input type="text" placeholder="Search expenses..." value={search}
+            <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" />
           </div>
           <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="all">All Categories</option>
-            {[...CATEGORY_NAMES, ...customCats].map(c => <option key={c} value={c}>{c}</option>)}
+            {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
@@ -401,9 +348,21 @@ export default function ExpenseTracker() {
       {/* Add/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '760px', padding: '1rem 1.25rem' }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px', padding: '1rem 1.25rem' }}>
             <h3 className="section-title">{editingId ? 'Edit Expense' : 'Add Expense'}</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="expense-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
+              
+              {/* Row 1: Number (Disabled/Greyed out), Date, Category */}
+              <div className="form-group">
+                <label className="form-label">Expense #</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  disabled 
+                  value={editingId ? `EXP-${editingId}` : `EXP-${expenses.length + 1} (New)`} 
+                  style={{ backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed', borderColor: '#cbd5e1' }} 
+                />
+              </div>
               <div className="form-group">
                 <label className="form-label">Date *</label>
                 <input type="date" className="form-input" value={form.date} onChange={e => updateField('date', e.target.value)} />
@@ -412,40 +371,103 @@ export default function ExpenseTracker() {
                 <label className="form-label">Category</label>
                 <select className="form-input" value={form.category} onChange={e => updateField('category', e.target.value)}>
                   <option value="">Select category</option>
-                  {[...new Set([...(masterCats || []), 'Other', 'Travel', 'Office', 'Utilities', 'Professional Fees', 'Subcontract', 'Material', 'Labour'])].map(c => (
+                  {masterCats.map(c => (
                     <option key={c} value={c}>{c}</option>
                   ))}
-                  {/* legacy options below if any */}
-                  {CATEGORY_NAMES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {form.category && !masterCats.includes(form.category) && (
+                    <option value={form.category}>{form.category}</option>
+                  )}
                 </select>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+
+              {/* Row 2: Full Width Description */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Description *</label>
-                <label className="form-label">Work Order (optional if receipt attached)</label>
-                <span className="field-hint">Use Work Order dropdown below</span>
-                <datalist id="exp-wo-list">
-                  {(woList||[]).map(w => <option key={w.id} value={w.woNumber}>{w.clientName} — {w.title||''}</option>)}
+                <input type="text" className="form-input" value={form.description}
+                  onChange={e => updateField('description', e.target.value)} placeholder="e.g. Site consumable materials / Cabling accessories" />
+              </div>
+
+              {/* Row 3: Single Line for Vendor Name, Against Invoice #, and Invoice/Bill No */}
+              <div className="form-group">
+                <label className="form-label">Vendor Name</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  list="vendor-datalist" 
+                  value={form.vendorName || ''} 
+                  placeholder="Type vendor name..." 
+                  onChange={e => handleVendorSelect(e.target.value)} 
+                />
+                <datalist id="vendor-datalist">
+                  {(expenseVendors || []).map(v => (
+                    <option key={v.id || v.name} value={v.name}>{v.name} {v.gstin ? `(${v.gstin})` : ''}</option>
+                  ))}
                 </datalist>
+              </div>
+              <div className="form-group">
                 <label className="form-label">Against Invoice #</label>
                 <input type="text" className="form-input" value={form.againstInvoice || ''} list="exp-inv-list" placeholder="Select or type invoice"
-                  onChange={e => updateField('againstInvoice', e.target.value)} />
-                <datalist id="exp-inv-list">
-                  {(billList||[]).slice(0,200).map(b => <option key={b.id} value={b.invoiceNumber}>{b.clientName}</option>)}
-                </datalist>
-                <label className="form-label">Attach receipt (required if no WO/Invoice)</label>
-                <input type="file" accept="image/*,application/pdf" className="form-input"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    if (f.size > 2_000_000) { toast('Receipt max 2MB', 'warning'); return; }
-                    const reader = new FileReader();
-                    reader.onload = () => setForm(prev => ({ ...prev, receiptData: reader.result, receiptName: f.name }));
-                    reader.readAsDataURL(f);
+                  onChange={e => {
+                    const val = e.target.value;
+                    updateField('againstInvoice', val);
+                    const bill = (billList||[]).find(b => b.invoiceNumber === val);
+                    if (bill) {
+                      setForm(f => ({
+                        ...f,
+                        workOrderId: bill.workOrderId || bill.woNumber || f.workOrderId,
+                        costCenterId: bill.costCenterId || f.costCenterId,
+                        site: bill.site || f.site
+                      }));
+                    }
                   }} />
-                {form.receiptName && <small style={{ color: '#059669' }}>Attached: {form.receiptName}</small>}
-                <input type="text" className="form-input" value={form.description}
-                  onChange={e => updateField('description', e.target.value)} placeholder="e.g. AWS Hosting - March" />
+                <datalist id="exp-inv-list">
+                  {(billList||[]).slice(0,200).map(b => <option key={b.id} value={b.invoiceNumber}>{b.clientName} ({b.invoiceNumber})</option>)}
+                </datalist>
               </div>
+              <div className="form-group">
+                <label className="form-label">Invoice / Bill No</label>
+                <input type="text" className="form-input" value={form.invoiceNo}
+                  onChange={e => updateField('invoiceNo', e.target.value)} placeholder="Supplier bill no." />
+              </div>
+
+              {/* Row 4: Vendor GSTIN, Work Order, Cost Center */}
+              <div className="form-group">
+                <label className="form-label">Vendor GSTIN</label>
+                <input type="text" className="form-input" value={form.vendorGstin}
+                  onChange={e => updateField('vendorGstin', e.target.value)} placeholder="For ITC claim" maxLength={15} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Work Order</label>
+                <input type="text" className="form-input" list="wo-datalist" value={form.workOrderId || ''}
+                  placeholder="Type or select WO..."
+                  onChange={e => {
+                    const val = e.target.value;
+                    const wo = workOrders.find(w => w.woNumber === val || w.id === val);
+                    setForm(f => ({
+                      ...f,
+                      workOrderId: val,
+                      costCenterId: wo ? (resolveWoCostCenter(wo) || f.costCenterId || '') : f.costCenterId,
+                      site: wo ? (resolveWoSite(wo) || wo?.site || f.site || '') : f.site,
+                    }));
+                  }} />
+                <datalist id="wo-datalist">
+                  {workOrders.map(wo => (
+                    <option key={wo.id} value={wo.woNumber}>{wo.clientName || wo.title || ''}</option>
+                  ))}
+                </datalist>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Cost Center *</label>
+                <select className="form-input" value={form.costCenterId || ''}
+                  onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                  <option value="">— Select Cost Center —</option>
+                  {costCenters.map(cc => (
+                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Row 5: Amount, GST %, Payment Mode */}
               <div className="form-group">
                 <label className="form-label">Amount (incl. GST) *</label>
                 <input type="number" className="form-input" value={form.amount}
@@ -459,90 +481,29 @@ export default function ExpenseTracker() {
                 {form.gstAmount > 0 && <p className="field-hint">GST: {formatCurrency(form.gstAmount)}</p>}
               </div>
               <div className="form-group">
-                <label className="form-label">Vendor Name</label>
-                <select className="form-input" value={form.vendorName || ''}
-                  onChange={e => {
-                    const name = e.target.value;
-                    updateField('vendorName', name);
-                    const v = (expenseVendors || []).find(x => x.name === name);
-                    if (v?.gstin) updateField('vendorGstin', v.gstin);
-                  }}>
-                  <option value="">— Select vendor —</option>
-                  {(expenseVendors || []).map(v => (
-                    <option key={v.id || v.name} value={v.name}>{v.name}{v.gstin ? ` (${v.gstin})` : ''}</option>
-                  ))}
-                </select>
-                <input type="text" className="form-input" style={{ marginTop: 6 }} value={form.vendorName}
-                  onChange={e => updateField('vendorName', e.target.value)}
-                  placeholder="Or type vendor name if not in list" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Vendor GSTIN</label>
-                <input type="text" className="form-input" value={form.vendorGstin}
-                  onChange={e => updateField('vendorGstin', e.target.value)} placeholder="For ITC claim" maxLength={15} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Invoice / Bill No</label>
-                <input type="text" className="form-input" value={form.invoiceNo}
-                  onChange={e => updateField('invoiceNo', e.target.value)} placeholder="Optional" />
-              </div>
-              
-              <div className="form-group" style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">Add Expense Category</label>
-                  <input className="form-input" value={newCatName} onChange={e => setNewCatName(e.target.value)} placeholder="New category name" />
-                </div>
-                <button type="button" className="btn btn-secondary" onClick={() => {
-                  if (!newCatName.trim()) return;
-                  const next = [...new Set([...customCats, newCatName.trim()])];
-                  setCustomCats(next);
-                  localStorage.setItem('fgsb_expense_categories', JSON.stringify(next));
-                  addExpenseCategory(newCatName.trim());
-                  setMasterCats(getExpenseCategories());
-                  setForm(f => ({ ...f, category: newCatName.trim() }));
-                  setNewCatName('');
-                  toast('Category added', 'success');
-                }}>Add Category</button>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Work Order</label>
-                <span className="field-hint" style={{ display: 'block', marginBottom: 4, fontSize: '0.75rem' }}>
-                  Client WO + this expense = subcontract cost against that job / site for WO-wise P&amp;L.
-                </span>
-                <select className="form-input" value={form.workOrderId || ''}
-                  onChange={e => {
-                    const id = e.target.value;
-                    const wo = workOrders.find(w => w.id === id);
-                    setForm(f => ({
-                      ...f,
-                      workOrderId: id,
-                      costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
-                      site: resolveWoSite(wo) || wo?.site || f.site || '',
-                    }));
-                  }}>
-                  <option value="">— None —</option>
-                  {workOrders.map(wo => (
-                    <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.clientName || wo.title || ''}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Cost Center</label>
-                <select className="form-input" value={form.costCenterId || ''}
-                  onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {costCenters.map(cc => (
-                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
-                  ))}
-                </select>
-              </div>
-<div className="form-group">
                 <label className="form-label">Payment Mode</label>
                 <select className="form-input" value={form.paymentMode} onChange={e => updateField('paymentMode', e.target.value)}>
                   {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+
+              {/* Row 6: Attach Receipt */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Attach receipt (required if no WO/Invoice linked)</label>
+                <input type="file" accept="image/*,application/pdf" className="form-input"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 2_000_000) { toast('Receipt max 2MB', 'warning'); return; }
+                    const reader = new FileReader();
+                    reader.onload = () => setForm(prev => ({ ...prev, receiptData: reader.result, receiptName: f.name }));
+                    reader.readAsDataURL(f);
+                  }} />
+                {form.receiptName && <small style={{ color: '#059669', display: 'block', marginTop: 4 }}>Attached: {form.receiptName}</small>}
+              </div>
+
+              {/* Row 7: Interstate Checkbox */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer' }}>
                   <input type="checkbox" checked={!!form.interstate}
                     onChange={e => updateField('interstate', e.target.checked)}
@@ -550,17 +511,20 @@ export default function ExpenseTracker() {
                   <span>
                     <strong>Inter-state expense</strong> — vendor charged IGST (different state)
                     <span style={{ color: '#94a3b8', fontSize: '0.72rem', display: 'block' }}>
-                      Routes ITC to IGST in GSTR-3B. Common: AWS / Google / Adobe / SaaS billed from an out-of-state office. Tip: check the vendor's GSTIN — first 2 digits are their state code.
+                      Routes ITC to IGST in GSTR-3B. Check vendor GSTIN — first 2 digits are state code.
                     </span>
                   </span>
                 </label>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+
+              {/* Row 8: Note */}
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Note (optional)</label>
                 <input type="text" className="form-input" value={form.note}
                   onChange={e => updateField('note', e.target.value)} placeholder="Any additional note..." />
               </div>
             </div>
+
             <div className="flex gap-2 justify-end mt-4">
               <button className="btn btn-secondary" onClick={closeForm}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSave}><Save size={16} /> {editingId ? 'Update' : 'Save'}</button>

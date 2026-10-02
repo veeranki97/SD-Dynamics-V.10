@@ -1,6 +1,7 @@
 /**
  * Unified master lists for HSN/SAC, Units, Expense categories.
  * Merges legacy keys so Invoice, WO, PO, and Master Data stay in sync.
+ * Add helpers reject duplicates (case-insensitive).
  */
 const SAC_KEYS = ['freegstbill_custom_sac', 'fgsb_custom_sac'];
 const UNIT_KEYS = ['freegstbill_custom_units', 'fgsb_custom_units'];
@@ -14,117 +15,122 @@ function readMerged(keys) {
       const arr = JSON.parse(localStorage.getItem(key) || '[]');
       if (!Array.isArray(arr)) continue;
       for (const x of arr) {
-        const v = String(x || '').trim();
-        if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+        const s = String(x || '').trim();
+        if (!s) continue;
+        const k = s.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(s);
       }
-    } catch { /* ignore */ }
+    } catch { /* */ }
   }
   return out;
 }
 
-function writePrimary(keys, arr) {
-  const primary = keys[0];
-  localStorage.setItem(primary, JSON.stringify(arr));
-  // mirror to legacy key so older code paths still see updates
-  if (keys[1]) localStorage.setItem(keys[1], JSON.stringify(arr));
+function writePrimary(keys, list) {
+  try {
+    localStorage.setItem(keys[0], JSON.stringify(list));
+  } catch { /* */ }
 }
 
 export function getHsnMaster() {
   return readMerged(SAC_KEYS);
 }
 
+/** @returns {{ ok: boolean, error?: string, list: string[] }} */
 export function addHsnCode(code) {
-  const t = String(code || '').trim();
-  if (!t) return getHsnMaster();
-  const arr = getHsnMaster();
-  if (!arr.includes(t)) arr.push(t);
-  writePrimary(SAC_KEYS, arr);
-  return arr;
+  const c = String(code || '').trim();
+  if (!c) return { ok: false, error: 'HSN/SAC code is required', list: getHsnMaster() };
+  const list = getHsnMaster();
+  if (list.some(x => String(x).toLowerCase() === c.toLowerCase())) {
+    return { ok: false, error: `Duplicate HSN/SAC: "${c}" already exists`, list };
+  }
+  const next = [...list, c];
+  writePrimary(SAC_KEYS, next);
+  return { ok: true, list: next };
 }
 
 export function removeHsnCode(code) {
-  const arr = getHsnMaster().filter(x => x !== code);
-  writePrimary(SAC_KEYS, arr);
-  return arr;
+  const c = String(code || '').trim().toLowerCase();
+  const next = getHsnMaster().filter(x => String(x).toLowerCase() !== c);
+  writePrimary(SAC_KEYS, next);
+  return next;
 }
 
 export function getUnitMaster() {
-  const base = ['Nos', 'Hrs', 'Days', 'Kg', 'Ltr', 'Mtr', 'Sqft', 'Job', 'Pcs', 'Set'];
-  const custom = readMerged(UNIT_KEYS);
-  return [...new Set([...base, ...custom])];
+  return readMerged(UNIT_KEYS);
 }
 
+/** @returns {{ ok: boolean, error?: string, list: string[] }} */
 export function addUnit(unit) {
-  const t = String(unit || '').trim();
-  if (!t) return getUnitMaster();
-  const custom = readMerged(UNIT_KEYS);
-  if (!custom.includes(t)) custom.push(t);
-  writePrimary(UNIT_KEYS, custom);
-  return getUnitMaster();
+  const u = String(unit || '').trim();
+  if (!u) return { ok: false, error: 'Unit is required', list: getUnitMaster() };
+  const list = getUnitMaster();
+  if (list.some(x => String(x).toLowerCase() === u.toLowerCase())) {
+    return { ok: false, error: `Duplicate unit: "${u}" already exists`, list };
+  }
+  const next = [...list, u];
+  writePrimary(UNIT_KEYS, next);
+  return { ok: true, list: next };
 }
 
 export function removeUnit(unit) {
-  const custom = readMerged(UNIT_KEYS).filter(x => x !== unit);
-  writePrimary(UNIT_KEYS, custom);
-  return getUnitMaster();
+  const u = String(unit || '').trim().toLowerCase();
+  const next = getUnitMaster().filter(x => String(x).toLowerCase() !== u);
+  writePrimary(UNIT_KEYS, next);
+  return next;
 }
 
 export function getExpenseCategories() {
   return readMerged(EXP_KEYS);
 }
 
+/** @returns {{ ok: boolean, error?: string, list: string[] }} */
 export function addExpenseCategory(cat) {
-  const t = String(cat || '').trim();
-  if (!t) return getExpenseCategories();
-  const arr = getExpenseCategories();
-  if (!arr.includes(t)) arr.push(t);
-  writePrimary(EXP_KEYS, arr);
-  return arr;
+  const c = String(cat || '').trim();
+  if (!c) return { ok: false, error: 'Category is required', list: getExpenseCategories() };
+  const list = getExpenseCategories();
+  if (list.some(x => String(x).toLowerCase() === c.toLowerCase())) {
+    return { ok: false, error: `Duplicate category: "${c}" already exists`, list };
+  }
+  const next = [...list, c];
+  writePrimary(EXP_KEYS, next);
+  return { ok: true, list: next };
 }
 
 export function removeExpenseCategory(cat) {
-  const arr = getExpenseCategories().filter(x => x !== cat);
-  writePrimary(EXP_KEYS, arr);
-  return arr;
+  const c = String(cat || '').trim().toLowerCase();
+  const next = getExpenseCategories().filter(x => String(x).toLowerCase() !== c);
+  writePrimary(EXP_KEYS, next);
+  return next;
 }
 
+// Back-compat aliases used by older call sites that ignored return value
+export const saveUnitMaster = addUnit;
+export const deleteUnitMaster = removeUnit;
 
-export async function syncMasterDataToServer() {
-  try {
-    const body = {
-      hsn: getHsnMaster(),
-      units: getUnitMaster().filter((u) => !['Nos', 'Hrs', 'Days', 'Kg', 'Ltr', 'Mtr', 'Sqft', 'Job', 'Pcs', 'Set'].includes(u)),
-      expenseCategories: getExpenseCategories(),
-    };
-    await fetch('/api/master-data', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (e) { /* offline */ }
-}
-
+/** Optional server hydrate (no-op if API missing). */
 export async function loadMasterDataFromServer() {
   try {
     const res = await fetch('/api/master-data');
-    if (!res.ok) return null;
+    if (!res.ok) return;
     const data = await res.json();
-    if (Array.isArray(data.hsn) && data.hsn.length) {
-      localStorage.setItem('freegstbill_custom_sac', JSON.stringify(data.hsn));
-      localStorage.setItem('fgsb_custom_sac', JSON.stringify(data.hsn));
-    }
-    if (Array.isArray(data.units) && data.units.length) {
-      localStorage.setItem('freegstbill_custom_units', JSON.stringify(data.units));
-      localStorage.setItem('fgsb_custom_units', JSON.stringify(data.units));
-    }
-    if (Array.isArray(data.expenseCategories) && data.expenseCategories.length) {
-      localStorage.setItem('freegstbill_expense_categories', JSON.stringify(data.expenseCategories));
-      localStorage.setItem('fgsb_expense_categories', JSON.stringify(data.expenseCategories));
-    }
-    return data;
-  } catch (e) {
-    return null;
-  }
+    if (Array.isArray(data.hsn)) localStorage.setItem(SAC_KEYS[0], JSON.stringify(data.hsn));
+    if (Array.isArray(data.units)) localStorage.setItem(UNIT_KEYS[0], JSON.stringify(data.units));
+    if (Array.isArray(data.expenseCategories)) localStorage.setItem(EXP_KEYS[0], JSON.stringify(data.expenseCategories));
+  } catch { /* offline / no endpoint */ }
 }
 
-export const hydrateMasterDataFromServer = loadMasterDataFromServer;
+export async function syncMasterDataToServer() {
+  try {
+    await fetch('/api/master-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        hsn: getHsnMaster(),
+        units: getUnitMaster(),
+        expenseCategories: getExpenseCategories(),
+      }),
+    });
+  } catch { /* */ }
+}
