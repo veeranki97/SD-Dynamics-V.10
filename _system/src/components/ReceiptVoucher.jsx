@@ -84,15 +84,16 @@ export default function ReceiptVoucher() {
   // Peek at the next receipt number using the SAME atomic counter that
   // invoice numbers use. Pre-v1.6.8 this counted `receipts.length + 1`
   // which raced under concurrent saves + two tabs.
-  const getNextReceiptNo = async () => {
+    const getNextReceiptNo = async () => {
     try {
-      return await getNextInvoiceNumber('REC', { peek: true, explicitPrefix: true });
+      // GAS-style sequential payment ids: PAY-001, PAY-002, ...
+      const raw = await getNextInvoiceNumber('PAY', { peek: true, explicitPrefix: true });
+      const n = String(raw || '');
+      const num = (n.match(/(\d+)\s*$/) || [])[1];
+      if (num) return `PAY-${String(Number(num)).padStart(3, '0')}`;
+      return n.startsWith('PAY') ? n : (n ? `PAY-${n}` : 'PAY-001');
     } catch {
-      // Fallback preserves old behaviour if server is offline mid-mount
-      const count = receipts.length + 1;
-      const now = new Date();
-      const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-      return `RCP/${fy}-${String(fy + 1).slice(-2)}/${String(count).padStart(4, '0')}`;
+      return 'PAY-001';
     }
   };
 
@@ -158,7 +159,13 @@ export default function ReceiptVoucher() {
       let receiptNo = form.receiptNo;
       if (!editingId) {
         try {
-          receiptNo = await getNextInvoiceNumber('REC', { explicitPrefix: true });
+          receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+        {
+          const n = String(receiptNo || '');
+          const num = (n.match(/(\d+)\s*$/) || [])[1];
+          if (num) receiptNo = `PAY-${String(Number(num)).padStart(3, '0')}`;
+          else if (!n.startsWith('PAY')) receiptNo = n ? `PAY-${n}` : receiptNo;
+        }
         } catch { /* fall back to peeked number */ }
       }
 
@@ -357,7 +364,13 @@ export default function ReceiptVoucher() {
       }
       // Master receipt for audit
       try {
-        const receiptNo = await getNextInvoiceNumber('REC', { explicitPrefix: true });
+        const receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+        {
+          const n = String(receiptNo || '');
+          const num = (n.match(/(\d+)\s*$/) || [])[1];
+          if (num) receiptNo = `PAY-${String(Number(num)).padStart(3, '0')}`;
+          else if (!n.startsWith('PAY')) receiptNo = n ? `PAY-${n}` : receiptNo;
+        }
         await saveReceipt({
           date: today,
           receiptNo,
@@ -481,9 +494,10 @@ export default function ReceiptVoucher() {
                       onChange={() => {
                       updateField('paymentType', t);
                       if (t === 'advance' || t === 'vendor') {
-                        getNextInvoiceNumber('REC', { peek: true, explicitPrefix: true }).then(num => {
-                          const n = String(num || '');
-                          updateField('receiptNo', n.startsWith('REC') || n.startsWith('ADV') ? n : ('REC/' + n.replace(/^REC[-/]?/i,'').replace(/^ADV[-/]?/i,'')));
+                        getNextInvoiceNumber('PAY', { peek: true, explicitPrefix: true }).then(raw => {
+                          const n = String(raw || '');
+                          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+                          updateField('receiptNo', digits ? `PAY-${String(Number(digits)).padStart(3, '0')}` : (n.startsWith('PAY') ? n : `PAY-${n || '001'}`));
                         }).catch(() => {});
                       }
                     }} /> {t === 'invoice' ? 'Against invoice' : t}
