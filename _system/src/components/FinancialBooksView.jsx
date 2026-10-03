@@ -1,12 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getAllJournals, saveJournal } from '../store';
+import { getAllJournals, saveJournal, getAllBills, getAllExpenses, getAllWorkOrders, getAllCostCenters } from '../store';
 import { formatCurrency } from '../utils';
 import {
   trialBalance, balanceSheet, computeTradingPnL, siteWisePnL,
   woWisePnL, costCenterWisePnL,
   periodCloseJournal, bankBalance, lockMonth, unlockMonth, isMonthLocked,
 } from '../utils/ledger';
-import { getAllBills, getAllExpenses, getAllWorkOrders } from '../store';
 import { toast } from './Toast';
 import { downloadCsv, printHtmlTable } from '../utils/exportData';
 
@@ -15,6 +14,7 @@ export default function FinancialBooksView() {
   const [billRows, setBillRows] = useState([]);
   const [expRows, setExpRows] = useState([]);
   const [woRows, setWoRows] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   const [tab, setTab] = useState('tb'); // tb | bs | pnl | site | lock
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const [from, setFrom] = useState(() => {
@@ -33,6 +33,7 @@ export default function FinancialBooksView() {
     getAllBills().then(setBillRows).catch(() => setBillRows([]));
     getAllExpenses().then(setExpRows).catch(() => setExpRows([]));
     getAllWorkOrders().then(setWoRows).catch(() => setWoRows([]));
+    getAllCostCenters().then(setCostCenters).catch(() => setCostCenters([]));
   }, []);
 
   const tb = useMemo(() => trialBalance(journals, asOf), [journals, asOf]);
@@ -111,9 +112,25 @@ export default function FinancialBooksView() {
           <label style={{ fontSize: 13 }}>As of</label>
           <input type="date" className="form-input" style={{ width: 140 }} value={asOf} onChange={e => setAsOf(e.target.value)} />
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
-            if (tab === 'tb') downloadCsv('trial-balance.csv', tb, ['account', 'debit', 'credit', 'balance']);
-            else if (tab === 'pnl') downloadCsv('pnl.csv', [pnl], ['sales', 'purchases', 'expenses', 'grossProfit', 'netProfit']);
-            else if (tab === 'site' || tab === 'wo') downloadCsv('site-pnl.csv', sites, ['site', 'income', 'expense', 'profit']);
+            if (tab === 'tb') {
+              downloadCsv('trial-balance.csv', tb, ['account', 'debit', 'credit', 'balance']);
+            } else if (tab === 'pnl') {
+              downloadCsv('pnl.csv', [pnl], ['sales', 'purchases', 'expenses', 'grossProfit', 'netProfit']);
+            } else if (tab === 'site') {
+              downloadCsv('site-pnl.csv', sites, ['site', 'income', 'expense', 'profit']);
+            } else if (tab === 'wo') {
+              const exportWos = wos.map(s => {
+                const woObj = woRows.find(w => w.id === s.workOrderId);
+                return { ...s, workOrder: woObj ? (woObj.woNumber || woObj.id) : s.workOrderId };
+              });
+              downloadCsv('wo-pnl.csv', exportWos, ['workOrder', 'income', 'expense', 'net']);
+            } else if (tab === 'cc') {
+              const exportCcs = (ccs || []).map(r => {
+                const ccObj = costCenters.find(c => c.id === r.costCenter);
+                return { ...r, costCenterName: ccObj ? (ccObj.name || ccObj.id) : r.costCenter };
+              });
+              downloadCsv('cc-pnl.csv', exportCcs, ['costCenterName', 'income', 'expense', 'profit']);
+            }
           }}>Export CSV</button>
         </div>
       </div>
@@ -191,7 +208,7 @@ export default function FinancialBooksView() {
         </div>
       )}
 
-            {tab === 'pnl' && (
+      {tab === 'pnl' && (
         <div className="glass-panel p-4" style={{ maxWidth: 480 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Sales</span><strong>{formatCurrency(pnl.sales)}</strong></div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Direct costs / purchases</span><span>{formatCurrency(pnl.purchases)}</span></div>
@@ -207,7 +224,8 @@ export default function FinancialBooksView() {
           </button>
         </div>
       )}
-	  {tab === 'site' && (
+
+      {tab === 'site' && (
         <table className="data-table" style={{ width: '100%' }}>
           <thead><tr><th>Site</th><th className="text-end">Income</th><th className="text-end">Expense</th><th className="text-end">Profit</th></tr></thead>
           <tbody>
@@ -224,7 +242,6 @@ export default function FinancialBooksView() {
         </table>
       )}
 
-      
       {tab === 'wo' && (
         <table className="data-table" style={{ width: '100%' }}>
           <thead>
@@ -236,16 +253,19 @@ export default function FinancialBooksView() {
             </tr>
           </thead>
           <tbody>
-            {wos.map(s => (
+            {wos.map(s => {
+              const woObj = woRows.find(w => w.id === s.workOrderId);
+              const displayWo = woObj ? (woObj.woNumber || woObj.id) : s.workOrderId;
+              return (
               <tr key={String(s.workOrderId)}>
-                <td>{s.workOrderId}</td>
+                <td>{displayWo}</td>
                 <td className="text-end">{formatCurrency(s.income)}</td>
                 <td className="text-end">{formatCurrency(s.expense)}</td>
                 <td className="text-end" style={{ color: (s.net ?? 0) >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
                   {formatCurrency(s.net ?? 0)}
                 </td>
               </tr>
-            ))}
+            )})}
             {wos.length === 0 && (
               <tr>
                 <td colSpan={4} style={{ textAlign: 'center', color: '#94a3b8' }}>
@@ -257,7 +277,7 @@ export default function FinancialBooksView() {
         </table>
       )}
 
-    {tab === 'cc' && (
+      {tab === 'cc' && (
         <div className="table-responsive">
           <table className="data-table" style={{ width: '100%' }}>
             <thead>
@@ -269,16 +289,19 @@ export default function FinancialBooksView() {
               </tr>
             </thead>
             <tbody>
-              {(ccs || []).map((r) => (
+              {(ccs || []).map((r) => {
+                const ccObj = costCenters.find(c => c.id === r.costCenter);
+                const displayCc = ccObj ? (ccObj.name || ccObj.id) : r.costCenter;
+                return (
                 <tr key={r.costCenter}>
-                  <td>{r.costCenter}</td>
+                  <td>{displayCc}</td>
                   <td className="text-end">{formatCurrency(r.income)}</td>
                   <td className="text-end">{formatCurrency(r.expense)}</td>
                   <td className="text-end" style={{ fontWeight: 600, color: (r.profit || 0) >= 0 ? '#059669' : '#dc2626' }}>
                     {formatCurrency(r.profit)}
                   </td>
                 </tr>
-              ))}
+              )})}
               {!(ccs || []).length && (
                 <tr>
                   <td colSpan={4} className="text-muted" style={{ textAlign: 'center' }}>
@@ -291,7 +314,7 @@ export default function FinancialBooksView() {
         </div>
       )}
 
-            {tab === 'lock' && (
+      {tab === 'lock' && (
         <div className="glass-panel p-4" style={{ maxWidth: 420 }}>
           <p style={{ fontSize: 14, color: '#64748b' }}>
             Lock a month to block edits (uses local period lock). Combine with freeze-days for audit control.
@@ -311,9 +334,6 @@ export default function FinancialBooksView() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
-
-
