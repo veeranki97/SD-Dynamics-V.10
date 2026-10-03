@@ -66,6 +66,21 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const documentFingerprintResolved = documentFingerprint || autoFingerprint;
 
   const typeConfig = INVOICE_TYPES[invoiceType] || INVOICE_TYPES['tax-invoice'];
+  const isDeliveryChallan = /challan|delivery/i.test(String(invoiceType || ''));
+  // Standard DC (Tally/Zoho/Vyapar style): qty + description only — no rates/tax totals
+  const hideMoneyOnDc = isDeliveryChallan;
+  // Effective display flags (DC: no rates/amounts/GST/totals/HSN summary)
+  const dcOpts = hideMoneyOnDc ? {
+    ...options,
+    showRateColumn: false,
+    showGST: false,
+    showSubtotal: false,
+    showAmountWords: false,
+    showRoundOff: false,
+    showBankDetails: false,
+    showHsnSummary: false,
+    hideHsnSummary: true,
+  } : options;
   // Seller's country drives tax label (GST / VAT / SST / MwSt etc.) and bank label.
   const sellerCC = getCountryConfig(profile?.country);
   const isIndia = (profile?.country || 'India') === 'India';
@@ -84,7 +99,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
 
   // Options with defaults. Each toggle defaults to ON so old invoices keep rendering as
   // before; users opt INTO hiding fields via Customize.
-  const opt = (key, fallback = true) => options[key] !== undefined ? options[key] : fallback;
+  const opt = (key, fallback = true) => dcOpts[key] !== undefined ? dcOpts[key] : fallback;
   const showGST = opt('showGST', typeConfig.showGST);
   const showState = opt('showState');
   const showGSTIN = opt('showGSTIN');
@@ -102,8 +117,9 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   const showDueDate = opt('showDueDate');
   const showItemQty = opt('showItemQty');
   const showItemUnit = opt('showItemUnit');
-  const showRateColumn = opt('showRateColumn');
-  const showSubtotal = opt('showSubtotal');
+  const showRateColumn = hideMoneyOnDc ? false : opt('showRateColumn');
+  const showSubtotal = hideMoneyOnDc ? false : opt('showSubtotal');
+  const showAmountCol = !hideMoneyOnDc;
   // Header / client meta — default ON
   const showBusinessName = opt('showBusinessName');
   const showBusinessAddress = opt('showBusinessAddress');
@@ -1002,7 +1018,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       showBankDetails, account, sellerCC,
       qrDataUrl: showUPI ? qrDataUrl : '', upiId,
       isIndia, isInterstate, showGST, taxLabel, singleRate, hasAnyDiscount, showAmountWords,
-      showHsnSummary: (options.showHsnSummary !== false) && showHSN && hsnRows.length > 0 && isIndia,
+      showHsnSummary: !hideMoneyOnDc && (dcOpts.hideHsnSummary !== true) && (dcOpts.showHsnSummary !== false) && showHSN && hsnRows.length > 0 && isIndia,
       hsnRows,
       showTaxInWords: options.showTaxInWords !== false && showGST && totalTax > 0,
       totalTax, termsHtml, notesHtml, termsClassMod,
@@ -1532,7 +1548,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       </table>
 
       {/* Totals section */}
-      <div className="inv-totals-section" style={pdfStyle !== 'classic' ? { padding: '1rem 2rem' } : {}}>
+      <div className="inv-totals-section" style={hideMoneyOnDc ? { display: "none" } : undefined} style={pdfStyle !== 'classic' ? { padding: '1rem 2rem' } : {}}>
         <div className="inv-words">
           {showAmountWords && (
             <>

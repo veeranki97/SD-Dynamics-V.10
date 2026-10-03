@@ -382,6 +382,21 @@ export default function WorkOrdersView() {
                   <td>{deriveWOStatus(woRow, bills)}</td>
                   <td>
                     <ActionMenu items={[
+                      { label: 'Convert to Tax Invoice', onClick: () => {
+                        try {
+                          sessionStorage.setItem('sd_convert_wo', JSON.stringify({
+                            workOrderId: wo.id,
+                            woNumber: wo.woNumber || wo.number,
+                            clientName: wo.clientName || wo.client,
+                            site: wo.site,
+                            items: wo.items || wo.lines || [],
+                            title: wo.title || wo.workDetails || wo.description,
+                          }));
+                        } catch {}
+                        window.dispatchEvent(new CustomEvent('sd-navigate', { detail: { view: 'invoice', convertWo: wo.id } }));
+                        if (typeof window.__sdOpenInvoiceFromWo === 'function') window.__sdOpenInvoiceFromWo(wo);
+                        else toast('Open New Invoice and pick this Work Order to convert', 'info');
+                      }},
                       { label: 'Edit', onClick: () => setForm({ ...woRow, items: (woRow.items && woRow.items.length) ? woRow.items : [emptyWOItem()] }) },
                       { label: 'Copy', onClick: () => setForm({ ...woRow, id: 'wo_' + Date.now().toString(36), woNumber: '', items: (woRow.items || []).map(it => ({ ...it })) }) },
                       { label: 'Delete', danger: true, onClick: () => remove(woRow.id) },

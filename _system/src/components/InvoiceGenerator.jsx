@@ -106,6 +106,7 @@ const DEFAULT_OPTIONS = {
   showGSTIN: true,
   showPlaceOfSupply: true,
   showHSN: true,
+  hideHsnSummary: false,
   showDiscount: false,
   showBankDetails: true,
   showUPI: true,
@@ -3697,6 +3698,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     ['showSubtotal', 'Subtotal row'],
                     ['showAmountWords', 'Amount in words'],
                     ['showRoundOff', 'Round-off line'],
+                    ['hideHsnSummary', 'Hide HSN summary after amount in words'],
                   ]},
                   { group: 'Compliance flags (India)', items: [
                     ['reverseCharge', 'Reverse Charge applies (Section 9(3)/9(4)) — recipient pays GST'],

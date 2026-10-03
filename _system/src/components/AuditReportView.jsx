@@ -79,7 +79,11 @@ export default function AuditReportView() {
       .map((b) => `<tr><td>${b.invoiceNumber || ''}</td><td>${b.invoiceDate || ''}</td><td>${String(b.clientName || '').replace(/</g, '')}</td><td>${b.status || ''}</td><td class="r">${(Number(b.totalAmount) || 0).toFixed(2)}</td><td class="r">${(Number(b.paidAmount) || 0).toFixed(2)}</td></tr>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><title>Audit Summary ${fy}</title>
 <style>body{font-family:system-ui,sans-serif;padding:24px;font-size:13px}h1{font-size:18px;margin:0 0 4px}h2{font-size:14px;margin:20px 0 8px;border-bottom:1px solid #cbd5e1;padding-bottom:4px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #334155;padding:6px 8px}th{background:#f1f5f9}.r{text-align:right}.muted{color:#64748b;font-size:11px}@page{margin:12mm}</style></head><body>
-<h1>Audit / Management Summary</h1>
+<div style="border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:12px">
+<h1 style="margin:0">${name}</h1>
+<p class="muted" style="margin:4px 0 0">${(profile?.address||'')}<br/>GSTIN ${gstin} · ${profile?.phone||''} · ${profile?.email||''}</p>
+</div>
+<h2 style="margin-top:0">Audit / Management Summary</h2>
 <p class="muted">${name} · GSTIN ${gstin} · FY ${fy || 'All'} · ${new Date().toLocaleString('en-IN')}</p>
 <h2>Turnover &amp; tax</h2>
 <table><tr><th>Metric</th><th class="r">Amount</th></tr>

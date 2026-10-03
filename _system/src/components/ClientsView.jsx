@@ -390,6 +390,20 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
   // Now: bills are grouped by client ONCE per change to `bills`, each group
   // sorted once, and per-client totals precomputed in the same pass. Lookups
   // become O(1), so rendering a row and sorting the list are both cheap.
+  
+  // Only Tax Invoice / Credit Note (and legacy missing type) count toward client money.
+  // Quotations, Proformas, Delivery Challans are documents, not AR.
+  const isMoneyBill = (b) => {
+    const t = String(b.invoiceType || 'tax-invoice').toLowerCase();
+    if (/quotation|proforma|delivery|challan|estimate|converted/.test(t)) return false;
+    if ((b.status || '') === 'cancelled') return false;
+    return true;
+  };
+  const canMarkPayment = (b) => {
+    const t = String(b.invoiceType || 'tax-invoice').toLowerCase();
+    return /tax-invoice|credit-note|proforma/.test(t) && !/quotation|delivery|challan/.test(t);
+  };
+
   const billsByClient = useMemo(() => {
     const map = new Map();
     for (const b of bills) {
@@ -407,15 +421,16 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
   const statsByClient = useMemo(() => {
     const map = new Map();
     for (const [key, cBills] of billsByClient) {
-      const total = cBills.reduce((s, b) => s + (b.totalAmount || 0), 0);
-      const paid = cBills.reduce((s, b) => {
+      const money = cBills.filter(isMoneyBill);
+      const total = money.reduce((s, b) => s + (b.totalAmount || 0), 0);
+      const paid = money.reduce((s, b) => {
         const fromPayments = (b.payments || []).reduce((ps, p) => ps + (Number(p.amount) || 0), 0);
         if (fromPayments > 0) return s + fromPayments;
         if (typeof b.paidAmount === 'number' && b.paidAmount > 0) return s + b.paidAmount;
         if (b.status === 'paid') return s + (b.totalAmount || 0);
         return s;
       }, 0);
-      map.set(key, { total, paid, unpaid: total - paid, count: cBills.length });
+      map.set(key, { total, paid, unpaid: Math.max(0, total - paid), count: money.length, docCount: cBills.length });
     }
     return map;
   }, [billsByClient]);
@@ -448,6 +463,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
     const buckets = { current: 0, d31_60: 0, d61_90: 0, d90plus: 0, total: 0 };
     const unpaidBills = [];
     for (const b of getClientBills(clientName)) {
+      if (!isMoneyBill(b)) continue;
       const outstanding = (b.totalAmount || 0) - (b.paidAmount || 0);
       if (outstanding <= 0.01) continue;
       const ref = b.data?.details?.dueDate || b.invoiceDate;
@@ -605,6 +621,10 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
   };
 
   const changeStatus = async (bill, newStatus) => {
+    if (!canMarkPayment(bill) && (newStatus === 'paid' || newStatus === 'partial')) {
+      toast('Payments apply to Tax Invoice / Proforma only — not Quotation or Delivery Challan', 'warning');
+      return;
+    }
     const updated = { ...bill, status: newStatus };
     if (newStatus === 'paid') updated.paidAmount = bill.totalAmount;
     await saveBill(updated, { overwrite: true });
