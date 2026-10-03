@@ -31,6 +31,7 @@ const SettingsView = lazy(() => import('./components/SettingsView'));
 const ClientsView = lazy(() => import('./components/ClientsView'));
 const InventoryView = lazy(() => import('./components/InventoryView'));
 const ReportsView = lazy(() => import('./components/ReportsView'));
+const EinvoiceSettingsPanel = lazy(() => import('./components/EinvoiceSettingsPanel'));
 const ExpenseTracker = lazy(() => import('./components/ExpenseTracker'));
 const RecurringInvoices = lazy(() => import('./components/RecurringInvoices'));
 const ReceiptVoucher = lazy(() => import('./components/ReceiptVoucher'));
@@ -610,6 +611,7 @@ function App() {
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
     { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'settings', group: 'System' },
+    { id: 'einvoice', icon: FileText, label: 'E-Invoice / GSP', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
     { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'System' },

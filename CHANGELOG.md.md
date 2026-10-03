@@ -4,7 +4,16 @@
 
 ---
 
-## [v2.3.8] — Current Version (2026-10-02)
+## [v2.3.8] — Current Version (2026-10-03)
+
+### Latest Fixes 🔧
+
+- Fixed slow loading on the Settings page.
+- Updated the invoice UI for better usability and layout consistency.
+- Improved the payment tracker flow and related calculations.
+- Fixed issues in the expenses tracker.
+- Resolved sidebar-related display issues.
+- Applied several minor UI and data stability fixes across the app.
 
 ### Current Features ✅
 
@@ -314,4 +323,4 @@ This version includes all stable features developed to date:
 
 ---
 
-**Last Updated:** October 2, 2026 | **Next Release:** Planned for early 2027
+**Last Updated:** October 3, 2026 | **Next Release:** Planned for early 2027

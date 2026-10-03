@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, FileText } from 'lucide-react';
 import { getAllBills, getAllExpenses, getProfile, getAllWorkOrders } from '../store';
 import { formatCurrency, getFYOptions, belongsToProfile } from '../utils';
 import { toast } from './Toast';
+import AuditReportView from './AuditReportView';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -189,134 +190,16 @@ export default function ReportsView() {
           onClick={() => setActiveTab('partyos')}>
           <Wallet size={16} /> Party Outstanding
         </button>
-        
-        
-        <button className={`btn $
-      {activeTab === 'sitepl' && (() => {
-        const bySite = {};
-        allFilteredBills.forEach(b => {
-          if (b.status === 'cancelled') return;
-          const site = (
-            b.site || b.data?.site || b.data?.details?.site || b.data?.client?.site
-            || (typeof b.data?.client === 'object' && b.data.client?.site)
-            || b.costCenterId || b.data?.costCenterId || b.data?.details?.costCenterId
-            || 'Unassigned'
-          );
-          if (!bySite[site]) bySite[site] = { site, revenue: 0, tax: 0, count: 0 };
-          const tot = Number(b.totalAmount) || 0;
-          const tax = Number(b.data?.totals?.totalTax || b.data?.totals?.tax) || 0;
-          bySite[site].revenue += Math.max(0, tot - tax);
-          bySite[site].tax += tax;
-          bySite[site].count += 1;
-        });
-        filteredExpenses.forEach(e => {
-          const site = e.site || e.costCenterId || 'Unassigned';
-          if (!bySite[site]) bySite[site] = { site, revenue: 0, tax: 0, count: 0, expense: 0 };
-          bySite[site].expense = (bySite[site].expense || 0) + (Number(e.amount) || 0);
-        });
-        const rows = Object.values(bySite).map(s => ({
-          ...s,
-          expense: s.expense || 0,
-          profit: (s.revenue || 0) - (s.expense || 0),
-        })).sort((a, b) => b.profit - a.profit);
-        return (
-          <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
-            <h3 style={{ marginTop: 0 }}>Site-wise P&amp;L</h3>
-            <p className="text-muted" style={{ fontSize: 13 }}>Revenue from invoices tagged with Site; expenses from expense.site / cost center.</p>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Site</th><th className="text-end">Invoices</th>
-                  <th className="text-end">Revenue (ex tax)</th><th className="text-end">Expenses</th>
-                  <th className="text-end">Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={r.site}>
-                    <td><strong>{r.site}</strong></td>
-                    <td className="text-end">{r.count || 0}</td>
-                    <td className="text-end">{formatCurrency(r.revenue, currencyFilter)}</td>
-                    <td className="text-end">{formatCurrency(r.expense, currencyFilter)}</td>
-                    <td className="text-end" style={{ color: r.profit >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
-                      {formatCurrency(r.profit, currencyFilter)}
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 && (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', color: '#94a3b8' }}>
-                    No site data. Set <strong>Site</strong> on invoices and expenses.
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
-
-      {activeTab === 'wopl' && (() => {
-        const byWO = {};
-        allFilteredBills.forEach(b => {
-          if (b.status === 'cancelled') return;
-          const wo = b.data?.details?.workOrderNo || b.workOrderNo || b.data?.workOrderId || b.workOrderId || b.data?.details?.workOrderId || 'No WO';
-          if (!byWO[wo]) byWO[wo] = { wo, revenue: 0, tax: 0, count: 0 };
-          const tot = Number(b.totalAmount) || 0;
-          const tax = Number(b.data?.totals?.totalTax || b.data?.totals?.tax) || 0;
-          byWO[wo].revenue += Math.max(0, tot - tax);
-          byWO[wo].tax += tax;
-          byWO[wo].count += 1;
-        });
-        filteredExpenses.forEach(e => {
-          const wo = e.workOrderId || e.workOrderNo || 'No WO';
-          if (!byWO[wo]) byWO[wo] = { wo, revenue: 0, tax: 0, count: 0, expense: 0 };
-          byWO[wo].expense = (byWO[wo].expense || 0) + (Number(e.amount) || 0);
-        });
-        const rows = Object.values(byWO).map(s => ({
-          ...s,
-          expense: s.expense || 0,
-          profit: (s.revenue || 0) - (s.expense || 0),
-        })).sort((a, b) => b.profit - a.profit);
-        return (
-          <div className="glass-panel report-card" style={{ padding: '1.25rem', background: 'var(--card, #fff)', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12 }}>
-            <h3 style={{ marginTop: 0 }}>Work Order–wise P&amp;L</h3>
-            <p className="text-muted" style={{ fontSize: 13 }}>Link invoices to a Work Order number; tag expenses with WO to see profit per WO.</p>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Work Order</th><th className="text-end">Invoices</th>
-                  <th className="text-end">Revenue (ex tax)</th><th className="text-end">Expenses</th>
-                  <th className="text-end">Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={r.wo}>
-                    <td><strong>{r.wo}</strong></td>
-                    <td className="text-end">{r.count || 0}</td>
-                    <td className="text-end">{formatCurrency(r.revenue, currencyFilter)}</td>
-                    <td className="text-end">{formatCurrency(r.expense, currencyFilter)}</td>
-                    <td className="text-end" style={{ color: r.profit >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
-                      {formatCurrency(r.profit, currencyFilter)}
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 && (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', color: '#94a3b8' }}>
-                    No WO data. Select Work Order on invoice and tag expenses with WO.
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
-
-
-      {activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
+        <button className={`btn ${activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('audit')}>
+          <FileText size={16} /> Audit Report
+        </button>
+        <button className={`btn ${activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('products')}>
           <Package size={16} /> Service / Product Performance
         </button>
       </div>
+
 
       {activeTab === 'pl' && (
         <>
@@ -929,6 +812,11 @@ export default function ReportsView() {
           </div>
         );
       })()}
+
+
+      {activeTab === 'audit' && (
+        <AuditReportView />
+      )}
 
     </div>
   );

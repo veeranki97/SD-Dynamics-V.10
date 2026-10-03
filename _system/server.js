@@ -173,7 +173,7 @@ function invalidateCache(dir) { delete dirCache[dir]; }
 function readAllFromDir(dir, { includeDeleted = false } = {}) {
   const cacheKey = includeDeleted ? dir + ':all' : dir;
   const entry = dirCache[cacheKey];
-  if (entry && (Date.now() - entry.at) < DIR_CACHE_TTL_MS) return entry.value;
+  if (entry && entry.value != null && (Date.now() - entry.at) < DIR_CACHE_TTL_MS) return entry.value;
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) return [];
   let results = fs.readdirSync(dirPath)
@@ -1038,7 +1038,7 @@ app.get('/api/meta/:key', (req, res) => {
 
 app.post('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
-  meta[req.params.key] = req.body.value;
+  meta[req.params.key] = req.body?.value;
   writeJSON(META_PATH, meta);
   res.json({ success: true });
 });
@@ -1859,13 +1859,24 @@ app.get('/api/health', (req, res) => {
       errorsTail = buf.toString('utf-8');
     }
   } catch { /* ignore */ }
+  let appVer = 'unknown';
+  try {
+    // Prefer package.json next to server (works when started as `node server.js`)
+    const pkgPath = path.join(__dirname, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      appVer = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version || appVer;
+    }
+  } catch { /* ignore */ }
+  if (appVer === 'unknown' && process.env.npm_package_version) {
+    appVer = process.env.npm_package_version;
+  }
   res.json({
     ok: true,
-    version: process.env.npm_package_version || 'unknown',
+    version: appVer,
     uptimeSec: Math.round(process.uptime()),
     pid: process.pid,
     hasRecentErrors: !!errorsTail.trim(),
-    errorsTail,
+    errorsTail: errorsTail || '',
   });
 });
 

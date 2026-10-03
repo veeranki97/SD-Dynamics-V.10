@@ -253,12 +253,17 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       if ((b.invoiceType || '').toLowerCase().includes('proforma') || (b.invoiceType || '').toLowerCase().includes('quotation')) continue;
       const cur = b.currency || b.data?.invoiceOptions?.currency || 'INR';
       if (!byCurrency[cur]) byCurrency[cur] = { total: 0, tax: 0, unpaid: 0, received: 0 };
-      byCurrency[cur].total += b.totalAmount || 0;
-      byCurrency[cur].tax += b.totalTaxAmount || 0;
-      const due = (b.totalAmount || 0) - (b.paidAmount || 0);
+      // Skip cancelled for KPIs
+      if ((b.status || '') === 'cancelled') continue;
+      byCurrency[cur].total += Number(b.totalAmount) || 0;
+      byCurrency[cur].tax += Number(b.totalTaxAmount) || 0;
+      // Total Received = sum of all paid amounts (partial + full). Prior bug only
+      // counted paidAmount when status !== 'paid', so fully paid invoices showed ₹0.
+      const paid = Number(b.paidAmount) || 0;
+      byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
+      const due = (Number(b.totalAmount) || 0) - paid;
       if (b.status !== 'paid' && due > 0.01) {
         byCurrency[cur].unpaid += due;
-        byCurrency[cur].received = (byCurrency[cur].received || 0) + (Number(b.paidAmount) || 0);
         const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
         if (dueDate) {
           const dd = new Date(dueDate);

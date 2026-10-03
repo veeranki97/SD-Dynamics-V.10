@@ -4189,7 +4189,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 }
                 onChange={(e) => {
                   const q = e.target.value.trim();
-                  if (!q) { setSelectedWorkOrderId(''); return; }
+                  if (!q) {
+                    setSelectedWorkOrderId('');
+                    setDetails(prev => ({ ...prev, workOrderNo: '', workDetails: prev.workDetails }));
+                    return;
+                  }
                   const id = (() => {
                     const exact = workOrders.find(w => w.id === q || w.woNumber === q);
                     if (exact) return exact.id;
