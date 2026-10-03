@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff, Copy, ArrowDown, Layers, Link2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllBills, getAllWorkOrders, saveJournal, getAllCostCenters } from '../store';
@@ -4135,27 +4135,76 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               </div>
             </div>
 
-            {/* Billing Address + Work Order side by side */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3" style={{ marginTop: '0.5rem' }}>
-            <div className="form-group">
+            {/* Billing summary + Ship-to + WO typeahead — compact row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem', marginTop: '0.5rem', alignItems: 'start' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">Billing Address (shown above)</label>
               <textarea className="form-input" rows={2} readOnly
                 value={[client.address, client.city, client.pin, client.state].filter(Boolean).join(', ')}
                 placeholder="Filled from client" style={{ background: 'var(--bg-secondary, #f8fafc)', fontSize: '0.85rem' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.82rem', marginTop: 8 }}>
+                <input type="checkbox" checked={details.shipToSameAsBilling !== false}
+                  onChange={e => setDetails({ ...details, shipToSameAsBilling: e.target.checked })}
+                  style={{ width: 15, height: 15, accentColor: 'var(--primary)' }} />
+                <span><strong>Ship to</strong> same as billing address</span>
+              </label>
+              {details.shipToSameAsBilling === false && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                  <div className="form-group full-width" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping Address</label>
+                    <textarea className="form-input" rows={2} value={details.shippingAddress || ''}
+                      onChange={e => setDetails({ ...details, shippingAddress: e.target.value })}
+                      placeholder="Delivery address / warehouse / consignee" />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>City</label>
+                    <input type="text" className="form-input" value={details.shippingCity || ''}
+                      onChange={e => setDetails({ ...details, shippingCity: e.target.value })} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>PIN</label>
+                    <input type="text" className="form-input" value={details.shippingPin || ''}
+                      onChange={e => setDetails({ ...details, shippingPin: e.target.value })} maxLength={6} />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping State</label>
+                    <input type="text" className="form-input" value={details.shippingState || ''}
+                      onChange={e => setDetails({ ...details, shippingState: e.target.value })} />
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="form-group">
+            <div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">Link to Work Order (optional)</label>
-              <select
+              <input
+                type="text"
                 className="form-input"
-                value={selectedWorkOrderId}
+                list="inv-wo-typeahead"
+                placeholder="Type WO no. / client / site…"
+                value={
+                  selectedWorkOrderId
+                    ? ((workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
+                    : ''
+                }
                 onChange={(e) => {
-                  const id = e.target.value;
+                  const q = e.target.value.trim();
+                  if (!q) { setSelectedWorkOrderId(''); return; }
+                  const id = (() => {
+                    const exact = workOrders.find(w => w.id === q || w.woNumber === q);
+                    if (exact) return exact.id;
+                    const ql = q.toLowerCase();
+                    const soft = workOrders.find(w =>
+                      String(w.woNumber || '').toLowerCase().includes(ql) ||
+                      String(w.clientName || '').toLowerCase().includes(ql) ||
+                      String(w.title || '').toLowerCase().includes(ql) ||
+                      String(w.site || '').toLowerCase().includes(ql)
+                    );
+                    return soft ? soft.id : '';
+                  })();
+                  if (!id) return; // still typing — don't clear selection mid-type if partial
                   setSelectedWorkOrderId(id);
-                  if (!id) return;
                   const wo = workOrders.find(w => w.id === id);
                   if (!wo) return;
-                  // Auto-fill from WO: items, site, period, client if empty
-                  // Full populate from Work Order
                   const master = (savedClients || []).find(c =>
                     (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
                   );
@@ -4183,20 +4232,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     ...prev,
                     periodStart: wo.periodStart || prev.periodStart || '',
                     periodEnd: wo.periodEnd || prev.periodEnd || '',
-                    workDetails: [wo.title, wo.workDetails || wo.desc || wo.description, wo.notes].filter(Boolean).join(' — ') || prev.workDetails || '',
+                    workDetails: wo.title || wo.workDescription || wo.notes || prev.workDetails || '',
+                    workOrderNo: wo.woNumber || prev.workOrderNo || '',
                     site: wo.site || prev.site || '',
-                    workOrderNo: wo.woNumber || wo.woNo || wo.number || prev.workOrderNo || '',
                   }));
-                  if (wo.notes || wo.terms || wo.title) {
-                    if (wo.notes) setCustomNotes(wo.notes);
-                    else if (wo.title) setCustomNotes(wo.title);
-                    if (wo.terms) setCustomTerms(wo.terms);
-                  }
                   if (wo.items && wo.items.length) {
                     const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit, wo);
                     if (mapped.length) setItems(mapped);
                     else {
-                      // Fallback map if helper filters everything
                       setItems(wo.items.map((it, idx) => ({
                         id: 'item_' + Date.now().toString(36) + '_' + idx,
                         name: it.description || it.name || '',
@@ -4213,70 +4256,41 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   }
                   toast(`Filled from Work Order ${wo.woNumber || id}`, 'success');
                 }}
-              >
-                <option value="">— No Work Order —</option>
+              />
+              <datalist id="inv-wo-typeahead">
                 {workOrders
                   .filter(wo => {
                     const st = (wo.status || '').toLowerCase();
-                    if (st === 'cancelled' || st === 'canceled' || st === 'void') return false;
-                    if (selectedWorkOrderId === wo.id) return true;
-                    // Show all active WOs; if client already chosen, prefer matching but still list others
-                    if (!client.name?.trim()) return true;
-                    return true; // do not hide WOs — user may invoice before selecting client
+                    return !(st === 'cancelled' || st === 'canceled' || st === 'void');
                   })
                   .map(wo => (
-                    <option key={wo.id} value={wo.id}>
-                      {wo.woNumber || wo.id}
-                      {wo.clientName ? ` · ${wo.clientName}` : ''}
-                      {wo.title ? ` · ${wo.title}` : ''}
-                      {wo.site ? ` · ${wo.site}` : ''}
-                      {` · ₹${Number(wo.approvedBudget || wo.total || 0).toLocaleString('en-IN')}`}
+                    <option key={wo.id} value={wo.woNumber || wo.id}>
+                      {(wo.clientName || '') + (wo.title ? ` · ${wo.title}` : '') + (wo.site ? ` · ${wo.site}` : '') + ` · ₹${Number(wo.approvedBudget || wo.total || 0).toLocaleString('en-IN')}`}
                     </option>
                   ))}
-              </select>
-              <small style={{ color: '#64748b', display: 'block', marginTop: '0.25rem' }}>
-                If linked, the invoice cannot exceed the remaining Work Order budget. Selecting a WO auto-fills items, site and period.
+              </datalist>
+              <small style={{ color: '#64748b', display: 'block', marginTop: 4, fontSize: '0.72rem' }}>
+                Type WO number or client — auto-fills items, site, period & budget check on save.
               </small>
             </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3" style={{ marginTop: '0.5rem' }}>
-              <div className="form-group">
-                <label className="form-label">Bill period start</label>
-                <input type="date" className="form-input"
-                  value={details.periodStart || ''}
-                  onChange={(e) => setDetails({ ...details, periodStart: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Bill period end</label>
-                <input type="date" className="form-input"
-                  value={details.periodEnd || ''}
-                  onChange={(e) => setDetails({ ...details, periodEnd: e.target.value })} />
-              </div>
-
-              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label" style={{ fontWeight: 700, color: "#1e40af" }}>Work Description / Notes</label>
-                <textarea
-                  className="form-input"
-                  rows={2}
-                  value={details.workDetails || ''}
-                  onChange={(e) => setDetails({ ...details, workDetails: e.target.value })}
-                  placeholder="Scope / site notes for this bill period (printed on invoice)"
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Original Invoice # (Credit Notes)</label>
-                <input className="form-input" value={details.originalInvoiceNumber || ''}
-                  onChange={(e) => setDetails({ ...details, originalInvoiceNumber: e.target.value })}
-                  placeholder="Required for Credit Note" />
-              </div>
+            <div className="form-group" style={{ marginTop: '0.5rem' }}>
+              <label className="form-label" style={{ fontWeight: 700, color: '#1e40af' }}>Work Description / Notes</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                value={details.workDetails || ''}
+                onChange={(e) => setDetails({ ...details, workDetails: e.target.value })}
+                placeholder="Scope / site notes for this bill period (printed on invoice)"
+              />
             </div>
           </div>
 
           {/* Invoice Details */}
           <div className="glass-panel p-6 mb-6">
-            <h3 className="section-title" style={{ margin: 0 }}>Invoice No · Dates · Place of Supply · WO</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <h3 className="section-title" style={{ margin: 0 }}>Invoice No · Dates · Period · Place of Supply</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div className="form-group">
                 <label className="form-label">Invoice Number</label>
                 <input type="text" className="form-input" value={details.invoiceNumber}
@@ -4291,6 +4305,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <label className="form-label">Due Date</label>
                 <input type="date" className="form-input" value={details.dueDate}
                   onChange={(e) => setDetails({ ...details, dueDate: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Bill period start</label>
+                <input type="date" className="form-input"
+                  value={details.periodStart || ''}
+                  onChange={(e) => setDetails({ ...details, periodStart: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Bill period end</label>
+                <input type="date" className="form-input"
+                  value={details.periodEnd || ''}
+                  onChange={(e) => setDetails({ ...details, periodEnd: e.target.value })} />
               </div>
               {invoiceOptions.showPlaceOfSupply && (() => {
                 const posOpts = getStatesForCountry(profile?.country);
@@ -4310,63 +4336,21 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   </div>
                 );
               })()}
-              {invoiceType === 'credit-note' && (
-                <div className="form-group full-width">
-                  <label className="form-label">Original Invoice Reference</label>
-                  <input type="text" className="form-input" value={details.originalInvoiceRef}
-                    onChange={(e) => setDetails({ ...details, originalInvoiceRef: e.target.value })} placeholder="e.g. INV/2025-26/0001" />
+              {(invoiceType === 'credit-note' || String(invoiceType||'').includes('credit')) && (
+                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                  <label className="form-label">Original Invoice # (Credit Note)</label>
+                  <input type="text" className="form-input"
+                    value={details.originalInvoiceRef || details.originalInvoiceNumber || ''}
+                    onChange={(e) => setDetails({
+                      ...details,
+                      originalInvoiceRef: e.target.value,
+                      originalInvoiceNumber: e.target.value,
+                    })}
+                    placeholder="e.g. SD/2026-27/001 — required for Credit Note" />
                 </div>
               )}
 
-              {/* v1.10.11 — Ship-to = Bill-to checkbox. When unchecked,
-                   4 shipping fields appear. Rendered next to the billing
-                   block in the PDF preview. */}
-              <div className="form-group full-width" style={{ marginTop: '0.5rem', padding: '0.6rem 0.85rem', background: 'var(--bg-secondary)', borderRadius: 6 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.88rem' }}>
-                  <input type="checkbox" checked={details.shipToSameAsBilling !== false}
-                    onChange={e => setDetails({ ...details, shipToSameAsBilling: e.target.checked })}
-                    style={{ width: 16, height: 16, accentColor: 'var(--primary)' }} />
-                  <span><strong>Ship to</strong> same as bill-to address</span>
-                </label>
-                {details.shipToSameAsBilling === false && (
-                  <div className="grid grid-cols-2 gap-3" style={{ marginTop: '0.6rem' }}>
-                    <div className="form-group full-width">
-                      <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping Address</label>
-                      <textarea className="form-input" rows={2} value={details.shippingAddress || ''}
-                        onChange={e => setDetails({ ...details, shippingAddress: e.target.value })}
-                        placeholder="Delivery address / warehouse / consignee location" />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping City</label>
-                      <input type="text" className="form-input" value={details.shippingCity || ''}
-                        onChange={e => setDetails({ ...details, shippingCity: e.target.value })} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping PIN</label>
-                      <input type="text" className="form-input" value={details.shippingPin || ''}
-                        onChange={e => setDetails({ ...details, shippingPin: e.target.value })}
-                        placeholder="6-digit PIN" maxLength={6} />
-                    </div>
-                    <div className="form-group full-width">
-                      <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping State</label>
-                      {(() => {
-                        const posOpts = getStatesForCountry(profile?.country);
-                        return posOpts.length > 0 ? (
-                          <select className="form-input" value={details.shippingState || ''}
-                            onChange={e => setDetails({ ...details, shippingState: e.target.value })}>
-                            <option value="">Same as billing state</option>
-                            {posOpts.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                        ) : (
-                          <input type="text" className="form-input" value={details.shippingState || ''}
-                            onChange={e => setDetails({ ...details, shippingState: e.target.value })}
-                            placeholder="Delivery state / region" />
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
-              </div>
+
             </div>
           </div>
 
@@ -4435,19 +4419,20 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 onAddRow={addItem}
               />
             ))}
-            <div className="flex gap-2 mt-2 flex-wrap">
-              <button type="button" className="btn btn-secondary" onClick={addItem}><Plus size={18} /> Add Item</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && duplicateItem(items[items.length-1].id)}>Duplicate last row</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && fillDownFrom(items[0].id, 'hsn')}>Fill Down HSN/SAC</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && fillDownFrom(items[0].id, 'unit')}>Fill Down Unit</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && fillDownFrom(items[0].id, 'taxRate')}>Fill Down Tax%</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && fillDownFrom(items[0].id, 'rate')}>Fill Down Rate</button>
-              <button type="button" className="btn btn-secondary" onClick={() => items.length && fillDownFrom(items[0].id, 'description')}>Fill Down Description</button>
-              <button type="button" className="btn btn-secondary" onClick={() => {
+            <div className="flex gap-2 mt-2 flex-wrap" style={{ alignItems: 'center' }}>
+              <button type="button" className="btn btn-secondary" title="Add line item" onClick={addItem} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Plus size={16} /></button>
+              <button type="button" className="btn btn-secondary" title="Duplicate last row" onClick={() => items.length && duplicateItem(items[items.length-1].id)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Copy size={16} /></button>
+              <span style={{ width: 1, height: 22, background: 'var(--border-color, #e2e8f0)', margin: '0 2px' }} />
+              <button type="button" className="btn btn-secondary" title="Fill down HSN/SAC from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'hsn')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>SAC</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Unit from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'unit')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Unit</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Tax % from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'taxRate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Tax</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Rate from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'rate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Rate</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Description from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'description')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Desc</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down all columns from first row" onClick={() => {
                 if (!items.length) return;
                 ['hsn','unit','taxRate','rate','discount','cessRate'].forEach(f => fillDownFrom(items[0].id, f));
                 toast('Filled down all columns from first row', 'success');
-              }}>Fill Down ALL</button>
+              }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Layers size={16} /></button>
             </div>
 
             {/* Discount hard-disabled for service ERP — line + whole-bill UI hidden; totals force discount 0 */}
