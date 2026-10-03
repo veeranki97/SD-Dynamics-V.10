@@ -81,7 +81,6 @@ This version includes all stable features developed to date:
 - ✅ Trash bin UI (restore/purge forever)
 
 #### **Security & Access Control**
-- ✅ Role-based access control (admin, accountant, viewer, guest)
 - ✅ Immutable audit log (hash-chained, user/timestamp/before/after)
 - ✅ CORS lockdown (localhost only, no wildcard)
 - ✅ Path traversal protection (all file operations safe)
@@ -207,7 +206,6 @@ This version includes all stable features developed to date:
 
 - [ ] **CRM Module** — Lead → Opportunity → Invoice → Repeat
 - [ ] **Field Sales App** — Offline invoice creation on mobile
-- [ ] **Godown Stock Master** — Multiple warehouses, transfer tracking
 - [ ] **GST 2A Matching** — Cross-check purchase lines against seller's GSTR-1
 - [ ] **Advance-tax Computation** — Q1/Q2/Q3/Q4 installments with surcharge
 - [ ] **Trade Receivables Aging** — Group invoices by age (0-30, 30-60, etc.)

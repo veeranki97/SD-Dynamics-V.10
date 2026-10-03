@@ -19,6 +19,8 @@ export const DEFAULT_PRINT_SETTINGS = {
 
   // Content
   showHSN: true,
+  /** v1.10.75 — round grand total to nearest rupee on PDF */
+  roundOffInvoiceTotals: true,
   showRateLine: true,
   showAmountWords: true,
   showUPI: true,

@@ -625,3 +625,19 @@ export async function logActivity({ entityType, entityId, action, diff }) {
 export async function getActivityLogs() {
   return apiFetch(`${API}/activity-logs`);
 }
+
+
+/** v1.10.75-style in-app update (SD). Calls server if route exists. */
+export async function runUpdateNow() {
+  try {
+    const res = await fetch('/api/run-update', { method: 'POST' });
+    if (res.status === 404) {
+      return { ok: false, error: 'Server has no /api/run-update — use HTA launcher Update, or extract release ZIP over _system.' };
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: data.error || res.statusText };
+    return { ok: true, ...data };
+  } catch (e) {
+    return { ok: false, error: e.message || 'network error' };
+  }
+}

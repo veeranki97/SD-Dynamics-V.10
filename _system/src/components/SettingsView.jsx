@@ -1,6 +1,8 @@
 import ChartSettingsPanel from './ChartSettingsPanel';
 import { useState, useEffect, useRef } from 'react';
 import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules, getStockAlertSettings, saveStockAlertSettings, getInvoiceDisplayOptions, saveInvoiceDisplayOptions } from '../store';
+// runUpdateNow optional — defined in store if present
+import * as storeApi from '../store';
 import { ensureToken, findOrCreateFolder, uploadJSON } from '../services/googleDrive';
 import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, FEATURE_GROUPS, isModuleEnabled, getPaymentAccounts, createEmptyAccount, maskAccountNumber, reorderAccounts, setDefaultAccount, isValidUpiId } from '../utils';
 // v1.10.36 — lucide's `Image` icon was imported as `Image`, which
@@ -39,7 +41,7 @@ export default function SettingsView({ onSaved }) {
   const [profile, setProfile] = useState({
     businessName: '', address: '', state: '', gstin: '', pan: '',
     email: '', phone: '', bankName: '', accountNumber: '', ifsc: '',
-    logo: '', logoHeight: 48, signature: '', upiId: '', googleClientId: '', googleDriveFolder: 'GST Billing Invoices',
+    logo: '', logoHeight: 48, signature: '', stamp: '', stampHeight: 70, upiId: '', googleClientId: '', googleDriveFolder: 'GST Billing Invoices',
   });
   // v1.10.36 — Scroll-spy: which section is currently in the viewport,
   // so the corresponding pill lights up as the user scrolls. Cheap
@@ -67,6 +69,21 @@ export default function SettingsView({ onSaved }) {
   // anywhere on the page and unsaved work is never silent.
   const savedProfileRef = useRef(null);
   const [profileDirty, setProfileDirty] = useState(false);
+  // v1.10.75 — lock Company form until profile finishes loading (slow PC race)
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  // Track other button-saved sections for bottom "Save all"
+  const [invNumSaved, setInvNumSaved] = useState(null);
+  const [stockSaved, setStockSaved] = useState(null);
+  const saveBarRef = useRef(null);
+  const [saveBarH, setSaveBarH] = useState(56);
+  const [updatingNow, setUpdatingNow] = useState(false);
+  useEffect(() => {
+    const el = saveBarRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => setSaveBarH(el.offsetHeight || 56));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // v1.10.56 — reported (#44, @sangwanmail-eng): "Firm profile setting not
   // saved. every time show popup".
@@ -169,14 +186,19 @@ export default function SettingsView({ onSaved }) {
   useEffect(() => {
     getProfile().then((p) => {
       setProfile(p);
-      // Baseline for the unsaved-changes check — what is currently on disk.
       savedProfileRef.current = JSON.stringify(p);
-    });
+    }).catch(() => {}).finally(() => setProfileLoaded(true));
     loadTemplates();
     loadBusinessProfiles();
     setDriveConnected(isConnected());
-    getInvoiceNumberSettings().then(setInvNumSettings);
-    getStockAlertSettings().then(setStockAlerts).catch(() => {});
+    getInvoiceNumberSettings().then((v) => {
+      setInvNumSettings(v);
+      setInvNumSaved(JSON.stringify(v));
+    });
+    getStockAlertSettings().then((v) => {
+      setStockAlerts(v);
+      setStockSaved(JSON.stringify(v));
+    }).catch(() => {});
   }, []);
 
   const loadTemplates = async () => setTermsTemplates(await getTermsTemplates());
@@ -453,9 +475,84 @@ export default function SettingsView({ onSaved }) {
     setInvNumSaving(true);
     try {
       await saveInvoiceNumberSettings(invNumSettings);
+      setInvNumSaved(JSON.stringify(invNumSettings));
       toast('Invoice number settings saved!', 'success');
     } catch { toast('Failed to save settings', 'error'); }
     finally { setInvNumSaving(false); }
+  };
+
+  const invNumDirty = invNumSaved != null && JSON.stringify(invNumSettings) !== invNumSaved;
+  const stockDirty = stockSaved != null && JSON.stringify(stockAlerts) !== stockSaved;
+  const termsDirty = !!(editingTemplate && (editingTemplate.name || editingTemplate.content));
+  const unsaved = [];
+  if (profileDirty) unsaved.push('Company Details');
+  if (invNumDirty) unsaved.push('Invoice Number Format');
+  if (stockDirty) unsaved.push('Low-stock alerts');
+  if (termsDirty) unsaved.push('Terms template');
+
+  const discardAll = () => {
+    if (savedProfileRef.current) setProfile(JSON.parse(savedProfileRef.current));
+    if (invNumSaved) setInvNumSettings(JSON.parse(invNumSaved));
+    if (stockSaved) setStockAlerts(JSON.parse(stockSaved));
+    setEditingTemplate(null);
+  };
+
+  const saveAll = async () => {
+    try {
+      if (profileDirty) {
+        setSaving(true);
+        await saveProfile(profile);
+        markProfileSaved(profile);
+        if (onSaved) onSaved(profile);
+      }
+      if (invNumDirty) {
+        setInvNumSaving(true);
+        await saveInvoiceNumberSettings(invNumSettings);
+        setInvNumSaved(JSON.stringify(invNumSettings));
+      }
+      if (stockDirty) {
+        setStockAlertsSaving(true);
+        await saveStockAlertSettings(stockAlerts);
+        setStockSaved(JSON.stringify(stockAlerts));
+      }
+      if (termsDirty && editingTemplate) {
+        await saveTermsTemplate(editingTemplate);
+        setEditingTemplate(null);
+        loadTemplates();
+      }
+      toast('All changes saved', 'success');
+    } catch (e) {
+      toast('Save failed: ' + (e.message || 'error'), 'error');
+    } finally {
+      setSaving(false);
+      setInvNumSaving(false);
+      setStockAlertsSaving(false);
+    }
+  };
+
+  const handleSettingsUpdateNow = async () => {
+    setUpdatingNow(true);
+    toast('Updating… data is backed up first if the server supports it.', 'info', 6000);
+    try {
+      const fn = storeApi.runUpdateNow;
+      if (typeof fn === 'function') {
+        const result = await fn();
+        toast(result?.ok ? 'Update finished. Reload the page.' : `Update failed — ${result?.error || 'unknown'}`,
+          result?.ok ? 'success' : 'error', 10000);
+      } else {
+        // Fallback: open check-update flow + instruct user
+        const res = await fetch('/api/check-update');
+        const data = await res.json();
+        if (data.updateAvailable) {
+          toast(`v${data.latest} available — use launcher Update, or extract release ZIP over _system.`, 'info', 10000);
+        } else {
+          toast(data.error || 'No auto-updater in this build. Use HTA → Update.', 'warning', 8000);
+        }
+      }
+    } catch (e) {
+      toast('Update failed: ' + (e.message || 'error'), 'error');
+    }
+    setUpdatingNow(false);
   };
 
   const getInvNumPreview = () => {
@@ -692,50 +789,30 @@ export default function SettingsView({ onSaved }) {
            section, instead of only from the bottom of a 450-line form the
            user has already scrolled past. Rendered only while there are
            real changes, so it never nags. */}
-      {profileDirty && (
-        <div style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 30,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          flexWrap: 'wrap',
-          padding: '0.7rem 1rem',
-          marginBottom: '0.9rem',
-          borderRadius: 10,
-          border: '1px solid #f59e0b',
-          background: 'rgba(245, 158, 11, 0.12)',
-          backdropFilter: 'blur(6px)',
-        }}>
-          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)' }}>
-            You have unsaved changes in <strong>Company Details</strong>.
-          </span>
-          <span style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                // Revert to what is actually on disk.
-                if (savedProfileRef.current) setProfile(JSON.parse(savedProfileRef.current));
-              }}
-              style={{ fontSize: '0.85rem' }}
-            >
-              Discard
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={saving}
-              onClick={() => companyFormRef.current?.requestSubmit()}
-              style={{ fontSize: '0.85rem' }}
-            >
-              <Save size={16} /> {saving ? 'Saving…' : 'Save Profile'}
-            </button>
-          </span>
-        </div>
-      )}
+      {/* v1.10.75 — bottom Save-all bar (multi-section dirty) */}
+      <div ref={saveBarRef} className="settings-savebar" style={{
+        zIndex: 40,
+        display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+        padding: '0.6rem 1.25rem',
+        borderTop: unsaved.length ? '2px solid #f59e0b' : '1px solid var(--border, #e2e8f0)',
+        background: unsaved.length ? 'rgba(245, 158, 11, 0.12)' : 'var(--card-bg, #fff)',
+        boxShadow: '0 -4px 16px rgba(15, 23, 42, 0.10)',
+      }}>
+        <span style={{ flex: '1 1 220px', fontSize: '0.85rem', fontWeight: 600,
+          color: unsaved.length ? '#b45309' : '#059669' }}
+          title="Features, Region, Print & bank accounts still save as you change them.">
+          {unsaved.length ? <>● Unsaved: {unsaved.join(', ')}</> : '✓ All changes saved'}
+        </span>
+        {unsaved.length > 0 && (
+          <button type="button" className="btn" onClick={discardAll} style={{ fontSize: '0.85rem' }}>Discard</button>
+        )}
+        <button type="button" className="btn btn-primary"
+          disabled={saving || invNumSaving || stockAlertsSaving || !unsaved.length}
+          onClick={saveAll} style={{ fontSize: '0.85rem' }}>
+          <Save size={16} /> {saving || invNumSaving || stockAlertsSaving ? 'Saving…' : 'Save all changes'}
+        </button>
+      </div>
+      <div style={{ height: Math.max(saveBarH, 56) }} aria-hidden />
 
       {/* v1.10.36 — Header lifted with a soft primary-accent gradient
            card, gear glyph in a rounded badge for visual identity, and
@@ -793,7 +870,7 @@ export default function SettingsView({ onSaved }) {
            line". Now: nowrap + overflow-x auto, thin custom
            scrollbar, edge-fade masks so users know there's more. */}
       <nav className="settings-jumpnav" aria-label="Settings sections" style={{
-        position: 'sticky', top: 0, zIndex: 20,
+        position: 'sticky', top: 0, zIndex: 20, /* save bar is bottom-fixed; jump stays at top */
         background: 'rgba(var(--card-bg-rgb, 255, 255, 255), 0.82)',
         backdropFilter: 'saturate(1.5) blur(12px)',
         WebkitBackdropFilter: 'saturate(1.5) blur(12px)',
@@ -971,6 +1048,7 @@ export default function SettingsView({ onSaved }) {
               setStockAlertsSaving(true);
               try {
                 await saveStockAlertSettings(stockAlerts);
+                setStockSaved(JSON.stringify(stockAlerts));
                 toast('Low-stock alert settings saved', 'success');
               } catch { toast('Failed to save', 'error'); }
               setStockAlertsSaving(false);
@@ -1054,7 +1132,12 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Business Profile ---- */}
-      <form id="section-company" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1 }}>
+      <form id="section-company" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1, opacity: profileLoaded ? 1 : 0.65, pointerEvents: profileLoaded ? 'auto' : 'none' }}>
+        {!profileLoaded && (
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+            Loading company details… fields unlock when ready (prevents overwrite on slow PCs).
+          </p>
+        )}
         <h3 className="section-title">Company Details</h3>
         {(() => {
           const cc = getCountryConfig(profile.country);
@@ -1757,9 +1840,9 @@ export default function SettingsView({ onSaved }) {
           <div className="update-available-box">
             <p><strong>New version v{updateInfo.latest} is available!</strong></p>
             <p>Your data will not be affected. Click below to update:</p>
-            <a href="freegstbill-update://run" className="btn btn-primary" style={{ marginTop: '0.5rem', display: 'inline-flex', textDecoration: 'none' }}>
-              <Download size={18} /> Update Now
-            </a>
+            <button type="button" className="btn btn-primary" disabled={updatingNow} onClick={handleSettingsUpdateNow} style={{ marginTop: '0.5rem', display: 'inline-flex' }}>
+              <Download size={18} /> {updatingNow ? 'Updating…' : 'Update Now'}
+            </button>
           </div>
         )}
       </div>

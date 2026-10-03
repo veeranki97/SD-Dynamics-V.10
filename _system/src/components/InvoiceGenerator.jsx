@@ -765,12 +765,13 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // request.
   const optionsPersistTimer = useRef(null);
   useEffect(() => {
-    // v1.10.20 — Strip paymentAccountSnapshot before persisting. It's per-
-    // bill data (bank details frozen at save time), not a user preference.
-    // Prior code auto-persisted the entire invoiceOptions to localStorage
-    // AND to the server, so opening Invoice A (Bank X snapshot) polluted
-    // both stores, and opening Invoice B inherited Bank X — defeating the
-    // v1.10.19 backfill entirely.
+    // v1.10.20 — Strip paymentAccountSnapshot before persisting.
+    // v1.10.75 — Do NOT write global defaults while editing a saved invoice.
+    // Opening bill A used to overwrite freegstbill_invoiceOptions so new
+    // invoices inherited A's options. Edit path keeps bill options in state only.
+    if (editingBill && !editingBill._isDuplicate) {
+      return undefined;
+    }
     const { paymentAccountSnapshot: _snap, ...persistable } = invoiceOptions;
     localStorage.setItem('freegstbill_invoiceOptions', JSON.stringify(persistable));
     if (hasInitialized.current) {
@@ -780,7 +781,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       }, 800);
     }
     return () => clearTimeout(optionsPersistTimer.current);
-  }, [invoiceOptions]);
+  }, [invoiceOptions, editingBill]);
 
   // Load saved display options from server on mount (overrides localStorage if available)
   useEffect(() => {

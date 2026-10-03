@@ -3787,3 +3787,17 @@ div.stats-grid.stats-grid-kpi-4 .stat-value {
 .nav-btn.nav-btn-active {
   box-shadow: inset 3px 0 0 #3b82f6;
 }
+
+
+/* v1.10.75 — Settings bottom Save-all bar (docked, not floating over content awkwardly) */
+.settings-savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Sit above OS taskbar; main content needs padding-bottom via spacer in JSX */
+}
+.app-layout .main-content:has(.settings-savebar),
+.main-content:has(.settings-savebar) {
+  /* spacer div in SettingsView handles clearance */
+}

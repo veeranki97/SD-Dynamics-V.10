@@ -185,6 +185,10 @@ export default function ReportsView() {
           onClick={() => setActiveTab('clients')}>
           <Users size={16} /> Client Analytics
         </button>
+        <button className={`btn ${activeTab === 'partyos' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('partyos')}>
+          <Wallet size={16} /> Party Outstanding
+        </button>
         
         
         <button className={`btn $
@@ -768,6 +772,164 @@ export default function ReportsView() {
           </div>
         );
       })()}
+
+      {activeTab === 'partyos' && (() => {
+        // Upstream 1.10.75 Party Outstanding: parties × months + Earlier + Total
+        const useCalendar = filterMode === 'year' || filterMode === 'month';
+        // Build 12-month columns: FY Apr–Mar or calendar Jan–Dec
+        let yearStart, yearEnd, monthKeys = [];
+        const now = new Date();
+        if (!useCalendar && fyFilter) {
+          // fy value like 2026-27
+          const y1 = parseInt(String(fyFilter).slice(0, 4), 10) || now.getFullYear();
+          yearStart = new Date(y1, 3, 1); // Apr 1
+          yearEnd = new Date(y1 + 1, 2, 31, 23, 59, 59);
+          for (let m = 3; m <= 11; m++) monthKeys.push({ y: y1, m, label: MONTHS[m].slice(0, 3) + ' ' + String(y1).slice(2) });
+          for (let m = 0; m <= 2; m++) monthKeys.push({ y: y1 + 1, m, label: MONTHS[m].slice(0, 3) + ' ' + String(y1 + 1).slice(2) });
+        } else {
+          const y = parseInt(yearFilter, 10) || now.getFullYear();
+          yearStart = new Date(y, 0, 1);
+          yearEnd = new Date(y, 11, 31, 23, 59, 59);
+          for (let m = 0; m < 12; m++) monthKeys.push({ y, m, label: MONTHS[m].slice(0, 3) });
+        }
+        const isSales = (b) => {
+          const t = String(b.invoiceType || 'tax-invoice').toLowerCase();
+          if (/quotation|proforma|delivery|challan|estimate/.test(t)) return false;
+          if ((b.status || '') === 'cancelled') return false;
+          return true;
+        };
+        const remaining = (b) => {
+          const total = Number(b.totalAmount) || 0;
+          const paid = Number(b.paidAmount) || 0;
+          const rem = total - paid;
+          // Credit notes reduce outstanding
+          if (/credit/.test(String(b.invoiceType || '').toLowerCase())) return -Math.abs(total);
+          return rem > 0.005 ? rem : 0;
+        };
+        const partyMap = {};
+        bills.filter(isSales).forEach(b => {
+          const name = b.clientName || b.data?.client?.name || 'Unknown';
+          if (!partyMap[name]) {
+            partyMap[name] = { name, earlier: 0, months: Object.fromEntries(monthKeys.map(k => [`${k.y}-${k.m}`, 0])), total: 0 };
+          }
+          const rem = remaining(b);
+          if (Math.abs(rem) < 0.005) return;
+          const d = new Date(b.invoiceDate || b.dueDate || b.createdAt);
+          if (isNaN(d.getTime())) return;
+          if (d < yearStart) {
+            partyMap[name].earlier += rem;
+          } else if (d <= yearEnd) {
+            const key = `${d.getFullYear()}-${d.getMonth()}`;
+            if (partyMap[name].months[key] != null) partyMap[name].months[key] += rem;
+            else partyMap[name].earlier += rem;
+          }
+        });
+        Object.values(partyMap).forEach(p => {
+          p.total = p.earlier + Object.values(p.months).reduce((s, v) => s + v, 0);
+        });
+        const rows = Object.values(partyMap).filter(p => Math.abs(p.total) > 0.5).sort((a, b) => b.total - a.total);
+        const colTotals = { earlier: 0, total: 0, months: Object.fromEntries(monthKeys.map(k => [`${k.y}-${k.m}`, 0])) };
+        rows.forEach(p => {
+          colTotals.earlier += p.earlier;
+          colTotals.total += p.total;
+          monthKeys.forEach(k => { const key = `${k.y}-${k.m}`; colTotals.months[key] += p.months[key] || 0; });
+        });
+
+        const exportCsv = () => {
+          const headers = ['Party', 'Earlier', ...monthKeys.map(k => k.label), 'Total'];
+          const lines = [headers.join(',')];
+          rows.forEach(p => {
+            lines.push([
+              `"${p.name.replace(/"/g, '""')}"`,
+              p.earlier.toFixed(2),
+              ...monthKeys.map(k => (p.months[`${k.y}-${k.m}`] || 0).toFixed(2)),
+              p.total.toFixed(2),
+            ].join(','));
+          });
+          const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `Party-Outstanding-${useCalendar ? yearFilter : fyFilter}.csv`;
+          a.click();
+        };
+
+        const printPdf = () => {
+          const w = window.open('', '_blank');
+          if (!w) { toast('Pop-up blocked', 'warning'); return; }
+          const th = monthKeys.map(k => `<th style="padding:4px;border:1px solid #333;font-size:10px">${k.label}</th>`).join('');
+          const body = rows.map(p => `<tr>
+            <td style="padding:4px;border:1px solid #333;text-align:left">${p.name}</td>
+            <td style="padding:4px;border:1px solid #333;text-align:right">${p.earlier.toFixed(2)}</td>
+            ${monthKeys.map(k => `<td style="padding:4px;border:1px solid #333;text-align:right">${(p.months[`${k.y}-${k.m}`]||0).toFixed(2)}</td>`).join('')}
+            <td style="padding:4px;border:1px solid #333;text-align:right;font-weight:700">${p.total.toFixed(2)}</td>
+          </tr>`).join('');
+          w.document.write(`<!DOCTYPE html><html><head><title>Party Outstanding</title>
+            <style>@page{size:A4 landscape;margin:10mm} body{font-family:system-ui,sans-serif;font-size:11px}</style></head><body>
+            <h2>Party Outstanding — ${useCalendar ? 'Calendar ' + yearFilter : 'FY ' + fyFilter}</h2>
+            <table style="border-collapse:collapse;width:100%"><thead><tr>
+            <th style="padding:4px;border:1px solid #333">Party</th>
+            <th style="padding:4px;border:1px solid #333">Earlier</th>${th}
+            <th style="padding:4px;border:1px solid #333">Total</th>
+            </tr></thead><tbody>${body}</tbody></table>
+            <script>window.onload=()=>window.print()</script></body></html>`);
+          w.document.close();
+        };
+
+        return (
+          <div className="glass-panel p-4">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Party Outstanding</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
+                  Unpaid balances by party × month. Use period filters above (FY = Apr–Mar; Year = calendar Jan–Dec).
+                  <strong> Earlier</strong> = still unpaid from before this year.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn btn-secondary" onClick={exportCsv}>Export CSV</button>
+                <button type="button" className="btn btn-primary" onClick={printPdf}>Print / PDF</button>
+              </div>
+            </div>
+            {rows.length === 0 ? (
+              <p className="text-muted">No outstanding balances for this period.</p>
+            ) : (
+              <div className="table-responsive" style={{ overflowX: 'auto' }}>
+                <table className="data-table" style={{ width: '100%', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Party</th>
+                      <th style={{ textAlign: 'right' }}>Earlier</th>
+                      {monthKeys.map(k => <th key={k.label} style={{ textAlign: 'right' }}>{k.label}</th>)}
+                      <th style={{ textAlign: 'right' }}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(p => (
+                      <tr key={p.name}>
+                        <td className="font-medium">{p.name}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCurrency(p.earlier, currencyFilter)}</td>
+                        {monthKeys.map(k => (
+                          <td key={k.label} style={{ textAlign: 'right' }}>{formatCurrency(p.months[`${k.y}-${k.m}`] || 0, currencyFilter)}</td>
+                        ))}
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrency(p.total, currencyFilter)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ fontWeight: 700, background: 'var(--bg-secondary, #f8fafc)' }}>
+                      <td>Total</td>
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(colTotals.earlier, currencyFilter)}</td>
+                      {monthKeys.map(k => (
+                        <td key={k.label} style={{ textAlign: 'right' }}>{formatCurrency(colTotals.months[`${k.y}-${k.m}`] || 0, currencyFilter)}</td>
+                      ))}
+                      <td style={{ textAlign: 'right' }}>{formatCurrency(colTotals.total, currencyFilter)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
