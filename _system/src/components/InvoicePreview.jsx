@@ -1005,7 +1005,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         clientPhone: showClientPhone, clientEmail: showClientEmail,
         invoiceNumber: showInvoiceNumber, invoiceDate: showInvoiceDate, dueDate: showDueDate,
         placeOfSupply: showPlaceOfSupply, hsn: showHSN, itemQty: showItemQty,
-        itemUnit: showItemUnit !== false, rate: showRateColumn !== false,
+        itemUnit: showItemUnit !== false, rate: showRateColumn !== false && !hideMoneyOnDc, amount: !hideMoneyOnDc,
       },
       invoiceTitle: customTitle || typeConfig?.title || 'TAX INVOICE',
       accent, shortDate, words: amountInWords,
@@ -1015,12 +1015,13 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
         stampImg: stampImg || null, stampHeight: profile?.stampHeight || 48,
       },
       showSignatoryText: showSignatoryText !== false,
-      showBankDetails, account, sellerCC,
-      qrDataUrl: showUPI ? qrDataUrl : '', upiId,
+      showBankDetails: showBankDetails && !hideMoneyOnDc, account, sellerCC,
+      qrDataUrl: (showUPI && !hideMoneyOnDc) ? qrDataUrl : '', upiId,
       isIndia, isInterstate, showGST, taxLabel, singleRate, hasAnyDiscount, showAmountWords,
+      hideMoney: hideMoneyOnDc,
       showHsnSummary: !hideMoneyOnDc && (dcOpts.hideHsnSummary !== true) && (dcOpts.showHsnSummary !== false) && showHSN && hsnRows.length > 0 && isIndia,
       hsnRows,
-      showTaxInWords: options.showTaxInWords !== false && showGST && totalTax > 0,
+      showTaxInWords: !hideMoneyOnDc && options.showTaxInWords !== false && showGST && totalTax > 0,
       totalTax, termsHtml, notesHtml, termsClassMod,
       showDeclaration: options.showDeclaration !== false && isIndia,
       declarationText,
@@ -1248,7 +1249,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                     <th style={{ border: '1px solid #000', padding: 4 }}>IGST Amt</th>
                   </>
                 )}
-                <th style={{ border: '1px solid #000', padding: 4 }}>Amount</th>
+                {showAmountCol && <th style={{ border: '1px solid #000', padding: 4 }}>Amount</th>}
               </tr>
             </thead>
             <tbody>
@@ -1285,7 +1286,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                         <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right' }}>{fmt(taxAmount)}</td>
                       </>
                     )}
-                    <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right', fontWeight: 600 }}>{fmt(lineTotal)}</td>
+                    {showAmountCol && <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right', fontWeight: 600 }}>{fmt(lineTotal)}</td>}
                   </tr>
                 );
               })}
@@ -1424,7 +1425,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   {showRateColumn && <th className="inv-th inv-th-right" rowSpan="2">Rate</th>}
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>IGST</th>
-                  <th className="inv-th inv-th-right" rowSpan="2">Amount</th>
+                  {showAmountCol && <th className="inv-th inv-th-right" rowSpan="2">Amount</th>}
                 </tr>
                 <tr>
                   <th className="inv-th inv-th-center">%</th>
@@ -1442,7 +1443,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>CGST</th>
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>SGST</th>
-                  <th className="inv-th inv-th-right" rowSpan="2">Amount</th>
+                  {showAmountCol && <th className="inv-th inv-th-right" rowSpan="2">Amount</th>}
                 </tr>
                 <tr>
                   <th className="inv-th inv-th-center">%</th>
@@ -1462,7 +1463,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                   {showRateColumn && <th className="inv-th inv-th-right" rowSpan="2">Rate</th>}
                   {hasAnyDiscount && <th className="inv-th inv-th-right" rowSpan="2">Disc.</th>}
                   <th className="inv-th inv-th-center" colSpan="2" style={{ borderBottom: '1px solid #cbd5e1' }}>{taxLabel}</th>
-                  <th className="inv-th inv-th-right" rowSpan="2">Amount</th>
+                  {showAmountCol && <th className="inv-th inv-th-right" rowSpan="2">Amount</th>}
                 </tr>
                 <tr>
                   <th className="inv-th inv-th-center">%</th>
@@ -1478,7 +1479,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
               {showItemQty && <th className="inv-th inv-th-center">Qty</th>}
               {showRateColumn && <th className="inv-th inv-th-right">Rate</th>}
               {hasAnyDiscount && <th className="inv-th inv-th-right">Disc.</th>}
-              <th className="inv-th inv-th-right">Amount</th>
+              {showAmountCol && <th className="inv-th inv-th-right">Amount</th>}
             </tr>
           )}
         </thead>
@@ -1548,7 +1549,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       </table>
 
       {/* Totals section */}
-      <div className="inv-totals-section" style={hideMoneyOnDc ? { display: "none" } : undefined} style={pdfStyle !== 'classic' ? { padding: '1rem 2rem' } : {}}>
+      <div className="inv-totals-section" style={{ ...(hideMoneyOnDc ? { display: "none" } : {}), ...(pdfStyle !== "classic" ? { padding: "1rem 2rem" } : {}) }}>
         <div className="inv-words">
           {showAmountWords && (
             <>

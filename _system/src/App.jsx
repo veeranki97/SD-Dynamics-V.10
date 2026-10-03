@@ -96,7 +96,7 @@ function App() {
     } catch { /* sandboxed history API — fall through */ }
     const saved = sessionStorage.getItem('gst_currentView') || 'dashboard';
     // Guard: unknown / partially-updated views must not blank the whole app
-    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders']);
+    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders','einvoice']);
     return known.has(saved) ? saved : 'dashboard';
   });
   const [profile, setProfile] = useState(null);
@@ -1130,6 +1130,9 @@ function App() {
         )
         : currentView === 'payment-reminders' ? (
           <Suspense fallback={<ViewLoading />}><PaymentRemindersView /></Suspense>
+        )
+        : currentView === 'einvoice' ? (
+          <Suspense fallback={<ViewLoading />}><EinvoiceSettingsPanel /></Suspense>
         )
         : currentView === 'chart-settings' ? (
           <SettingsView onSaved={(p) => setProfile(p)} />

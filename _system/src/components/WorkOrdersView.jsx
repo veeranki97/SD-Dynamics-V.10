@@ -382,21 +382,29 @@ export default function WorkOrdersView() {
                   <td>{deriveWOStatus(woRow, bills)}</td>
                   <td>
                     <ActionMenu items={[
-                      { label: 'Convert to Tax Invoice', onClick: () => {
-                        try {
-                          sessionStorage.setItem('sd_convert_wo', JSON.stringify({
-                            workOrderId: wo.id,
-                            woNumber: wo.woNumber || wo.number,
-                            clientName: wo.clientName || wo.client,
-                            site: wo.site,
-                            items: wo.items || wo.lines || [],
-                            title: wo.title || wo.workDetails || wo.description,
-                          }));
-                        } catch {}
-                        window.dispatchEvent(new CustomEvent('sd-navigate', { detail: { view: 'invoice', convertWo: wo.id } }));
-                        if (typeof window.__sdOpenInvoiceFromWo === 'function') window.__sdOpenInvoiceFromWo(wo);
-                        else toast('Open New Invoice and pick this Work Order to convert', 'info');
-                      }},
+                      ...((() => {
+                        const st = String(woRow.status || wo.status || '').toLowerCase();
+                        const done = st === 'completed' || st === 'cancelled' || st === 'closed';
+                        if (done) return [];
+                        return [{
+                          label: 'Convert to Tax Invoice',
+                          onClick: () => {
+                            const payload = {
+                              workOrderId: woRow.id || wo.id,
+                              woNumber: woRow.woNumber || wo.woNumber || wo.number,
+                              clientName: woRow.clientName || wo.clientName || wo.client,
+                              site: woRow.site || wo.site,
+                              items: woRow.items || wo.items || wo.lines || [],
+                              title: woRow.title || wo.title || wo.workDetails || wo.description,
+                              costCenterId: woRow.costCenterId || wo.costCenterId,
+                            };
+                            try { sessionStorage.setItem('sd_convert_wo', JSON.stringify(payload)); } catch {}
+                            window.dispatchEvent(new CustomEvent('sd-navigate', { detail: { view: 'new', convertWo: payload.workOrderId } }));
+                            if (typeof window.__sdOpenInvoiceFromWo === 'function') window.__sdOpenInvoiceFromWo(payload);
+                            else toast('Opening New Invoice with this Work Order…', 'info');
+                          },
+                        }];
+                      })()),
                       { label: 'Edit', onClick: () => setForm({ ...woRow, items: (woRow.items && woRow.items.length) ? woRow.items : [emptyWOItem()] }) },
                       { label: 'Copy', onClick: () => setForm({ ...woRow, id: 'wo_' + Date.now().toString(36), woNumber: '', items: (woRow.items || []).map(it => ({ ...it })) }) },
                       { label: 'Delete', danger: true, onClick: () => remove(woRow.id) },

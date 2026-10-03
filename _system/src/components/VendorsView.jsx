@@ -78,6 +78,56 @@ export default function VendorsView() {
     return map;
   }, [list, purchases, expenses]);
 
+
+  const generateVendorStatement = async (vendorName) => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const margin = 14;
+      let y = 16;
+      doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+      doc.text('VENDOR ACCOUNT STATEMENT', margin, y); y += 8;
+      doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+      doc.text(String(vendorName || ''), margin, y); y += 6;
+      doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, margin, y); y += 10;
+      const rows = [];
+      for (const p of purchases) {
+        const name = p.vendorName || p.supplierName || p.data?.vendor?.name || '';
+        if (name !== vendorName) continue;
+        rows.push({
+          date: p.billDate || p.date || '',
+          ref: p.billNumber || p.number || p.id || '',
+          amount: Number(p.totalAmount || p.total || 0),
+          paid: Number(p.paidAmount || 0),
+        });
+      }
+      for (const e of expenses) {
+        if ((e.vendorName || e.payee || '') !== vendorName) continue;
+        const amt = Number(e.amount || 0) + (Number(e.gstAmount) || 0);
+        rows.push({ date: e.date || '', ref: e.category || 'Expense', amount: amt, paid: (e.status === 'paid' || e.paid) ? amt : 0 });
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.text('Date', margin, y); doc.text('Ref', margin + 30, y); doc.text('Amount', margin + 100, y); doc.text('Paid', margin + 140, y);
+      y += 5; doc.setFont('helvetica', 'normal');
+      let tot = 0, pd = 0;
+      for (const r of rows) {
+        if (y > 280) { doc.addPage(); y = 16; }
+        doc.text(String(r.date).slice(0, 12), margin, y);
+        doc.text(String(r.ref).slice(0, 28), margin + 30, y);
+        doc.text(Number(r.amount).toFixed(2), margin + 100, y);
+        doc.text(Number(r.paid).toFixed(2), margin + 140, y);
+        tot += r.amount; pd += r.paid; y += 5;
+      }
+      y += 4; doc.setFont('helvetica', 'bold');
+      doc.text(`Total: ${tot.toFixed(2)}  Paid: ${pd.toFixed(2)}  Outstanding: ${(tot - pd).toFixed(2)}`, margin, y);
+      doc.save(`Vendor-Statement-${String(vendorName).replace(/[^A-Za-z0-9]+/g, '_').slice(0, 30)}.pdf`);
+      toast('Vendor statement downloaded', 'success');
+    } catch (err) {
+      console.error(err);
+      toast('Statement failed', 'error');
+    }
+  };
+
   const filtered = search.trim()
     ? list.filter(v =>
         (v.name || '').toLowerCase().includes(search.toLowerCase())
@@ -142,6 +192,11 @@ export default function VendorsView() {
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 11, color: '#64748b' }}>Outstanding</div>
                   <div style={{ fontWeight: 600, color: m.outstanding > 0 ? '#dc2626' : '#059669' }}>{formatCurrency(m.outstanding)}</div>
+                <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 8 }}
+                  onClick={() => generateVendorStatement(v.name)}>Statement PDF</button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setExpanded(expanded === v.id ? null : v.id)}>
+                  {expanded === v.id ? 'Hide' : 'Details'}
+                </button>
                 </div>
                 <ActionMenu items={[
                   { label: 'Edit', onClick: () => setForm({ ...v }) },

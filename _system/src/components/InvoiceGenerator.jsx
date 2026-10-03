@@ -107,6 +107,7 @@ const DEFAULT_OPTIONS = {
   showPlaceOfSupply: true,
   showHSN: true,
   hideHsnSummary: false,
+  showTaxInWords: true,
   showDiscount: false,
   showBankDetails: true,
   showUPI: true,
@@ -602,6 +603,43 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // Work Order link (custom addition)
   const [workOrders, setWorkOrders] = useState([]);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
+  // Prefill from Work Orders → Convert to Tax Invoice
+  useEffect(() => {
+    if (editingBill) return;
+    try {
+      const raw = sessionStorage.getItem('sd_convert_wo');
+      if (!raw) return;
+      sessionStorage.removeItem('sd_convert_wo');
+      const p = JSON.parse(raw);
+      if (!p) return;
+      setSelectedWorkOrderId(p.workOrderId || '');
+      setInvoiceType?.('tax-invoice');
+      setDetails?.(prev => ({
+        ...prev,
+        workOrderNo: p.woNumber || prev.workOrderNo || '',
+        workDetails: p.title || prev.workDetails || '',
+        site: p.site || prev.site || '',
+      }));
+      if (p.clientName) {
+        setClient?.(prev => ({ ...prev, name: p.clientName, site: p.site || prev.site }));
+      }
+      if (Array.isArray(p.items) && p.items.length) {
+        const mapped = p.items.map((it, i) => ({
+          id: it.id || `wo_line_${i}`,
+          name: it.name || it.description || it.desc || '',
+          description: it.description || '',
+          hsn: it.hsn || it.sac || '',
+          quantity: Number(it.quantity || it.qty || 1),
+          unit: it.unit || 'NOS',
+          rate: Number(it.rate || 0),
+          taxPercent: Number(it.taxPercent || it.gst || 18),
+          costCenterId: it.costCenterId || p.costCenterId || '',
+        }));
+        setItems?.(mapped);
+      }
+    } catch (e) { console.warn('sd_convert_wo', e); }
+  }, [editingBill]);
+
   const [units, setUnits] = useState(getAllUnits());
   const [taxInclusive, setTaxInclusive] = useState(draft?.taxInclusive || false);
 

@@ -185,7 +185,7 @@ function BankLines({ ctx, tally }) {
 }
 
 function UpiQr({ ctx }) {
-  if (!ctx.qrDataUrl) return null;
+  if (ctx.hideMoney || !ctx.qrDataUrl) return null;
   return (
     <div {...blockProps} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
       <img src={ctx.qrDataUrl} alt="UPI QR" style={{ width: 72, height: 72 }} />
@@ -266,7 +266,7 @@ function TallyLayout({ ctx }) {
   const totalQty = items.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
   const showQtyTotal = units.length === 1 && t.itemQty;
   // Sl No + Description + Amount, plus the optional columns.
-  const colCount = 3 + (t.hsn ? 1 : 0) + (t.itemQty ? 1 : 0) + (t.rate ? 2 : 0) + (ctx.hasAnyDiscount ? 1 : 0);
+  const colCount = 2 + (t.hsn ? 1 : 0) + (t.itemQty ? 1 : 0) + (t.rate ? 2 : 0) + (ctx.hasAnyDiscount && !ctx.hideMoney ? 1 : 0) + ((t.amount !== false && !ctx.hideMoney) ? 1 : 0);
   const spacer = Math.max(0, 260 - items.length * 26 - rows.length * 20);
 
   return (
@@ -317,8 +317,8 @@ function TallyLayout({ ctx }) {
             {t.itemQty && <th style={th}>Quantity</th>}
             {t.rate && <th style={th}>Rate</th>}
             {t.rate && <th style={th}>per</th>}
-            {ctx.hasAnyDiscount && <th style={th}>Disc.</th>}
-            <th style={th}>Amount</th>
+            {ctx.hasAnyDiscount && !ctx.hideMoney && <th style={th}>Disc.</th>}
+            {t.amount !== false && !ctx.hideMoney && <th style={th}>Amount</th>}
           </tr>
         </thead>
         <tbody>
@@ -335,17 +335,19 @@ function TallyLayout({ ctx }) {
                 {t.itemQty && <td style={{ ...vc, ...right }}><strong>{item.quantity}{t.itemUnit && item.unit ? ` ${item.unit}` : ''}</strong></td>}
                 {t.rate && <td style={{ ...vc, ...right }}>{num(item.rate)}</td>}
                 {t.rate && <td style={{ ...vc, ...center }}>{item.unit || ''}</td>}
-                {ctx.hasAnyDiscount && <td style={{ ...vc, ...right }}>{l.discount > 0 ? num(l.discount) : ''}</td>}
-                <td style={{ ...vc, ...right }}><strong>{num(l.taxable)}</strong></td>
+                {ctx.hasAnyDiscount && !ctx.hideMoney && <td style={{ ...vc, ...right }}>{l.discount > 0 ? num(l.discount) : ''}</td>}
+                {t.amount !== false && !ctx.hideMoney && <td style={{ ...vc, ...right }}><strong>{num(l.taxable)}</strong></td>}
               </tr>
             );
           })}
           {/* Subtotal, then taxes and round-off inside the table, as Tally prints them. */}
+          {!ctx.hideMoney && (
           <tr>
             <td style={vc} /><td style={vc} />{blank(colCount - 3)}
             <td style={{ ...vc, ...right, borderTop: B }}>{num(totals.subtotal - (totals.totalDiscount || 0))}</td>
           </tr>
-          {rows.map(([k, v]) => (
+          )}
+          {!ctx.hideMoney && rows.map(([k, v]) => (
             <tr key={k}>
               <td style={vc} />
               <td style={{ ...vc, ...right, fontStyle: 'italic', fontWeight: 700 }}>{k}</td>
@@ -358,13 +360,13 @@ function TallyLayout({ ctx }) {
           )}
           <tr style={{ fontWeight: 800 }}>
             <td style={cell} />
-            <td style={{ ...cell, ...right }}>Total</td>
+            <td style={{ ...cell, ...right }}>{ctx.hideMoney ? '— End of list —' : 'Total'}</td>
             {t.hsn && <td style={cell} />}
             {t.itemQty && <td style={{ ...cell, ...right }}>{showQtyTotal ? `${totalQty}${t.itemUnit && units[0] ? ` ${units[0]}` : ''}` : ''}</td>}
             {t.rate && <td style={cell} />}
             {t.rate && <td style={cell} />}
-            {ctx.hasAnyDiscount && <td style={cell} />}
-            <td style={{ ...cell, ...right, fontSize: '1.08em' }}>{fmt(totals.total)}</td>
+            {ctx.hasAnyDiscount && !ctx.hideMoney && <td style={cell} />}
+            {t.amount !== false && !ctx.hideMoney && <td style={{ ...cell, ...right, fontSize: '1.08em' }}>{fmt(totals.total)}</td>}
           </tr>
         </tbody>
       </table>
@@ -375,14 +377,14 @@ function TallyLayout({ ctx }) {
         </div>
         <div style={{ fontStyle: 'italic', whiteSpace: 'nowrap' }}>E. &amp; O.E</div>
       </div>
-      {totals.tdsAmount > 0 && (
+      {!ctx.hideMoney && totals.tdsAmount > 0 && (
         <div {...blockProps} style={{ ...cell, borderTop: 'none', ...small }}>
           Less: TDS{ctx.options.tdsSection ? ` (${ctx.options.tdsSection} @ ${ctx.options.tdsRate}%)` : ''} {fmt(totals.tdsAmount)} · Net Receivable <strong>{fmt(totals.netReceivable)}</strong>
         </div>
       )}
 
       {ctx.showHsnSummary && <HsnSummaryTable ctx={ctx} />}
-      {ctx.showTaxInWords && ctx.totalTax > 0 && (
+      {!ctx.hideMoney && ctx.showTaxInWords && ctx.totalTax > 0 && (
         <div {...blockProps} style={{ ...cell, borderTop: 'none' }}>Tax Amount (in words) : <strong>{ctx.words(ctx.totalTax)}</strong></div>
       )}
 
