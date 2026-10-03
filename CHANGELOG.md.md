@@ -15,6 +15,32 @@
 - Resolved sidebar-related display issues.
 - Applied several minor UI and data stability fixes across the app.
 
+### Implemented / Done ✅
+
+This release includes the following work completed recently:
+
+- ✅ Settings page refreshed and optimized for faster loading.
+- ✅ Invoice page UI updated for improved user experience and cleaner layout.
+- ✅ Payment tracker enhancements completed.
+- ✅ Expenses tracker updated and corrected.
+- ✅ Sidebar issues fixed.
+- ✅ Minor functional and visual fixes across the application.
+- ✅ Existing stable accounting, GST, payroll, and reporting features retained.
+
+### Pending / To Do ⏳
+
+The following items are still pending or need additional work:
+
+- ⏳ Fix Site PNL calculation issue.
+- ⏳ Fix Work Order PNL calculation issue.
+- ⏳ Profile isolation for separate business ledgers.
+- ⏳ Payment reminder automation.
+- ⏳ E-invoicing / IRN integration.
+- ⏳ Bank CSV import matching.
+- ⏳ Audit report generation (PDF).
+- ⏳ GST 2B auto-download integration.
+- ⏳ Mobile app wrapper and API integration roadmap items.
+
 ### Current Features ✅
 
 This version includes all stable features developed to date:
