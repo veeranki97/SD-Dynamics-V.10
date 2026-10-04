@@ -1892,12 +1892,23 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       }
     } catch { /* ignore */ }
     
-    // HSN/SAC: exact 2/4/6/8 digits when provided
-    for (const it of items) {
-      const h = String(it.hsn || '').trim();
-      if (h && !/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(h)) {
-        toast(`HSN/SAC "${h}" must be 2, 4, 6 or 8 digits`, 'error');
-        return;
+    // HSN/SAC: exact 2/4/6/8 digits when provided; B2B Tax Invoice requires ≥4 digits on every line
+    {
+      const invT = String(invoiceType || '').toLowerCase();
+      const isTaxInv = invT.includes('tax') || invT === 'tax-invoice' || invT === '';
+      const isB2B = (client.gstin || '').replace(/\s/g, '').length === 15;
+      const b2bStrict = isTaxInv && isB2B && !/proforma|quotation|challan|delivery|composition|bill-of-supply/.test(invT);
+      for (let i = 0; i < items.length; i++) {
+        const h = String(items[i].hsn || '').trim();
+        if (b2bStrict) {
+          if (!/^\d{4}$|^\d{6}$|^\d{8}$/.test(h)) {
+            toast(`B2B Tax Invoice: line ${i + 1} needs HSN/SAC of 4, 6 or 8 digits`, 'error');
+            return;
+          }
+        } else if (h && !/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(h)) {
+          toast(`HSN/SAC "${h}" must be 2, 4, 6 or 8 digits`, 'error');
+          return;
+        }
       }
     }
 
