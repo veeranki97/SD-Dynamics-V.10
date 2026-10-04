@@ -450,6 +450,26 @@ function App() {
     if (picked && !picked.classList.contains('profile-switcher-btn')) setNavOpen(false);
   };
 
+  /** Work Order ⋮ → New Invoice (tax / proforma / DC). Uses sessionStorage + view switch (reliable). */
+  const handleWoConvertToInvoice = (wo, targetType = 'tax-invoice') => {
+    if (!wo || !wo.id) return;
+    const payload = {
+      workOrderId: wo.id,
+      woNumber: wo.woNumber || wo.number || '',
+      clientName: wo.clientName || wo.client || '',
+      site: wo.site || '',
+      title: wo.title || wo.workDetails || wo.workDescription || wo.notes || '',
+      costCenterId: wo.costCenterId || '',
+      targetType: targetType || 'tax-invoice',
+      periodStart: wo.periodStart || '',
+      periodEnd: wo.periodEnd || '',
+    };
+    try { sessionStorage.setItem('sd_convert_wo', JSON.stringify(payload)); } catch {}
+    sessionStorage.removeItem('gst_invoiceDraft');
+    setEditingBill(null);
+    setCurrentView('new');
+  };
+
   const handleNewInvoice = () => {
     sessionStorage.removeItem('gst_invoiceDraft');
     setEditingBill(null);
@@ -610,7 +630,7 @@ function App() {
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
-    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'settings', group: 'System' },
+    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'einvoice', icon: FileText, label: 'E-Invoice / GSP', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
@@ -1070,7 +1090,7 @@ function App() {
           <PurchaseBills key={businessKey} />
         )}
         {currentView === 'workorders' && (
-          <WorkOrdersView key={businessKey} />
+          <WorkOrdersView key={businessKey} onConvertToInvoice={handleWoConvertToInvoice} />
         )}
         {currentView === 'purchaseorders' && (
           <PurchaseOrdersView key={businessKey} />

@@ -30,7 +30,7 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
   return { sub, gst, cgst, sgst, igst, total: +(sub + gst).toFixed(2), isInterstate: !same };
 }
 
-export default function WorkOrdersView() {
+export default function WorkOrdersView({ onConvertToInvoice }) {
   const [list, setList] = useState([]);
   const [bills, setBills] = useState([]);
   const [clients, setClients] = useState([]);
@@ -383,27 +383,32 @@ export default function WorkOrdersView() {
                   <td>
                     <ActionMenu items={[
                       ...((() => {
-                        const st = String(woRow.status || wo.status || '').toLowerCase();
+                        const st = String(deriveWOStatus(woRow, bills)).toLowerCase();
                         const done = st === 'completed' || st === 'cancelled' || st === 'closed';
                         if (done) return [];
-                        return [{
-                          label: 'Convert to Tax Invoice',
-                          onClick: () => {
-                            const payload = {
-                              workOrderId: woRow.id || wo.id,
-                              woNumber: woRow.woNumber || wo.woNumber || wo.number,
-                              clientName: woRow.clientName || wo.clientName || wo.client,
-                              site: woRow.site || wo.site,
-                              items: woRow.items || wo.items || wo.lines || [],
-                              title: woRow.title || wo.title || wo.workDetails || wo.description,
-                              costCenterId: woRow.costCenterId || wo.costCenterId,
-                            };
-                            try { sessionStorage.setItem('sd_convert_wo', JSON.stringify(payload)); } catch {}
-                            window.dispatchEvent(new CustomEvent('sd-navigate', { detail: { view: 'new', convertWo: payload.workOrderId } }));
-                            if (typeof window.__sdOpenInvoiceFromWo === 'function') window.__sdOpenInvoiceFromWo(payload);
-                            else toast('Opening New Invoice with this Work Order…', 'info');
-                          },
-                        }];
+                        const go = (targetType) => {
+                          if (typeof onConvertToInvoice === 'function') {
+                            onConvertToInvoice(woRow, targetType);
+                          } else {
+                            try {
+                              sessionStorage.setItem('sd_convert_wo', JSON.stringify({
+                                workOrderId: woRow.id,
+                                woNumber: woRow.woNumber,
+                                clientName: woRow.clientName,
+                                site: woRow.site,
+                                title: woRow.title || woRow.workDetails,
+                                costCenterId: woRow.costCenterId,
+                                targetType,
+                              }));
+                            } catch {}
+                            toast('Open New Invoice — Work Order will pre-fill if conversion is wired in App', 'info');
+                          }
+                        };
+                        return [
+                          { label: 'Convert to Tax Invoice', onClick: () => go('tax-invoice') },
+                          { label: 'Convert to Proforma', onClick: () => go('proforma') },
+                          { label: 'Convert to Delivery Challan', onClick: () => go('delivery-challan') },
+                        ];
                       })()),
                       { label: 'Edit', onClick: () => setForm({ ...woRow, items: (woRow.items && woRow.items.length) ? woRow.items : [emptyWOItem()] }) },
                       { label: 'Copy', onClick: () => setForm({ ...woRow, id: 'wo_' + Date.now().toString(36), woNumber: '', items: (woRow.items || []).map(it => ({ ...it })) }) },

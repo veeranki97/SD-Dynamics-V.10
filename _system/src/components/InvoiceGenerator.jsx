@@ -603,42 +603,98 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // Work Order link (custom addition)
   const [workOrders, setWorkOrders] = useState([]);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
-  // Prefill from Work Orders → Convert to Tax Invoice
+  // Prefill from Work Order convert (Tax / Proforma / DC) — runs after WO list loads
   useEffect(() => {
     if (editingBill) return;
-    try {
-      const raw = sessionStorage.getItem('sd_convert_wo');
-      if (!raw) return;
-      sessionStorage.removeItem('sd_convert_wo');
-      const p = JSON.parse(raw);
-      if (!p) return;
-      setSelectedWorkOrderId(p.workOrderId || '');
-      setInvoiceType?.('tax-invoice');
-      setDetails?.(prev => ({
+    let raw;
+    try { raw = sessionStorage.getItem('sd_convert_wo'); } catch { return; }
+    if (!raw) return;
+    // Wait until work orders fetched so we can use the same fill path as "Link to Work Order"
+    if (!workOrders || workOrders.length === 0) return;
+    let p;
+    try { p = JSON.parse(raw); } catch { return; }
+    if (!p || !p.workOrderId) {
+      try { sessionStorage.removeItem('sd_convert_wo'); } catch {}
+      return;
+    }
+    const wo = workOrders.find(w => w.id === p.workOrderId)
+      || workOrders.find(w => (w.woNumber || '') === (p.woNumber || ''));
+    const t = String(p.targetType || 'tax-invoice').toLowerCase();
+    const invType = (t.includes('challan') || t.includes('delivery'))
+      ? 'delivery-challan'
+      : t.includes('proforma')
+        ? 'proforma'
+        : 'tax-invoice';
+    setInvoiceType(invType);
+    setSelectedWorkOrderId(p.workOrderId || wo?.id || '');
+    if (wo) {
+      setSelectedWorkOrderId(wo.id);
+      // Match client master (same as Link to Work Order)
+      getAllClients().then((all) => {
+        const list = (all || []).filter(c => !c.isVendor && c.type !== 'vendor');
+        const master = list.find(c => (c.name || '').toLowerCase() === (wo.clientName || p.clientName || '').toLowerCase());
+        setClient(prev => ({
+          ...prev,
+          name: wo.clientName || p.clientName || prev.name,
+          site: wo.site || p.site || prev.site || '',
+          address: master?.address || prev.address,
+          city: master?.city || prev.city,
+          pin: master?.pin || prev.pin,
+          state: master?.state || prev.state,
+          gstin: master?.gstin || prev.gstin,
+          phone: master?.phone || prev.phone,
+          email: master?.email || prev.email,
+        }));
+        if (master?.state) {
+          setDetails(d => ({ ...d, placeOfSupply: master.state }));
+        }
+      }).catch(() => {
+        setClient(prev => ({
+          ...prev,
+          name: wo.clientName || p.clientName || prev.name,
+          site: wo.site || p.site || prev.site || '',
+        }));
+      });
+      setDetails(prev => ({
+        ...prev,
+        periodStart: wo.periodStart || p.periodStart || prev.periodStart || '',
+        periodEnd: wo.periodEnd || p.periodEnd || prev.periodEnd || '',
+        workDetails: wo.title || wo.workDescription || wo.notes || p.title || prev.workDetails || '',
+        workOrderNo: wo.woNumber || p.woNumber || prev.workOrderNo || '',
+        site: wo.site || p.site || prev.site || '',
+      }));
+      if (wo.items && wo.items.length) {
+        const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
+        if (mapped && mapped.length) setItems(mapped);
+        else {
+          setItems(wo.items.map((it, idx) => ({
+            id: 'item_' + Date.now().toString(36) + '_' + idx,
+            name: it.description || it.name || '',
+            hsn: it.hsn || '',
+            quantity: Number(it.qty) || Number(it.quantity) || 1,
+            unit: it.unit || 'Nos',
+            rate: Number(it.rate) || 0,
+            discount: 0,
+            taxPercent: Number(it.taxPercent) || 18,
+            cessPercent: 0,
+            costCenterId: it.costCenterId || it.costHead || p.costCenterId || '',
+          })));
+        }
+      }
+      toast(`Filled from Work Order ${wo.woNumber || wo.id} → ${invType}`, 'success');
+    } else {
+      // WO list loaded but id not found — still apply payload basics
+      setClient(prev => ({ ...prev, name: p.clientName || prev.name, site: p.site || prev.site || '' }));
+      setDetails(prev => ({
         ...prev,
         workOrderNo: p.woNumber || prev.workOrderNo || '',
         workDetails: p.title || prev.workDetails || '',
         site: p.site || prev.site || '',
       }));
-      if (p.clientName) {
-        setClient?.(prev => ({ ...prev, name: p.clientName, site: p.site || prev.site }));
-      }
-      if (Array.isArray(p.items) && p.items.length) {
-        const mapped = p.items.map((it, i) => ({
-          id: it.id || `wo_line_${i}`,
-          name: it.name || it.description || it.desc || '',
-          description: it.description || '',
-          hsn: it.hsn || it.sac || '',
-          quantity: Number(it.quantity || it.qty || 1),
-          unit: it.unit || 'NOS',
-          rate: Number(it.rate || 0),
-          taxPercent: Number(it.taxPercent || it.gst || 18),
-          costCenterId: it.costCenterId || p.costCenterId || '',
-        }));
-        setItems?.(mapped);
-      }
-    } catch (e) { console.warn('sd_convert_wo', e); }
-  }, [editingBill]);
+      toast('Work Order id not in list — partial prefill only', 'warning');
+    }
+    try { sessionStorage.removeItem('sd_convert_wo'); } catch {}
+  }, [editingBill, workOrders]);
 
   const [units, setUnits] = useState(getAllUnits());
   const [taxInclusive, setTaxInclusive] = useState(draft?.taxInclusive || false);
