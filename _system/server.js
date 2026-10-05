@@ -12,6 +12,9 @@ import { fileURLToPath } from 'url';
 // re-implemented totals inline and silently reintroduced every bug the
 // v1.10.1 extraction fixed. Same source of truth now.
 import { computeInvoiceTotals } from './src/utils.js';
+import {
+  initSqliteStore, isSqliteReady, sqliteList, sqliteGet, sqliteUpsert, sqliteRemove, sqliteStats,
+} from './src/db/sqliteStore.js';
 import { filterActiveRecords, softDeleteRecord, isSoftDeleted, isSubmitted } from './src/utils/softDelete.js';
 import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
 
@@ -89,6 +92,17 @@ for (const dir of DIRS) {
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
+
+// ========================
+// SQLite primary store (full cut-over)
+// ========================
+const _sqliteInit = initSqliteStore(DATA_DIR);
+if (_sqliteInit.ok) {
+  console.log('[sqlite] Primary store ready', _sqliteInit.migrated != null ? `(migrated ${_sqliteInit.migrated})` : '');
+} else {
+  console.warn('[sqlite] Falling back to JSON files:', _sqliteInit.reason);
+}
+
 
 // Helper: safe filename from ID (replace slashes, etc.)
 function safeFileName(id) {
@@ -171,27 +185,25 @@ function invalidateCache(dir) { delete dirCache[dir]; }
 
 // Helper: read all JSON files from a directory (cached, 5s TTL)
 function readAllFromDir(dir, { includeDeleted = false } = {}) {
-  const cacheKey = includeDeleted ? dir + ':all' : dir;
-  const entry = dirCache[cacheKey];
-  if (entry && entry.value != null && (Date.now() - entry.at) < DIR_CACHE_TTL_MS) return entry.value;
+  if (isSqliteReady()) {
+    const list = sqliteList(dir, { includeDeleted });
+    if (list) return list;
+  }
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) return [];
-  let results = fs.readdirSync(dirPath)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try { return JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf-8')); }
-      catch { return null; }
-    })
-    .filter(Boolean);
-  // P1: hide soft-deleted records from normal list APIs
-  if (!includeDeleted) {
-    results = filterActiveRecords(results);
+  const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.json'));
+  const out = [];
+  for (const f of files) {
+    try {
+      const obj = JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf8'));
+      if (!includeDeleted && (obj.deleted || obj.isDeleted || obj._deleted)) continue;
+      out.push(obj);
+    } catch { /* skip */ }
   }
-  dirCache[cacheKey] = { at: Date.now(), value: results };
-  return results;
+  return out;
 }
 
-// Helper: read a single JSON file
+
 function readJSON(filePath, fallback = null) {
   try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -203,6 +215,23 @@ function readJSON(filePath, fallback = null) {
 // atomically via temp+rename so a crash mid-write can't leave a
 // truncated meta.json that resets the invoice counter.
 function writeJSON(filePath, data) {
+  // SQLite primary write when path is data/<collection>/<id>.json
+  try {
+    if (isSqliteReady() && data && typeof data === 'object') {
+      const rel = path.relative(DATA_DIR, path.resolve(filePath));
+      const parts = rel.split(path.sep);
+      if (parts.length >= 2 && !parts[0].startsWith('..')) {
+        const collection = parts[0];
+        const base = parts[parts.length - 1].replace(/\.json$/i, '');
+        if (data.id == null) data.id = base;
+        sqliteUpsert(collection, data);
+      } else if (path.basename(filePath) === 'profile.json') {
+        const p = { ...data, id: data.id || 'default' };
+        sqliteUpsert('profiles', p);
+      }
+    }
+  } catch (se) { console.warn('[sqlite] upsert on writeJSON:', se.message); }
+
   writeFileAtomic(filePath, JSON.stringify(data, null, 2));
   // Invalidate cache for the parent directory
   const parentDir = path.basename(path.dirname(filePath));
@@ -210,7 +239,20 @@ function writeJSON(filePath, data) {
 }
 
 // Helper: delete file (with cache invalidation)
+
+
 function deleteFile(filePath) {
+  try {
+    if (isSqliteReady()) {
+      const rel = path.relative(DATA_DIR, path.resolve(filePath));
+      const parts = rel.split(path.sep);
+      if (parts.length >= 2 && !parts[0].startsWith('..')) {
+        const collection = parts[0];
+        const id = parts[parts.length - 1].replace(/\.json$/i, '');
+        sqliteRemove(collection, id);
+      }
+    }
+  } catch (e) { console.warn('[sqlite] remove on deleteFile:', e.message); }
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   const parentDir = path.basename(path.dirname(filePath));
   if (DIRS.includes(parentDir)) invalidateCache(parentDir);
@@ -2503,7 +2545,27 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 let activeServer = null;
 
 function startServer(port) {
-  const server = app.listen(port, '127.0.0.1', () => {
+  const server = 
+app.get('/api/sqlite-status', (req, res) => {
+  try {
+    res.json(sqliteStats());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/sqlite-reimport', (req, res) => {
+  try {
+    if (!isSqliteReady()) return res.status(503).json({ error: 'sqlite not ready' });
+    process.env.SD_SQLITE_REIMPORT = '1';
+    const r = initSqliteStore(DATA_DIR);
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.listen(port, '127.0.0.1', () => {
     activeServer = server;
     // Persist the chosen port — the .bat launcher reads this for the browser URL.
     // Writing on EVERY successful boot means: if our preferred 47371 was busy and
