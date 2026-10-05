@@ -191,19 +191,28 @@ function readAllFromDir(dir, { includeDeleted = false } = {}) {
   }
   const dirPath = path.join(DATA_DIR, dir);
   if (!fs.existsSync(dirPath)) return [];
+  // In-memory cache for directory reads (JSON fallback)
+  const now = Date.now();
+  const cached = dirCache[dir];
+  if (cached && (now - (cached.ts || 0)) < DIR_CACHE_TTL_MS) {
+    return includeDeleted ? cached.data : cached.data.filter(o => !(o.deleted || o.isDeleted || o._deleted));
+  }
   const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.json'));
   const out = [];
   for (const f of files) {
     try {
       const obj = JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf8'));
-      if (!includeDeleted && (obj.deleted || obj.isDeleted || obj._deleted)) continue;
       out.push(obj);
     } catch { /* skip */ }
+  }
+  dirCache[dir] = { data: out, ts: now };
+  if (!includeDeleted) {
+    return out.filter(o => !(o.deleted || o.isDeleted || o._deleted));
   }
   return out;
 }
 
-
+// Helper: read a single JSON file
 function readJSON(filePath, fallback = null) {
   try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -239,8 +248,6 @@ function writeJSON(filePath, data) {
 }
 
 // Helper: delete file (with cache invalidation)
-
-
 function deleteFile(filePath) {
   try {
     if (isSqliteReady()) {
@@ -253,6 +260,7 @@ function deleteFile(filePath) {
       }
     }
   } catch (e) { console.warn('[sqlite] remove on deleteFile:', e.message); }
+
   if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   const parentDir = path.basename(path.dirname(filePath));
   if (DIRS.includes(parentDir)) invalidateCache(parentDir);
