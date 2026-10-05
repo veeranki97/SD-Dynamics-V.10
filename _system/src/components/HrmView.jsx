@@ -337,6 +337,72 @@ export default function HrmView() {
     setBusy(false);
   };
 
+  
+  const generatePayslip = (emp, payRow) => {
+    const cfg = config || {};
+    const pfRate = Number(cfg.pfEmployeePercent ?? 12) / 100;
+    const esiRate = Number(cfg.esiEmployeePercent ?? 0.75) / 100;
+    const days = Number(payRow?.daysWorked ?? payRow?.workingDays ?? payRow?.presentDays ?? 0) || 0;
+    const daily = Number(payRow?.dailyRate ?? emp.dailyRate ?? (Number(emp.basic || 0) / 26)) || 0;
+    const basic = Number(payRow?.basic ?? payRow?.basicEarned ?? Math.round(daily * days * 0.2)) || 0;
+    const da = Number(payRow?.da ?? payRow?.dearness ?? Math.round(daily * days - basic)) || 0;
+    let totalEarn = Number(payRow?.gross ?? payRow?.totalEarnings ?? (basic + da)) || (basic + da);
+    if (!totalEarn && daily && days) totalEarn = Math.round(daily * days);
+    const pfBase = Math.min(totalEarn, Number(cfg.pfWageCeiling ?? 15000) || 15000);
+    const pf = Number(payRow?.pfEmployee ?? Math.round(pfBase * pfRate)) || 0;
+    const esiEligible = totalEarn <= (Number(cfg.esiWageCeiling ?? 21000) || 21000);
+    const esi = Number(payRow?.esiEmployee ?? (esiEligible ? Math.round(totalEarn * esiRate) : 0)) || 0;
+    const totalDed = pf + esi;
+    const net = Math.max(0, totalEarn - totalDed);
+    const biz = cfg.businessName || document.title || 'Business';
+    const addr = cfg.businessAddress || '';
+    const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`.toUpperCase();
+    const from = payRow?.periodFrom || `01/${String(month).padStart(2, '0')}/${year}`;
+    const to = payRow?.periodTo || `${new Date(year, month, 0).getDate()}/${String(month).padStart(2, '0')}/${year}`;
+    const words = (() => {
+      try {
+        if (typeof numberToWordsIndian === 'function') return numberToWordsIndian(net);
+      } catch { /* */ }
+      return String(net);
+    })();
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Payslip ${emp.name || ''}</title>
+<style>
+  body{font-family:Georgia,serif;max-width:720px;margin:24px auto;color:#111;font-size:13px}
+  h1{text-align:center;color:#1e3a5f;margin:0 0 4px;font-size:22px}
+  .addr{text-align:center;font-size:11px;color:#444;margin-bottom:8px}
+  .title{text-align:center;font-weight:700;margin:12px 0 16px;font-size:14px}
+  table{width:100%;border-collapse:collapse;margin-bottom:14px}
+  td,th{border:1px solid #333;padding:6px 8px;vertical-align:top}
+  th{background:#e8eef5;text-align:left}
+  .net{font-weight:700;font-size:15px;margin-top:12px}
+  .words{font-style:italic;font-size:12px;margin-top:4px}
+  @media print{body{margin:12px}}
+</style></head><body>
+  <h1>${biz}</h1>
+  <div class="addr">${addr}</div>
+  <div class="title">PAYSLIP FOR THE MONTH OF ${monthLabel} (${from} to ${to})</div>
+  <table>
+    <tr><td><b>Employee Name:</b></td><td>${emp.name || ''}</td><td><b>Designation:</b></td><td>${emp.designation || emp.category || ''}</td></tr>
+    <tr><td><b>UAN:</b></td><td>${emp.uan || ''}</td><td><b>ESI No:</b></td><td>${emp.esiNumber || emp.esic || ''}</td></tr>
+    <tr><td><b>Working Days:</b></td><td>${days}</td><td><b>Daily Rate:</b></td><td>₹${daily.toLocaleString('en-IN')}</td></tr>
+  </table>
+  <table>
+    <tr><th>Earnings</th><th>Amount (₹)</th><th>Deductions</th><th>Amount (₹)</th></tr>
+    <tr><td>Basic Salary</td><td>${basic.toLocaleString('en-IN')}</td><td>Provident Fund (PF ${(pfRate*100).toFixed(0)}%)</td><td>${pf.toLocaleString('en-IN')}</td></tr>
+    <tr><td>Dearness Allowance (DA)</td><td>${da.toLocaleString('en-IN')}</td><td>Employee State Insurance (ESI ${(esiRate*100).toFixed(2)}%)</td><td>${esi.toLocaleString('en-IN')}</td></tr>
+    <tr><td><b>Total Earnings</b></td><td><b>${totalEarn.toLocaleString('en-IN')}</b></td><td><b>Total Deductions</b></td><td><b>${totalDed.toLocaleString('en-IN')}</b></td></tr>
+  </table>
+  <div class="net">Net Amount Paid: ₹${net.toLocaleString('en-IN')}/-</div>
+  <div class="words">Amount in Words: Rupees ${words} Only</div>
+  <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+</body></html>`;
+    const w = window.open('', '_blank', 'noopener,noreferrer');
+    if (!w) { toast('Allow pop-ups to download payslip', 'warning'); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
+
   const deleteMinWage = async (m) => {
     const ok = await confirmAction({
       title: 'Delete min-wage row?',
@@ -524,11 +590,26 @@ export default function HrmView() {
 
       {tab === 'payroll' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" className="btn btn-primary" disabled={busy} onClick={processPayroll}>Process payroll</button>
             <button type="button" className="btn btn-secondary" onClick={lockPayroll}>Lock month</button>
             <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Wages register CSV</a>
             {payroll?.locked && <span style={{ color: '#dc2626', fontWeight: 600, alignSelf: 'center' }}>LOCKED</span>}
+            <span style={{ width: 1, height: 24, background: 'var(--border, #e2e8f0)', margin: '0 4px' }} />
+            <select id="sd-payslip-emp" className="form-input" style={{ maxWidth: 240, height: 36 }}>
+              <option value="">Payslip — select employee…</option>
+              {(employees || []).filter(e => e.isActive !== false && !e.deleted).map(e => (
+                <option key={e.id} value={e.id}>{e.name} ({e.employeeCode || e.uan || '—'})</option>
+              ))}
+            </select>
+            <button type="button" className="btn btn-secondary" onClick={() => {
+              const id = document.getElementById('sd-payslip-emp')?.value;
+              const emp = (employees || []).find(e => String(e.id) === String(id));
+              if (!emp) { toast('Select an employee for payslip', 'warning'); return; }
+              const rows = payroll?.rows || payroll?.employees || (Array.isArray(payroll) ? payroll : []) || [];
+              const row = rows.find(r => String(r.employeeId || r.empId || r.id) === String(emp.id)) || {};
+              generatePayslip(emp, row);
+            }}>Generate / Download payslip</button>
           </div>
           <div className="glass-panel" style={{ overflow: 'auto' }}>
             <table className="data-table" style={{ width: '100%' }}>

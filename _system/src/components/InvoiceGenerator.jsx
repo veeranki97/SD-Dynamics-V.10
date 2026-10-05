@@ -951,7 +951,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // reason, so the user is told which field is missing rather than just
   // being refused.
   const validateForSave = useCallback(() => {
-    if (editingBill) return null; // an existing bill is already a real record
     if (!client?.name?.trim()) {
       return 'Add a client name before saving.';
     }
@@ -961,18 +960,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (!hasRealItem) {
       return 'Add at least one item with a quantity and rate before saving.';
     }
-    // Invoice date vs bill period: date must be >= period start and >= period end
-    const inv = (details?.invoiceDate || '').slice(0, 10);
+    // Invoice date vs bill period (new + edit): date >= periodStart and >= periodEnd
+    const invD = (details?.invoiceDate || '').slice(0, 10);
     const ps = (details?.periodStart || '').slice(0, 10);
     const pe = (details?.periodEnd || '').slice(0, 10);
-    if (inv && ps && inv < ps) {
+    if (invD && ps && invD < ps) {
       return 'Invoice Date cannot be earlier than Bill Period Start.';
     }
-    if (inv && pe && inv < pe) {
+    if (invD && pe && invD < pe) {
       return 'Invoice Date must be on or after Bill Period End (service complete before / on invoice date).';
     }
     return null;
-  }, [client?.name, items, editingBill, details?.invoiceDate, details?.periodStart, details?.periodEnd]);
+  }, [client?.name, items, details?.invoiceDate, details?.periodStart, details?.periodEnd]);
 
   // Debounced auto-save (2s after last change), gated on meaningful content.
   //
@@ -1499,27 +1498,38 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   }, []);
 
 
-  const duplicateItem = (id) => {
+  const duplicateItem = useCallback((id) => {
     setItems(prev => {
-      const i = prev.findIndex(x => x.id === id);
-      if (i < 0) return prev;
-      const copy = { ...prev[i], id: 'item_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) };
+      const i = id ? prev.findIndex(x => x.id === id) : prev.length - 1;
+      const srcIdx = i >= 0 ? i : prev.length - 1;
+      if (srcIdx < 0 || !prev[srcIdx]) return prev;
+      const copy = {
+        ...prev[srcIdx],
+        id: 'item_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      };
       const next = [...prev];
-      next.splice(i + 1, 0, copy);
+      next.splice(srcIdx + 1, 0, copy);
       return next;
     });
-  };
-  const fillDownFrom = (id, field) => {
-    const aliases = { description: 'name', taxRate: 'taxPercent', cessRate: 'cessPercent' };
+  }, []);
+  const fillDownFrom = useCallback((id, field) => {
+    const aliases = { description: 'name', taxRate: 'taxPercent', cessRate: 'cessPercent', desc: 'name' };
     const f = aliases[field] || field;
     setItems(prev => {
       const i = prev.findIndex(x => x.id === id);
-      if (i < 0 || i === prev.length - 1) return prev;
+      if (i < 0) return prev;
+      if (i === prev.length - 1) {
+        try { toast('Add another line first, then Fill down', 'info'); } catch { /* */ }
+        return prev;
+      }
       const val = prev[i][f];
-      if (val === undefined) return prev;
+      if (val === undefined || val === null || val === '') {
+        try { toast(`Nothing to fill for ${f}`, 'info'); } catch { /* */ }
+        return prev;
+      }
       return prev.map((row, idx) => (idx > i ? { ...row, [f]: val } : row));
     });
-  };
+  }, []);
 
   const removeItem = useCallback((id) => {
     // Uses functional setState so the useCallback dep can stay empty —

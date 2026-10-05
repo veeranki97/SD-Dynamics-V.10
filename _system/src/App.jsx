@@ -482,6 +482,15 @@ function App() {
     setCurrentView('new');
   };
 
+  useEffect(() => {
+    const onOpen = (ev) => {
+      const bill = ev?.detail;
+      if (bill) handleEditInvoice(bill);
+    };
+    window.addEventListener('sd-open-invoice', onOpen);
+    return () => window.removeEventListener('sd-open-invoice', onOpen);
+  }, []);
+
   const handleDuplicateInvoice = (bill) => {
     sessionStorage.removeItem('gst_invoiceDraft');
     const clone = JSON.parse(JSON.stringify(bill));
@@ -1090,7 +1099,7 @@ function App() {
           <PurchaseBills key={businessKey} />
         )}
         {currentView === 'workorders' && (
-          <WorkOrdersView key={businessKey} onConvertToInvoice={handleWoConvertToInvoice} />
+          <WorkOrdersView key={businessKey} onConvertToInvoice={handleWoConvertToInvoice} onOpenInvoice={handleEditInvoice} />
         )}
         {currentView === 'purchaseorders' && (
           <PurchaseOrdersView key={businessKey} />
