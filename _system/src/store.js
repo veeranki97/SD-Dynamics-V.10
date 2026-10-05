@@ -409,6 +409,26 @@ export const getAllReceipts = async () => {
 };
 
 export const saveReceipt = async (receipt) => {
+  // Payment ceiling: cannot exceed outstanding unless advanceCredit flag
+  if (receipt && !receipt.advanceCredit && (receipt.againstInvoiceId || receipt.invoiceId || receipt.againstInvoice)) {
+    const invKey = receipt.againstInvoiceId || receipt.invoiceId || receipt.againstInvoice;
+    try {
+      const bills = await getAllBills();
+      const list = Array.isArray(bills) ? bills : (bills?.items || []);
+      const bill = list.find(b => b.id === invKey || b.invoiceNumber === invKey);
+      if (bill) {
+        const total = Number(bill.totalAmount ?? bill.data?.totals?.total ?? 0) || 0;
+        const paid = Number(bill.paidAmount ?? 0) || 0;
+        const outstanding = Math.max(0, Math.round((total - paid) * 100) / 100);
+        const amt = Number(receipt.amount ?? receipt.paidAmount ?? 0) || 0;
+        if (amt > outstanding + 0.05) {
+          throw new Error(`Payment ₹${amt.toFixed(2)} exceeds outstanding ₹${outstanding.toFixed(2)}. Set advanceCredit to allow overpayment.`);
+        }
+      }
+    } catch (e) {
+      if (String(e.message || '').includes('exceeds outstanding')) throw e;
+    }
+  }
   const res = await apiFetch(`${API}/receipts`, { method: 'POST', body: JSON.stringify(receipt) });
   if (res.id) receipt.id = res.id;
   return receipt;

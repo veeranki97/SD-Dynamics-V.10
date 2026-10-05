@@ -4252,7 +4252,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <label className="form-label">E-Way Bill No (goods only)</label>
                 <input className="form-input" value={details.eWayBillNo || ''}
                   onChange={(e) => setDetails({ ...details, eWayBillNo: e.target.value })}
-                  placeholder="Threshold in Settings" />
+                  placeholder="Paste e-Way Bill No from portal"
+				title="Checklist: goods HSN lines · threshold in Settings · generate JSON → file on portal → paste number here"			
+				/>
               </div>
             </div>
 

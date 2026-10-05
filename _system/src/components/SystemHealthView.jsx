@@ -167,20 +167,20 @@ export default function SystemHealthView() {
         </p>
       </div>
 
-      <div style={{
+      <details style={{
         border: '1px solid var(--border, #e2e8f0)', borderRadius: 10,
         background: '#0f172a', color: '#e2e8f0', padding: 14,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12, color: '#94a3b8' }}>
-          <Activity size={14} /> Error log tail (last ~4KB)
-        </div>
+        <summary style={{ cursor: 'pointer', fontSize: 12, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Activity size={14} /> Error log tail (optional — expand if debugging)
+        </summary>
         <pre style={{
-          margin: 0, fontSize: 11, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          maxHeight: 360, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          margin: '10px 0 0', fontSize: 11, lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          maxHeight: 280, overflow: 'auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         }}>
           {(data?.errorsTail || '').trim() || '(no errors recorded)'}
         </pre>
-      </div>
+      </details>
     </div>
   );
 }

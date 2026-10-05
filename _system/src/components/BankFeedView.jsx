@@ -3,6 +3,22 @@ import { getAllBills, getAllExpenses, saveBill, saveExpense } from '../store';
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 
+const BANK_RULES_KEY = 'sd_bank_match_rules';
+function loadBankRules() {
+  try { return JSON.parse(localStorage.getItem(BANK_RULES_KEY) || '[]'); } catch { return []; }
+}
+function saveBankRules(rules) {
+  try { localStorage.setItem(BANK_RULES_KEY, JSON.stringify(rules)); } catch { /* */ }
+}
+function suggestFromRules(narration) {
+  const n = String(narration || '').toLowerCase();
+  for (const r of loadBankRules()) {
+    if (r.contains && n.includes(String(r.contains).toLowerCase())) return r;
+  }
+  return null;
+}
+
+
 /** Parse simple bank CSV: Date, Description, Debit, Credit, Balance (flexible headers) */
 function parseBankCsv(text) {
   const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim());
