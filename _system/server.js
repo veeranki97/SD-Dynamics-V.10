@@ -2438,6 +2438,27 @@ app.get('/api/bills/export-month', (req, res) => {
   }
 });
 
+
+app.get('/api/sqlite-status', (req, res) => {
+  try {
+    res.json(sqliteStats());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/sqlite-reimport', (req, res) => {
+  try {
+    if (!isSqliteReady()) return res.status(503).json({ error: 'sqlite not ready' });
+    process.env.SD_SQLITE_REIMPORT = '1';
+    const r = initSqliteStore(DATA_DIR);
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.get('{*path}', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
   if (fs.existsSync(indexPath)) {
@@ -2554,25 +2575,6 @@ let activeServer = null;
 
 function startServer(port) {
   const server = 
-app.get('/api/sqlite-status', (req, res) => {
-  try {
-    res.json(sqliteStats());
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/sqlite-reimport', (req, res) => {
-  try {
-    if (!isSqliteReady()) return res.status(503).json({ error: 'sqlite not ready' });
-    process.env.SD_SQLITE_REIMPORT = '1';
-    const r = initSqliteStore(DATA_DIR);
-    res.json(r);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.listen(port, '127.0.0.1', () => {
     activeServer = server;
     // Persist the chosen port — the .bat launcher reads this for the browser URL.
