@@ -1,11 +1,6 @@
 /**
- * Full SQLite cut-over for SD Dynamics
- * ------------------------------------
- * Primary store: data/sd-dynamics.sqlite (better-sqlite3)
- * On first boot (empty DB): imports all JSON files under data/<collection>/
- * Writes: SQLite always; JSON mirror when SD_JSON_MIRROR=1 (default ON for safety)
- * Disable JSON mirror: SD_JSON_MIRROR=0
- * Force re-import from JSON: SD_SQLITE_REIMPORT=1
+ * Full SQLite store — SD Dynamics
+ * Primary: data/sd-dynamics.sqlite | JSON mirror default ON (SD_JSON_MIRROR=0 to disable)
  */
 import fs from 'fs';
 import path from 'path';
@@ -13,7 +8,8 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-const COLLECTIONS = [
+/** Top-level + HRM nested (forward-slash keys) */
+export const COLLECTIONS = [
   'bills',
   'clients',
   'templates',
@@ -29,6 +25,11 @@ const COLLECTIONS = [
   'costcenters',
   'accounts',
   'budgets',
+  'hrm/employees',
+  'hrm/attendance',
+  'hrm/payroll',
+  'hrm/minwages',
+  'hrm/settings',
 ];
 
 let db = null;
@@ -48,11 +49,15 @@ export function getSqliteDb() {
   return db;
 }
 
-/**
- * Open DB, create schema, migrate from JSON if needed.
- * @param {string} DATA_DIR absolute path to data/
- * @returns {{ ok: boolean, reason?: string, migrated?: number }}
- */
+function safeFileName(id) {
+  return String(id).replace(/[/\\:*?"<>|]/g, '_');
+}
+
+/** collection may be "bills" or "hrm/employees" */
+function collectionDir(collection) {
+  return path.join(dataDir, ...String(collection).split('/').filter(Boolean));
+}
+
 export function initSqliteStore(DATA_DIR) {
   dataDir = DATA_DIR;
   jsonMirror = process.env.SD_JSON_MIRROR !== '0';
@@ -115,6 +120,7 @@ export function initSqliteStore(DATA_DIR) {
         String(migrated)
       );
       console.log(`[sqlite] Imported ${migrated} records from JSON → ${dbPath}`);
+      process.env.SD_SQLITE_REIMPORT = '0';
     } else {
       const row = db.prepare('SELECT COUNT(*) AS c FROM records').get();
       console.log(`[sqlite] Open ${dbPath} (${row?.c || 0} records, mirror=${jsonMirror ? 'on' : 'off'})`);
@@ -132,14 +138,15 @@ export function initSqliteStore(DATA_DIR) {
 
 function extractIndex(collection, obj) {
   if (!obj || typeof obj !== 'object') return {};
-  const id = String(obj.id || obj.invoiceNumber || '');
+  const id = String(obj.id || obj.invoiceNumber || obj.empId || obj.code || '');
   return {
     id,
-    invoiceNumber: obj.invoiceNumber || obj.woNumber || obj.poNumber || obj.number || '',
+    invoiceNumber: obj.invoiceNumber || obj.woNumber || obj.poNumber || obj.number || obj.empCode || '',
     docDate:
       obj.invoiceDate ||
       obj.date ||
       obj.billDate ||
+      obj.month ||
       obj.createdAt ||
       obj.updatedAt ||
       '',
@@ -149,13 +156,26 @@ function extractIndex(collection, obj) {
       obj.vendorName ||
       obj.supplierName ||
       obj.name ||
+      obj.employeeName ||
       '',
-    status: obj.status || '',
-    totalAmount: money(obj.totalAmount ?? obj.total ?? obj.data?.totals?.total ?? 0),
+    status: obj.status || (obj.isActive === false ? 'inactive' : '') || '',
+    totalAmount: money(obj.totalAmount ?? obj.total ?? obj.data?.totals?.total ?? obj.gross ?? 0),
     workOrderId: obj.workOrderId || obj.data?.workOrderId || '',
     invoiceType: obj.invoiceType || obj.data?.invoiceType || collection,
     updatedAt: new Date().toISOString(),
   };
+}
+
+function walkJsonFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    let st;
+    try { st = fs.statSync(full); } catch { continue; }
+    if (st.isDirectory()) walkJsonFiles(full, out);
+    else if (name.endsWith('.json')) out.push(full);
+  }
+  return out;
 }
 
 function importAllJson(DATA_DIR) {
@@ -174,33 +194,43 @@ function importAllJson(DATA_DIR) {
       updatedAt=excluded.updatedAt,
       payload_json=excluded.payload_json
   `);
-
-  const tx = db.transaction((rows) => {
-    for (const r of rows) upsert.run(r);
-  });
-
+  const tx = db.transaction((rows) => { for (const r of rows) upsert.run(r); });
   const batch = [];
+
   for (const collection of COLLECTIONS) {
-    const dir = path.join(DATA_DIR, collection);
+    const dir = path.join(DATA_DIR, ...collection.split('/'));
     if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
-    for (const f of files) {
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
       try {
-        const raw = fs.readFileSync(path.join(dir, f), 'utf8');
-        const obj = JSON.parse(raw);
+        const obj = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
         const idx = extractIndex(collection, obj);
         if (!idx.id) idx.id = f.replace(/\.json$/i, '');
-        batch.push({
-          collection,
-          ...idx,
-          payload_json: JSON.stringify(obj),
-        });
-      } catch {
-        /* skip corrupt */
-      }
+        batch.push({ collection, ...idx, payload_json: JSON.stringify(obj) });
+      } catch { /* skip */ }
     }
   }
-  // profile.json at root
+
+  // Any extra JSON under data/hrm/** not covered above
+  const hrmRoot = path.join(DATA_DIR, 'hrm');
+  if (fs.existsSync(hrmRoot)) {
+    for (const fp of walkJsonFiles(hrmRoot)) {
+      try {
+        const rel = path.relative(DATA_DIR, fp).replace(/\\/g, '/');
+        // hrm/employees/foo.json → collection hrm/employees, id foo
+        const parts = rel.split('/');
+        if (parts.length < 3) continue;
+        const collection = parts.slice(0, -1).join('/');
+        if (COLLECTIONS.includes(collection) && batch.some((b) => b.collection === collection && b.id === parts[parts.length - 1].replace(/\.json$/i, ''))) {
+          continue; // already imported
+        }
+        const obj = JSON.parse(fs.readFileSync(fp, 'utf8'));
+        const idx = extractIndex(collection, obj);
+        if (!idx.id) idx.id = parts[parts.length - 1].replace(/\.json$/i, '');
+        batch.push({ collection, ...idx, payload_json: JSON.stringify(obj) });
+      } catch { /* skip */ }
+    }
+  }
+
   const profilePath = path.join(DATA_DIR, 'profile.json');
   if (fs.existsSync(profilePath)) {
     try {
@@ -225,10 +255,6 @@ function importAllJson(DATA_DIR) {
   return batch.length;
 }
 
-function safeFileName(id) {
-  return String(id).replace(/[/\\:*?"<>|]/g, '_');
-}
-
 function mirrorWrite(collection, id, obj) {
   if (!jsonMirror || !dataDir) return;
   try {
@@ -236,7 +262,7 @@ function mirrorWrite(collection, id, obj) {
       fs.writeFileSync(path.join(dataDir, 'profile.json'), JSON.stringify(obj, null, 2), 'utf8');
       return;
     }
-    const dir = path.join(dataDir, collection);
+    const dir = collectionDir(collection);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const fp = path.join(dir, safeFileName(id) + '.json');
     const tmp = fp + '.tmp';
@@ -250,19 +276,45 @@ function mirrorWrite(collection, id, obj) {
 function mirrorDelete(collection, id) {
   if (!jsonMirror || !dataDir) return;
   try {
-    const fp = path.join(dataDir, collection, safeFileName(id) + '.json');
+    const fp = path.join(collectionDir(collection), safeFileName(id) + '.json');
     if (fs.existsSync(fp)) fs.unlinkSync(fp);
   } catch (e) {
     console.warn('[sqlite] JSON mirror delete failed:', e.message);
   }
 }
 
-/** List all records in a collection (parsed objects). */
-export function sqliteList(collection, { includeDeleted = false } = {}) {
+/**
+ * @param {string} collection
+ * @param {{ includeDeleted?: boolean, limit?: number, offset?: number, status?: string, q?: string }} opts
+ */
+export function sqliteList(collection, opts = {}) {
   if (!ready || !db) return null;
-  const rows = db
-    .prepare('SELECT payload_json FROM records WHERE collection = ? ORDER BY docDate DESC, id DESC')
-    .all(collection);
+  const {
+    includeDeleted = false,
+    limit,
+    offset = 0,
+    status,
+    q,
+  } = opts;
+
+  let sql = 'SELECT payload_json FROM records WHERE collection = ?';
+  const params = [collection];
+  if (status) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  if (q) {
+    sql += ' AND (clientName LIKE ? OR invoiceNumber LIKE ? OR id LIKE ?)';
+    const like = '%' + q + '%';
+    params.push(like, like, like);
+  }
+  sql += ' ORDER BY docDate DESC, id DESC';
+  if (limit != null && Number(limit) > 0) {
+    sql += ' LIMIT ? OFFSET ?';
+    params.push(Number(limit), Number(offset) || 0);
+  }
+
+  const rows = db.prepare(sql).all(...params);
   const out = [];
   for (const r of rows) {
     try {
@@ -274,12 +326,38 @@ export function sqliteList(collection, { includeDeleted = false } = {}) {
   return out;
 }
 
+export function sqliteCount(collection, { status, q, includeDeleted = false } = {}) {
+  if (!ready || !db) return 0;
+  // Count via payload filter is expensive; approximate with SQL then filter deleted in rare cases
+  let sql = 'SELECT payload_json FROM records WHERE collection = ?';
+  const params = [collection];
+  if (status) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  if (q) {
+    sql += ' AND (clientName LIKE ? OR invoiceNumber LIKE ? OR id LIKE ?)';
+    const like = '%' + q + '%';
+    params.push(like, like, like);
+  }
+  const rows = db.prepare(sql).all(...params);
+  let n = 0;
+  for (const r of rows) {
+    try {
+      const obj = JSON.parse(r.payload_json);
+      if (!includeDeleted && (obj.deleted || obj.isDeleted || obj._deleted)) continue;
+      n += 1;
+    } catch { /* */ }
+  }
+  return n;
+}
+
 export function sqliteGet(collection, id) {
   if (!ready || !db) return null;
   const row = db
     .prepare('SELECT payload_json FROM records WHERE collection = ? AND id = ?')
     .get(collection, String(id));
-  if (!row) return undefined; // undefined = miss (caller may fall back)
+  if (!row) return undefined;
   try {
     return JSON.parse(row.payload_json);
   } catch {
@@ -313,11 +391,62 @@ export function sqliteUpsert(collection, obj) {
   return true;
 }
 
+/** Run several upserts in one transaction (e.g. bill + journal). */
+export function sqliteUpsertMany(pairs) {
+  if (!ready || !db || !Array.isArray(pairs)) return false;
+  const run = db.transaction((list) => {
+    for (const { collection, obj } of list) {
+      sqliteUpsert(collection, obj);
+    }
+  });
+  run(pairs);
+  return true;
+}
+
 export function sqliteRemove(collection, id) {
   if (!ready || !db) return false;
   db.prepare('DELETE FROM records WHERE collection = ? AND id = ?').run(collection, String(id));
   mirrorDelete(collection, id);
   return true;
+}
+
+/** Count JSON files on disk for a collection (non-recursive for top-level; recursive for hrm/*). */
+export function countJsonFiles(collection) {
+  if (!dataDir) return 0;
+  const dir = collectionDir(collection);
+  if (!fs.existsSync(dir)) return 0;
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).length;
+  } catch {
+    return 0;
+  }
+}
+
+export function verifyParity() {
+  const rows = [];
+  let allOk = true;
+  for (const collection of COLLECTIONS) {
+    const jsonCount = countJsonFiles(collection);
+    const sqlCount = ready && db
+      ? (db.prepare('SELECT COUNT(*) AS n FROM records WHERE collection = ?').get(collection)?.n || 0)
+      : 0;
+    const ok = jsonCount === sqlCount;
+    if (!ok) allOk = false;
+    rows.push({ collection, jsonCount, sqlCount, ok });
+  }
+  // profile.json special
+  const profileJson = dataDir && fs.existsSync(path.join(dataDir, 'profile.json')) ? 1 : 0;
+  const profileSql = ready && db
+    ? (db.prepare("SELECT COUNT(*) AS n FROM records WHERE collection = 'profiles'").get()?.n || 0)
+    : 0;
+  rows.push({
+    collection: 'profiles (profile.json)',
+    jsonCount: profileJson,
+    sqlCount: profileSql,
+    ok: profileJson <= profileSql,
+  });
+  if (profileJson > profileSql) allOk = false;
+  return { ok: allOk, rows };
 }
 
 export function sqliteStats() {
@@ -335,4 +464,32 @@ export function sqliteStats() {
   };
 }
 
-export { COLLECTIONS };
+/** Resolve data/<collection>/<id>.json → { collection, id } or null */
+export function pathToCollectionId(filePath, DATA_DIR) {
+  try {
+    const rel = path.relative(DATA_DIR, path.resolve(filePath)).replace(/\\/g, '/');
+    if (rel === 'profile.json') return { collection: 'profiles', id: 'default' };
+    const parts = rel.split('/');
+    if (parts.length < 2 || parts[0].startsWith('..')) return null;
+    if (parts[0] === 'hrm' && parts.length >= 3) {
+      return {
+        collection: parts.slice(0, -1).join('/'),
+        id: parts[parts.length - 1].replace(/\.json$/i, ''),
+      };
+    }
+    if (parts.length === 2 && parts[1].endsWith('.json')) {
+      return {
+        collection: parts[0],
+        id: parts[1].replace(/\.json$/i, ''),
+      };
+    }
+    // nested non-hrm: join all but last
+    if (parts.length > 2 && parts[parts.length - 1].endsWith('.json')) {
+      return {
+        collection: parts.slice(0, -1).join('/'),
+        id: parts[parts.length - 1].replace(/\.json$/i, ''),
+      };
+    }
+  } catch { /* */ }
+  return null;
+}

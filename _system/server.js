@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { computeInvoiceTotals } from './src/utils.js';
 import {
   initSqliteStore, isSqliteReady, sqliteList, sqliteGet, sqliteUpsert, sqliteRemove, sqliteStats,
+  sqliteCount, verifyParity, pathToCollectionId, sqliteUpsertMany,
 } from './src/db/sqliteStore.js';
 import { filterActiveRecords, softDeleteRecord, isSoftDeleted, isSubmitted } from './src/utils/softDelete.js';
 import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
@@ -215,6 +216,15 @@ function readAllFromDir(dir, { includeDeleted = false } = {}) {
 // Helper: read a single JSON file
 function readJSON(filePath, fallback = null) {
   try {
+    if (isSqliteReady()) {
+      const key = pathToCollectionId(filePath, DATA_DIR);
+      if (key) {
+        const obj = sqliteGet(key.collection, key.id);
+        if (obj !== undefined && obj !== null) return obj;
+      }
+    }
+  } catch { /* fall through to file */ }
+  try {
     if (fs.existsSync(filePath)) return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   } catch { /* ignore */ }
   return fallback;
@@ -224,19 +234,13 @@ function readJSON(filePath, fallback = null) {
 // atomically via temp+rename so a crash mid-write can't leave a
 // truncated meta.json that resets the invoice counter.
 function writeJSON(filePath, data) {
-  // SQLite primary write when path is data/<collection>/<id>.json
+  // SQLite primary write when path is data/<collection>/<id>.json (incl. hrm/*)
   try {
     if (isSqliteReady() && data && typeof data === 'object') {
-      const rel = path.relative(DATA_DIR, path.resolve(filePath));
-      const parts = rel.split(path.sep);
-      if (parts.length >= 2 && !parts[0].startsWith('..')) {
-        const collection = parts[0];
-        const base = parts[parts.length - 1].replace(/\.json$/i, '');
-        if (data.id == null) data.id = base;
-        sqliteUpsert(collection, data);
-      } else if (path.basename(filePath) === 'profile.json') {
-        const p = { ...data, id: data.id || 'default' };
-        sqliteUpsert('profiles', p);
+      const key = pathToCollectionId(filePath, DATA_DIR);
+      if (key) {
+        if (data.id == null) data.id = key.id;
+        sqliteUpsert(key.collection, data);
       }
     }
   } catch (se) { console.warn('[sqlite] upsert on writeJSON:', se.message); }
@@ -251,13 +255,8 @@ function writeJSON(filePath, data) {
 function deleteFile(filePath) {
   try {
     if (isSqliteReady()) {
-      const rel = path.relative(DATA_DIR, path.resolve(filePath));
-      const parts = rel.split(path.sep);
-      if (parts.length >= 2 && !parts[0].startsWith('..')) {
-        const collection = parts[0];
-        const id = parts[parts.length - 1].replace(/\.json$/i, '');
-        sqliteRemove(collection, id);
-      }
+      const key = pathToCollectionId(filePath, DATA_DIR);
+      if (key) sqliteRemove(key.collection, key.id);
     }
   } catch (e) { console.warn('[sqlite] remove on deleteFile:', e.message); }
 
@@ -422,9 +421,22 @@ function validateBillPayments(bill) {
 
 
 app.get('/api/bills', (req, res) => {
-  const bills = readAllFromDir('bills');
-  bills.sort((a, b) => new Date(b.invoiceDate) - new Date(a.invoiceDate));
-  res.json(bills);
+  try {
+    const includeDeleted = req.query.includeDeleted === '1';
+    const limit = req.query.limit != null ? Number(req.query.limit) : null;
+    const offset = req.query.offset != null ? Number(req.query.offset) : 0;
+    const status = req.query.status || undefined;
+    const q = req.query.q || undefined;
+    if (limit != null && limit > 0 && isSqliteReady()) {
+      const items = sqliteList('bills', { includeDeleted, limit, offset, status, q }) || [];
+      const total = sqliteCount('bills', { includeDeleted, status, q });
+      return res.json({ items, total, limit, offset });
+    }
+    let list = readAllFromDir('bills', { includeDeleted });
+    if (status) list = list.filter((b) => String(b.status || '') === status);
+    list.sort((a, b) => new Date(b.invoiceDate || b.date || b.createdAt || 0) - new Date(a.invoiceDate || a.date || a.createdAt || 0));
+    res.json(list);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/bills', (req, res) => {
@@ -2441,7 +2453,15 @@ app.get('/api/bills/export-month', (req, res) => {
 
 app.get('/api/sqlite-status', (req, res) => {
   try {
-    res.json(sqliteStats());
+    const base = sqliteStats();
+    if (req.query.verify === '1' || req.query.verify === 'true') {
+      const parity = verifyParity();
+      if (!parity.ok) {
+        console.warn('[sqlite] parity mismatch', parity.rows.filter((r) => !r.ok));
+      }
+      return res.json({ ...base, parity });
+    }
+    res.json(base);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
