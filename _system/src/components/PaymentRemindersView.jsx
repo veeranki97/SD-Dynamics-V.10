@@ -1,39 +1,28 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Bell, Mail, MessageCircle, RefreshCw } from 'lucide-react';
-import { getAllBills, getAllClients, getProfile } from '../store';
-import { formatCurrency, belongsToProfile } from '../utils';
-import { toast } from './Toast';
+import { Bell, RefreshCw, Mail, MessageCircle } from 'lucide-react';
+import { getAllBills } from '../store';
+import { formatCurrency } from '../utils';
 
-function daysOverdue(bill) {
-  const due = bill.dueDate || bill.invoiceDate;
-  if (!due) return 0;
-  const d = new Date(due);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  const diff = Math.floor((today - d) / 86400000);
-  return diff > 0 ? diff : 0;
-}
-
-function remaining(bill) {
-  return Math.max(0, (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0));
+function daysOverdue(dueOrInv) {
+  if (!dueOrInv) return 0;
+  const d = new Date(dueOrInv);
+  if (Number.isNaN(d.getTime())) return 0;
+  const ms = Date.now() - d.getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
 }
 
 export default function PaymentRemindersView() {
   const [bills, setBills] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [profile, setProfile] = useState({});
   const [loading, setLoading] = useState(true);
+  const [q, setQ] = useState('');
 
   const load = async () => {
     setLoading(true);
     try {
-      const [bls, cls, prof] = await Promise.all([getAllBills(), getAllClients(), getProfile()]);
-      setProfile(prof || {});
-      setClients(cls || []);
-      setBills((bls || []).filter(b => belongsToProfile(b, prof)));
+      const all = await getAllBills();
+      setBills(Array.isArray(all) ? all : (all?.items || []));
     } catch {
-      toast('Failed to load invoices', 'error');
+      setBills([]);
     } finally {
       setLoading(false);
     }
@@ -42,116 +31,125 @@ export default function PaymentRemindersView() {
   useEffect(() => { load(); }, []);
 
   const overdue = useMemo(() => {
-    return bills
-      .filter(b => {
-        const t = String(b.invoiceType || 'tax-invoice').toLowerCase();
-        if (/quotation|delivery|challan|cancelled/.test(t)) return false;
-        if ((b.status || '') === 'cancelled' || (b.status || '') === 'paid') return false;
-        return remaining(b) > 0.5 && daysOverdue(b) > 0;
+    const list = (bills || [])
+      .filter((b) => {
+        const t = String(b.invoiceType || b.data?.invoiceType || '').toLowerCase();
+        if (t && !t.includes('tax') && !t.includes('proforma') && t !== 'invoice') return false;
+        const st = String(b.status || '').toLowerCase();
+        if (st === 'cancelled' || st === 'paid' || st === 'received') return false;
+        const total = Number(b.totalAmount ?? b.data?.totals?.total ?? 0) || 0;
+        const paid = Number(b.paidAmount ?? 0) || 0;
+        return total - paid > 0.5;
       })
-      .map(b => ({ ...b, _days: daysOverdue(b), _rem: remaining(b) }))
+      .map((b) => {
+        const total = Number(b.totalAmount ?? b.data?.totals?.total ?? 0) || 0;
+        const paid = Number(b.paidAmount ?? 0) || 0;
+        const due = b.dueDate || b.data?.details?.dueDate || b.invoiceDate;
+        return { ...b, _rem: total - paid, _days: daysOverdue(due) };
+      })
+      .filter((b) => b._days >= 0)
       .sort((a, b) => b._days - a._days);
-  }, [bills]);
+    const qq = q.trim().toLowerCase();
+    if (!qq) return list;
+    return list.filter((b) =>
+      String(b.invoiceNumber || '').toLowerCase().includes(qq) ||
+      String(b.clientName || '').toLowerCase().includes(qq)
+    );
+  }, [bills, q]);
 
-  const clientEmail = (bill) => {
-    const name = bill.clientName || bill.data?.clientName;
-    const c = clients.find(x => x.name === name || x.companyName === name);
-    return c?.email || bill.clientEmail || bill.data?.clientEmail || '';
-  };
-
-  const clientPhone = (bill) => {
-    const name = bill.clientName || bill.data?.clientName;
-    const c = clients.find(x => x.name === name || x.companyName === name);
-    return c?.phone || bill.clientPhone || '';
-  };
-
-  const openEmail = (bill) => {
-    const to = clientEmail(bill);
-    const inv = bill.invoiceNumber || bill.id;
-    const subj = encodeURIComponent(`Payment reminder — ${inv} overdue`);
+  const openEmail = (b) => {
+    const email = b.data?.client?.email || b.clientEmail || '';
+    const sub = encodeURIComponent(`Payment reminder: ${b.invoiceNumber || ''}`);
     const body = encodeURIComponent(
-      `Dear ${bill.clientName || 'Customer'},\n\n` +
-      `This is a friendly reminder that invoice ${inv} dated ${bill.invoiceDate || ''} ` +
-      `has an outstanding balance of ${formatCurrency(bill._rem)}.\n` +
-      `Days overdue: ${bill._days}.\n\n` +
-      `Please arrange payment at the earliest.\n\n` +
-      `Regards,\n${profile.businessName || 'Accounts'}`
+      `Dear ${b.clientName || 'Customer'},\n\nThis is a reminder that invoice ${b.invoiceNumber || ''} for ${formatCurrency(b._rem)} is outstanding (due ${b.dueDate || b.invoiceDate || '—'}).\n\nThank you.`
     );
-    if (!to) {
-      toast('No email on file for this client — copy the body from the toast or add email in Clients', 'warning');
-    }
-    window.open(`mailto:${to || ''}?subject=${subj}&body=${body}`, '_blank');
+    window.location.href = `mailto:${email}?subject=${sub}&body=${body}`;
   };
 
-  const openWhatsApp = (bill) => {
-    const phone = String(clientPhone(bill) || '').replace(/\D/g, '');
-    const inv = bill.invoiceNumber || bill.id;
+  const openWhatsApp = (b) => {
+    const phone = String(b.data?.client?.phone || b.clientPhone || '').replace(/\D/g, '');
     const text = encodeURIComponent(
-      `Reminder: Invoice ${inv} has ₹${bill._rem.toFixed(2)} outstanding (${bill._days} days overdue). Please pay at the earliest. — ${profile.businessName || ''}`
+      `Payment reminder: Invoice ${b.invoiceNumber || ''} — outstanding ${formatCurrency(b._rem)} (due ${b.dueDate || b.invoiceDate || '—'}).`
     );
-    if (!phone) {
-      toast('No phone on file for this client', 'warning');
-      return;
-    }
-    window.open(`https://wa.me/91${phone.slice(-10)}?text=${text}`, '_blank');
+    window.open(`https://wa.me/${phone}?text=${text}`, '_blank', 'noopener,noreferrer');
   };
 
   return (
-    <div className="page" style={{ maxWidth: 1000 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+    <div className="page" style={{ maxWidth: 1100 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{
           width: 40, height: 40, borderRadius: 10,
           background: 'linear-gradient(135deg,#dc2626,#f59e0b)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0,
         }}>
           <Bell size={20} />
         </div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
           <h1 style={{ margin: 0, fontSize: '1.35rem' }}>Payment reminders</h1>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-            Overdue tax / proforma invoices — open email or WhatsApp reminder
+            Overdue tax / proforma invoices
           </p>
         </div>
-        <button type="button" className="btn btn-secondary" onClick={load} disabled={loading}>
-          <RefreshCw size={14} style={{ marginRight: 6 }} /> Refresh
+        <input
+          className="form-input"
+          style={{ maxWidth: 220, height: 36 }}
+          placeholder="Filter client / invoice…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <button type="button" className="btn btn-secondary" onClick={load} disabled={loading} title="Refresh"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36 }}>
+          <RefreshCw size={14} />
         </button>
       </div>
 
       {loading && <p className="text-muted">Loading…</p>}
       {!loading && overdue.length === 0 && (
-        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 12 }}>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed var(--border)', borderRadius: 12 }}>
           No overdue balances — all clear.
         </div>
       )}
 
-      {overdue.length > 0 && (
-        <div className="table-responsive">
-          <table className="data-table" style={{ width: '100%' }}>
+      {!loading && overdue.length > 0 && (
+        <div className="table-responsive" style={{ border: '1px solid var(--border, #e2e8f0)', borderRadius: 12, overflow: 'hidden' }}>
+          <table className="data-table" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+            <colgroup>
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '16%' }} />
+            </colgroup>
             <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Client</th>
-                <th>Due</th>
-                <th>Days</th>
-                <th>Outstanding</th>
-                <th>Actions</th>
+              <tr style={{ background: 'var(--bg-muted, #f8fafc)' }}>
+                <th style={{ textAlign: 'left', padding: '10px 12px' }}>Invoice</th>
+                <th style={{ textAlign: 'left', padding: '10px 12px' }}>Client</th>
+                <th style={{ textAlign: 'left', padding: '10px 12px' }}>Due</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px' }}>Days</th>
+                <th style={{ textAlign: 'right', padding: '10px 12px' }}>Outstanding</th>
+                <th style={{ textAlign: 'center', padding: '10px 12px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {overdue.map(b => (
-                <tr key={b.id || b.invoiceNumber}>
-                  <td><strong>{b.invoiceNumber}</strong></td>
-                  <td>{b.clientName || '—'}</td>
-                  <td>{b.dueDate || b.invoiceDate || '—'}</td>
-                  <td style={{ color: b._days > 30 ? '#dc2626' : '#b45309', fontWeight: 600 }}>{b._days}</td>
-                  <td>{formatCurrency(b._rem)}</td>
-                  <td style={{ display: 'flex', gap: 6 }}>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEmail(b)} title="Email">
-                      <Mail size={14} /> Email
-                    </button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openWhatsApp(b)} title="WhatsApp">
-                      <MessageCircle size={14} /> WA
-                    </button>
+              {overdue.map((b) => (
+                <tr key={b.id || b.invoiceNumber} style={{ borderTop: '1px solid var(--border, #e2e8f0)' }}>
+                  <td style={{ padding: '10px 12px' }}><strong>{b.invoiceNumber}</strong></td>
+                  <td style={{ padding: '10px 12px' }}>{b.clientName || '—'}</td>
+                  <td style={{ padding: '10px 12px' }}>{b.dueDate || b.invoiceDate || '—'}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: b._days > 30 ? '#dc2626' : '#b45309', fontWeight: 600 }}>{b._days}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right' }}>{formatCurrency(b._rem)}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'center' }}>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEmail(b)} title="Email"
+                        style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Mail size={15} />
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openWhatsApp(b)} title="WhatsApp"
+                        style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <MessageCircle size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1510,11 +1510,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     });
   };
   const fillDownFrom = (id, field) => {
+    const aliases = { description: 'name', taxRate: 'taxPercent', cessRate: 'cessPercent' };
+    const f = aliases[field] || field;
     setItems(prev => {
       const i = prev.findIndex(x => x.id === id);
       if (i < 0 || i === prev.length - 1) return prev;
-      const val = prev[i][field];
-      return prev.map((row, idx) => idx > i ? { ...row, [field]: val } : row);
+      const val = prev[i][f];
+      if (val === undefined) return prev;
+      return prev.map((row, idx) => (idx > i ? { ...row, [f]: val } : row));
     });
   };
 
@@ -4483,11 +4486,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           <div className="glass-panel p-6 mb-6">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 className="section-title" style={{ margin: 0 }}>Line Items</h3>
-              {showGST && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer', userSelect: 'none' }}>
+              {/* Prices-include-tax hidden on new invoices; still applied when loading saved taxInclusive bills */}
+              {showGST && taxInclusive && editingBill && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer', userSelect: 'none' }} title="This saved bill uses tax-inclusive line rates">
                   <input type="checkbox" checked={taxInclusive} onChange={e => setTaxInclusive(e.target.checked)}
                     style={{ width: 16, height: 16, accentColor: 'var(--primary)', cursor: 'pointer' }} />
-                  <span style={{ fontWeight: 500 }}>Prices include tax</span>
+                  <span style={{ fontWeight: 500 }}>Prices include tax (saved bill)</span>
                 </label>
               )}
             </div>
@@ -4539,10 +4543,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <button type="button" className="btn btn-secondary" title="Fill down Unit from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'unit')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Unit</span></button>
               <button type="button" className="btn btn-secondary" title="Fill down Tax % from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'taxRate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Tax</span></button>
               <button type="button" className="btn btn-secondary" title="Fill down Rate from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'rate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Rate</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down Description from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'description')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Desc</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Description from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'name')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Desc</span></button>
               <button type="button" className="btn btn-secondary" title="Fill down all columns from first row" onClick={() => {
                 if (!items.length) return;
-                ['hsn','unit','taxRate','rate','discount','cessRate'].forEach(f => fillDownFrom(items[0].id, f));
+                ['hsn','unit','taxPercent','rate','discount','cessPercent'].forEach(f => fillDownFrom(items[0].id, f));
                 toast('Filled down all columns from first row', 'success');
               }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Layers size={16} /></button>
             </div>

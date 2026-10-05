@@ -4,7 +4,7 @@ import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, Fi
 import HelpButton from './HelpButton';
 import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile } from '../store';
 import { getAllWorkOrders as fetchWOs, getAllCostCenters as fetchCCs } from '../store';
-import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
+import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode} from '../utils';
 import UnassignedBanner from './UnassignedBanner';
 import { getPrintSettings } from '../utils/printSettings';
 import { toast } from './Toast';
@@ -974,7 +974,21 @@ export default function PurchaseBills() {
               <div className="form-group">
                 <label className="form-label">Supplier GSTIN</label>
                 <input type="text" className="form-input" value={form.supplierGstin}
-                  onChange={e => updateField('supplierGstin', e.target.value)} placeholder="15-digit GSTIN" maxLength={15} />
+                  onChange={e => {
+                    const v = e.target.value;
+                    setForm(prev => {
+                      const next = { ...prev, supplierGstin: v };
+                      const g = String(v || '').replace(/[^0-9A-Za-z]/g, '');
+                      if (g.length === 15) {
+                        try {
+                          const sup = getStateCode(g);
+                          const host = getStateCode(ownerProfile?.gstin || ownerProfile?.state || '');
+                          if (sup && host) next.interstate = (sup !== host);
+                        } catch { /* keep */ }
+                      }
+                      return next;
+                    });
+                  }} placeholder="15-digit GSTIN" maxLength={15} />
               </div>
               {/* v1.10.29 — Supplier address for the PDF. Optional; full width row. */}
               <div className="form-group" style={{ gridColumn: 'span 2' }}>

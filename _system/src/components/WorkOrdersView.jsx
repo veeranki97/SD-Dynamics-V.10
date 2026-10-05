@@ -30,7 +30,7 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
   return { sub, gst, cgst, sgst, igst, total: +(sub + gst).toFixed(2), isInterstate: !same };
 }
 
-export default function WorkOrdersView({ onConvertToInvoice }) {
+export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [list, setList] = useState([]);
   const [bills, setBills] = useState([]);
   const [clients, setClients] = useState([]);
@@ -379,7 +379,44 @@ export default function WorkOrdersView({ onConvertToInvoice }) {
                   <td style={{ color: remaining < 1 ? '#dc2626' : remaining < 5000 ? '#d97706' : undefined }}>
                     {formatCurrency(remaining)}
                   </td>
-                  <td>{deriveWOStatus(woRow, bills)}</td>
+                  <td>
+                    <div>{deriveWOStatus(woRow, bills)}</div>
+                    {(() => {
+                      const linked = (bills || []).filter(b => {
+                        if (b.deleted || b.isDeleted) return false;
+                        const wid = b.workOrderId || b.data?.workOrderId || b.data?.details?.workOrderId || '';
+                        return wid && (wid === woRow.id || wid === woRow.woNumber);
+                      });
+                      if (!linked.length) return <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>No invoices</div>;
+                      return (
+                        <div style={{ fontSize: 11, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {linked.slice(0, 5).map(b => (
+                            <button
+                              key={b.id || b.invoiceNumber}
+                              type="button"
+                              onClick={() => {
+                                if (typeof onOpenInvoice === 'function') onOpenInvoice(b);
+                                else if (typeof onConvertToInvoice === 'function' && onConvertToInvoice.length >= 0) {
+                                  try { window.dispatchEvent(new CustomEvent('sd-open-invoice', { detail: b })); } catch { /* */ }
+                                }
+                              }}
+                              style={{
+                                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                textAlign: 'left', color: '#2563eb', fontSize: 11,
+                              }}
+                              title={`${b.invoiceDate || ''} · ${b.status || ''} · ${b.totalAmount ?? ''}`}
+                            >
+                              {b.invoiceNumber || b.id}
+                              <span style={{ color: 'var(--text-muted)', marginLeft: 4 }}>
+                                {b.status || ''} · {Number(b.totalAmount || 0).toLocaleString('en-IN')}
+                              </span>
+                            </button>
+                          ))}
+                          {linked.length > 5 && <span style={{ color: 'var(--text-muted)' }}>+{linked.length - 5} more</span>}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td>
                     <ActionMenu items={[
                       ...((() => {

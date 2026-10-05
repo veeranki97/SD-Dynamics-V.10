@@ -47,6 +47,7 @@ export function addHsnCode(code) {
   }
   const next = [...list, c];
   writePrimary(SAC_KEYS, next);
+  try { syncMasterDataToServer(); } catch { /* */ }
   return { ok: true, list: next };
 }
 
@@ -71,6 +72,7 @@ export function addUnit(unit) {
   }
   const next = [...list, u];
   writePrimary(UNIT_KEYS, next);
+  try { syncMasterDataToServer(); } catch { /* */ }
   return { ok: true, list: next };
 }
 
@@ -95,6 +97,7 @@ export function addExpenseCategory(cat) {
   }
   const next = [...list, c];
   writePrimary(EXP_KEYS, next);
+  try { syncMasterDataToServer(); } catch { /* */ }
   return { ok: true, list: next };
 }
 

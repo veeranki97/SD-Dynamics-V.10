@@ -5,6 +5,40 @@ import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, form
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
 
+/** ITC set-off per Sec 49(5) / 49A Rule 88A (pure, testable). */
+export function applyItcSetOff(outputTax, itc) {
+  let oI = Math.max(0, Number(outputTax?.igst) || 0);
+  let oC = Math.max(0, Number(outputTax?.cgst) || 0);
+  let oS = Math.max(0, Number(outputTax?.sgst) || 0);
+  let cI = Math.max(0, Number(itc?.igst) || 0);
+  let cC = Math.max(0, Number(itc?.cgst) || 0);
+  let cS = Math.max(0, Number(itc?.sgst) || 0);
+
+  const utilised = { igst: 0, cgst: 0, sgst: 0 };
+
+  // 1) IGST credit → IGST, then CGST, then SGST
+  let use = Math.min(cI, oI); oI -= use; cI -= use; utilised.igst += use;
+  use = Math.min(cI, oC); oC -= use; cI -= use; utilised.igst += use;
+  use = Math.min(cI, oS); oS -= use; cI -= use; utilised.igst += use;
+
+  // 2) CGST credit → CGST, then IGST (never SGST)
+  use = Math.min(cC, oC); oC -= use; cC -= use; utilised.cgst += use;
+  use = Math.min(cC, oI); oI -= use; cC -= use; utilised.cgst += use;
+
+  // 3) SGST credit → SGST, then IGST (never CGST)
+  use = Math.min(cS, oS); oS -= use; cS -= use; utilised.sgst += use;
+  use = Math.min(cS, oI); oI -= use; cS -= use; utilised.sgst += use;
+
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return {
+    payable: { igst: r2(oI), cgst: r2(oC), sgst: r2(oS) },
+    utilised: { igst: r2(utilised.igst), cgst: r2(utilised.cgst), sgst: r2(utilised.sgst) },
+    carryForward: { igst: r2(cI), cgst: r2(cC), sgst: r2(cS) },
+  };
+}
+
+
+
 const GST_TYPES = ['tax-invoice', 'credit-note'];
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const QUARTERS = [
@@ -952,11 +986,10 @@ export default function GSTReturns() {
     sgst: itcFromExpensesOnly.sgst + itcFromPurchases.sgst,
     igst: itcFromExpensesOnly.igst + itcFromPurchases.igst,
   };
-  const netTax = {
-    cgst: Math.max(0, outputTax.cgst - itcFromExpenses.cgst),
-    sgst: Math.max(0, outputTax.sgst - itcFromExpenses.sgst),
-    igst: Math.max(0, outputTax.igst - itcFromExpenses.igst),
-  };
+    const itcSetOff = applyItcSetOff(outputTax, itcFromExpenses);
+  const netTax = itcSetOff.payable;
+  const itcUtilised = itcSetOff.utilised;
+  const itcCarryForward = itcSetOff.carryForward;
 
   // ========== Document Summary ==========
   const docSummary = {};
@@ -2023,6 +2056,8 @@ export default function GSTReturns() {
                 <tbody>
                   <tr><td className="font-medium">Output Tax Liability</td><td style={{ textAlign: 'right' }}>{formatCurrency(outputTax.igst)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(outputTax.cgst)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(outputTax.sgst)}</td><td style={{ textAlign: 'right' }} className="font-bold">{formatCurrency(outputTax.igst + outputTax.cgst + outputTax.sgst)}</td></tr>
                   <tr><td className="font-medium" style={{ color: '#059669' }}>Less: ITC Claimed</td><td style={{ textAlign: 'right', color: '#059669' }}>-{formatCurrency(itcFromExpenses.igst)}</td><td style={{ textAlign: 'right', color: '#059669' }}>-{formatCurrency(itcFromExpenses.cgst)}</td><td style={{ textAlign: 'right', color: '#059669' }}>-{formatCurrency(itcFromExpenses.sgst)}</td><td style={{ textAlign: 'right', color: '#059669' }}>-{formatCurrency(itcFromExpenses.igst + itcFromExpenses.cgst + itcFromExpenses.sgst)}</td></tr>
+                  <tr><td className="font-medium">ITC Utilised (set-off)</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcUtilised?.igst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcUtilised?.cgst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcUtilised?.sgst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency((itcUtilised?.igst||0)+(itcUtilised?.cgst||0)+(itcUtilised?.sgst||0))}</td></tr>
+                  <tr><td className="font-medium">ITC Carry-forward</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcCarryForward?.igst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcCarryForward?.cgst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency(itcCarryForward?.sgst || 0)}</td><td style={{ textAlign: 'right' }}>{formatCurrency((itcCarryForward?.igst||0)+(itcCarryForward?.cgst||0)+(itcCarryForward?.sgst||0))}</td></tr>
                 </tbody>
                 <tfoot><tr style={{ fontWeight: 'bold', borderTop: '2px solid var(--border)' }}>
                   <td>Net Tax Payable</td>
