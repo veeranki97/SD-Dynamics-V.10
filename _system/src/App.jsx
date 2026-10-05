@@ -599,6 +599,7 @@ function App() {
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring', group: 'Sales', parent: 'invoices' },
+    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
     // Orders
     { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Orders' },
     { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Orders' },
@@ -630,7 +631,6 @@ function App() {
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
-    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'einvoice', icon: FileText, label: 'E-Invoice / GSP', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
