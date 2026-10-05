@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Activity, RefreshCw, Server } from 'lucide-react';
+import { Activity, RefreshCw, Server, Database } from 'lucide-react';
 import { toast } from './Toast';
 
 export default function SystemHealthView() {
   const [data, setData] = useState(null);
+  const [sqlite, setSqlite] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [reimporting, setReimporting] = useState(false);
   const [err, setErr] = useState('');
 
   const load = async () => {
@@ -17,8 +19,32 @@ export default function SystemHealthView() {
     } catch (e) {
       setErr(e.message || 'Failed to reach /api/health — is the API server running?');
       setData(null);
+    }
+    try {
+      const sr = await fetch('/api/sqlite-status');
+      if (sr.ok) setSqlite(await sr.json());
+      else setSqlite({ ready: false, error: `HTTP ${sr.status}` });
+    } catch (e) {
+      setSqlite({ ready: false, error: e.message });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const reimport = async () => {
+    if (!window.confirm('Re-import all JSON files from data/ into SQLite?\n\nExisting SQLite rows for the same ids will be overwritten. JSON files are not deleted.')) return;
+    setReimporting(true);
+    try {
+      const res = await fetch('/api/sqlite-reimport', { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      toast?.success?.(`SQLite re-import done${body.migrated != null ? ` (${body.migrated} records)` : ''}`)
+        || alert(`Re-import OK${body.migrated != null ? `: ${body.migrated} records` : ''}`);
+      await load();
+    } catch (e) {
+      toast?.error?.(e.message) || alert(e.message);
+    } finally {
+      setReimporting(false);
     }
   };
 
@@ -28,8 +54,11 @@ export default function SystemHealthView() {
     ? `${Math.floor(data.uptimeSec / 3600)}h ${Math.floor((data.uptimeSec % 3600) / 60)}m ${data.uptimeSec % 60}s`
     : '—';
 
+  const counts = sqlite?.counts || {};
+  const countEntries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+
   return (
-    <div className="page" style={{ maxWidth: 900 }}>
+    <div className="page" style={{ maxWidth: 960 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div style={{
           width: 40, height: 40, borderRadius: 10,
@@ -41,7 +70,7 @@ export default function SystemHealthView() {
         <div style={{ flex: 1 }}>
           <h1 style={{ margin: 0, fontSize: '1.35rem' }}>System health</h1>
           <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-            Live status from <code>/api/health</code>
+            Live status · SQLite primary store
           </p>
         </div>
         <button type="button" className="btn btn-secondary" onClick={load} disabled={loading}>
@@ -77,6 +106,66 @@ export default function SystemHealthView() {
           ))}
         </div>
       )}
+
+      {/* ===== SQLite panel ===== */}
+      <div style={{
+        border: '1px solid var(--border, #e2e8f0)', borderRadius: 12,
+        background: 'var(--card-bg, #fff)', padding: 16, marginBottom: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 8,
+            background: sqlite?.ready ? 'linear-gradient(135deg,#1d4ed8,#3b82f6)' : 'linear-gradient(135deg,#64748b,#94a3b8)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+          }}>
+            <Database size={18} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>SQLite store</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {sqlite?.ready
+                ? `Primary · ${sqlite.total ?? 0} records · JSON mirror ${sqlite.jsonMirror ? 'ON' : 'OFF'}`
+                : (sqlite?.error || 'Not ready — JSON fallback')}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={reimport}
+            disabled={reimporting || !sqlite?.ready}
+            title="Re-scan data/*.json into SQLite"
+          >
+            {reimporting ? 'Importing…' : 'Re-import from JSON'}
+          </button>
+        </div>
+
+        {sqlite?.path && (
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, wordBreak: 'break-all' }}>
+            {sqlite.path}
+          </div>
+        )}
+
+        {countEntries.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
+            {countEntries.map(([name, n]) => (
+              <div key={name} style={{
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--bg-muted, #f8fafc)',
+                border: '1px solid var(--border, #e2e8f0)',
+              }}>
+                <div style={{ fontSize: 10, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{name}</div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{n}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+          <strong>Re-import</strong> loads every <code>data/&lt;collection&gt;/*.json</code> into SQLite (same id overwrites).
+          JSON files stay on disk while mirror is ON. For SQLite-only later, start the server with{' '}
+          <code>SD_JSON_MIRROR=0</code>.
+        </p>
+      </div>
 
       <div style={{
         border: '1px solid var(--border, #e2e8f0)', borderRadius: 10,
