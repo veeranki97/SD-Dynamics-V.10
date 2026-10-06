@@ -21,19 +21,23 @@ export function calcItemAmount(item) {
   return +(qty * rate).toFixed(2);
 }
 
-export function calcWOUsage(wo, allBills, allPOs = [], allPurchases = [], allExpenses = []) {
-  if (!wo) return { billedAmount: 0, remaining: 0, linkedInvoiceIds: [], billedByItem: {}, remainingByItem: [], committedCost: 0, actualCost: 0, projectedProfit: 0, costOverrun: false };
+export function calcWOUsage(wo, allBills, purchaseOrders = [], purchases = [], expenses = []) {
+  if (!wo) return {
+    billedAmount: 0, remaining: 0, linkedInvoiceIds: [], billedByItem: {}, remainingByItem: [],
+    committedCost: 0, actualCost: 0, projectedProfit: 0, costOverrun: false,
+  };
+
+  const woNo = wo.woNumber || wo.id;
+  const matchWoId = (id, no) => (id && (id === wo.id || id === wo.woNumber)) || (no && woNo && String(no) === String(woNo));
 
   const linked = (allBills || []).filter(b => {
-    if (b.status === 'cancelled' || b.status === 'converted') return false;
+    if (b.status === 'cancelled' || b.status === 'converted' || b.deleted || b.isDeleted) return false;
     const typ = String(b.invoiceType || b.data?.invoiceType || '').toLowerCase();
     // Proforma / quotation / challan do not consume WO budget — only tax docs do.
-    // Converting PI → Tax Invoice therefore does not double-encumber.
     if (/proforma|quotation|estimate|delivery|challan/.test(typ)) return false;
-    if (b.workOrderId && b.workOrderId === wo.id) return true;
-    const woNo = wo.woNumber || wo.id;
-    const billWo = b.data?.details?.workOrderNo || b.data?.workOrderNo || b.workOrderNo;
-    return woNo && billWo && String(billWo) === String(woNo);
+    const billWoId = b.workOrderId || b.data?.workOrderId || b.data?.details?.workOrderId;
+    const billWoNo = b.data?.details?.workOrderNo || b.data?.workOrderNo || b.workOrderNo;
+    return matchWoId(billWoId, billWoNo);
   });
 
   let billedAmount = 0;
@@ -66,22 +70,26 @@ export function calcWOUsage(wo, allBills, allPOs = [], allPurchases = [], allExp
     };
   });
 
+  // Committed PO cost (sum of open/issued POs linked to this WO)
+  const linkedPOs = (purchaseOrders || []).filter(po => {
+    if (po.status === 'cancelled') return false;
+    return matchWoId(po.workOrderId, po.workOrderNo);
+  });
+  const committedCost = linkedPOs.reduce((s, p) => s + (Number(p.total || p.totalAmount) || 0), 0);
+
+  // Actual Costs (purchases + expenses linked to this WO)
+  const linkedPurchases = (purchases || []).filter(p => matchWoId(p.workOrderId, p.workOrderNo));
+  const purchaseCost = linkedPurchases.reduce((s, p) => s + (Number(p.totalAmount || p.totals?.finalTotal) || 0), 0);
+
+  const linkedExpenses = (expenses || []).filter(e => matchWoId(e.workOrderId, e.workOrderNo));
+  const expenseCost = linkedExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const actualCost = +(purchaseCost + expenseCost).toFixed(2);
+  const totalCost = actualCost > 0 ? actualCost : committedCost;
+  const projectedProfit = +(billedAmount - totalCost).toFixed(2);
+  const costOverrun = (Number(wo.approvedBudget) || 0) > 0 && totalCost > (Number(wo.approvedBudget) || 0);
+
   const remaining = Math.max(0, (Number(wo.approvedBudget) || 0) - billedAmount);
-  const woKeys = [wo.id, wo.woNumber].filter(Boolean).map(String);
-  const matchWo = (id) => id && woKeys.includes(String(id));
-  const committedCost = (allPOs || [])
-    .filter(p => matchWo(p.workOrderId) && String(p.status || '').toLowerCase() !== 'cancelled')
-    .reduce((sum, p) => sum + (Number(p.totalAmount ?? p.total ?? p.approvedBudget) || 0), 0);
-  const purchaseCost = (allPurchases || [])
-    .filter(p => matchWo(p.workOrderId))
-    .reduce((sum, p) => sum + (Number(p.totalAmount ?? p.total ?? p.totals?.finalTotal) || 0), 0);
-  const expenseCost = (allExpenses || [])
-    .filter(e => matchWo(e.workOrderId))
-    .reduce((sum, e) => sum + (Number(e.amount ?? e.total ?? e.gstAmount) || 0), 0);
-  const actualCost = purchaseCost + expenseCost;
-  const budget = Number(wo.approvedBudget) || 0;
-  const costOverrun = budget > 0 && (committedCost + actualCost) > budget + 0.5;
-  const projectedProfit = billedAmount - (actualCost || committedCost);
   return {
     billedAmount,
     remaining,

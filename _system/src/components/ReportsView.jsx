@@ -117,18 +117,7 @@ export default function ReportsView() {
 
   // ========== Outstanding & Aging ==========
   const today = new Date();
-  // Aging: open tax / sales invoices only (not quotation, proforma, DC, converted, cancelled)
-  const unpaidBills = bills.filter(b => {
-    const st = String(b.status || '').toLowerCase();
-    if (st === 'paid' || st === 'received' || st === 'cancelled' || st === 'converted') return false;
-    const t = String(b.invoiceType || b.data?.invoiceType || b.type || '').toLowerCase();
-    if (t.includes('quotation') || t.includes('proforma') || t.includes('challan') || t.includes('delivery')) return false;
-    if (t.includes('credit')) return false;
-    // tax-invoice, invoice, or empty type treated as sales
-    const total = Number(b.totalAmount ?? b.data?.totals?.total ?? 0) || 0;
-    const paid = Number(b.paidAmount ?? 0) || 0;
-    return total - paid > 0.5;
-  });
+  const unpaidBills = bills.filter(b => b.status !== 'paid');
   const agingData = unpaidBills.map(b => {
     // Guard against missing or invalid dates — `new Date(undefined)` returns Invalid Date
     // which propagates as NaN through the aging math and breaks the chart.
@@ -137,7 +126,7 @@ export default function ReportsView() {
     const daysOverdue = (due && !isNaN(due.getTime()))
       ? Math.max(0, Math.floor((today - due) / 86400000))
       : 0;
-    const outstanding = (Number(b.totalAmount ?? b.data?.totals?.total ?? 0) || 0) - (Number(b.paidAmount ?? 0) || 0);
+    const outstanding = (b.totalAmount || 0) - (b.paidAmount || 0);
     let bucket = 'notYetDue';
     if (daysOverdue > 90) bucket = '90plus';
     else if (daysOverdue > 60) bucket = '61to90';

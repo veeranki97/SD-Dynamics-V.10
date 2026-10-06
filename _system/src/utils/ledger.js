@@ -252,9 +252,32 @@ export function journalFromExpense(exp) {
   const total = money(amt + gst);
   if (total <= 0) return null;
   const plAcc = expensePlAccount(exp);
-  const entries = [
-    { account: plAcc, debit: amt, credit: 0 },
-  ];
+  
+  // Cost splits across multiple Cost Centers (percentage allocation)
+  const splits = Array.isArray(exp.costSplits) && exp.costSplits.length > 0
+    ? exp.costSplits.filter(s => s && s.costCenterId && (Number(s.percent) || 0) > 0)
+    : null;
+
+  const entries = [];
+  if (splits && splits.length > 0) {
+    let allocatedAmt = 0;
+    splits.forEach((sp, idx) => {
+      const isLast = idx === splits.length - 1;
+      const pct = Number(sp.percent) || 0;
+      const splitAmt = isLast ? money(amt - allocatedAmt) : money((amt * pct) / 100);
+      allocatedAmt += splitAmt;
+      entries.push({
+        account: plAcc,
+        debit: splitAmt,
+        credit: 0,
+        costCenterId: sp.costCenterId,
+        costCenterName: sp.costCenterName || sp.costCenterId,
+      });
+    });
+  } else {
+    entries.push({ account: plAcc, debit: amt, credit: 0, costCenterId: exp.costCenterId || null });
+  }
+
   if (gst > 0) {
     if (exp.interstate) entries.push({ account: ACCOUNTS.ITC_IGST, debit: gst, credit: 0 });
     else {
@@ -273,6 +296,7 @@ export function journalFromExpense(exp) {
     costCenterId: exp.costCenterId || null,
     site: exp.site || null,
     workOrderId: exp.workOrderId || null,
+    costSplits: splits || undefined,
     entries,
   };
 }

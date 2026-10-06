@@ -4,7 +4,7 @@ import HrmView from './components/HrmView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity} from 'lucide-react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity, Target } from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
 import { isModuleEnabled, getUpcomingFilings } from './utils';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
@@ -55,6 +55,7 @@ const ServiceRevenueReport = lazy(() => import('./components/ServiceRevenueRepor
 const WorkflowRulesView = lazy(() => import('./components/WorkflowRulesView'));
 const SystemHealthView = lazy(() => import('./components/SystemHealthView'));
 const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
+const BudgetSettingsView = lazy(() => import('./components/BudgetSettingsView'));
 import { getPrintSettings } from './utils/printSettings';
 
 // v1.10.4 — Lightweight Suspense fallback shown while a lazy view
@@ -96,7 +97,7 @@ function App() {
     } catch { /* sandboxed history API — fall through */ }
     const saved = sessionStorage.getItem('gst_currentView') || 'dashboard';
     // Guard: unknown / partially-updated views must not blank the whole app
-    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders','einvoice']);
+    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders','einvoice','budgets']);
     return known.has(saved) ? saved : 'dashboard';
   });
   const [profile, setProfile] = useState(null);
@@ -487,8 +488,18 @@ function App() {
       const bill = ev?.detail;
       if (bill) handleEditInvoice(bill);
     };
+    const onSetView = (ev) => {
+      const target = ev?.detail;
+      if (typeof target === 'string') setCurrentView(target);
+    };
     window.addEventListener('sd-open-invoice', onOpen);
-    return () => window.removeEventListener('sd-open-invoice', onOpen);
+    window.addEventListener('sd-set-view', onSetView);
+    window.addEventListener('sd-navigate', onSetView);
+    return () => {
+      window.removeEventListener('sd-open-invoice', onOpen);
+      window.removeEventListener('sd-set-view', onSetView);
+      window.removeEventListener('sd-navigate', onSetView);
+    };
   }, []);
 
   const handleDuplicateInvoice = (bill) => {
@@ -628,6 +639,7 @@ function App() {
     { id: 'coa', icon: BookOpen, label: 'Chart of Accounts', module: 'reports', group: 'Books' },
     { id: 'generalledger', icon: BookOpen, label: 'General Ledger', module: 'reports', group: 'Books' },
     { id: 'finbooks', icon: BookOpen, label: 'Trial Balance / BS', module: 'reports', group: 'Books' },
+    { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
     // Compliance
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
@@ -1121,6 +1133,9 @@ function App() {
         )}
         {currentView === 'finbooks' && (
           <Suspense fallback={<ViewLoading />}><FinancialBooksView key={businessKey} /></Suspense>
+        )}
+        {currentView === 'budgets' && (
+          <Suspense fallback={<ViewLoading />}><BudgetSettingsView key={businessKey} /></Suspense>
         )}
         {currentView === 'payrecon' && (
           <PaymentReconView key={businessKey} />

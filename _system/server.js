@@ -1056,6 +1056,40 @@ app.post('/api/accounts', (req, res) => {
 });
 
 // ========================
+// BUDGETS (Cost Center x Account x FY)
+// ========================
+app.get('/api/budgets', (req, res) => {
+  try {
+    const budgets = readAllFromDir('budgets');
+    res.json(budgets);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/budgets', (req, res) => {
+  try {
+    const b = req.body;
+    if (!b?.costCenterId || !b?.accountCode || !b?.fiscalYear) {
+      return res.status(400).json({ error: 'costCenterId, accountCode, and fiscalYear are required' });
+    }
+    if (!b.id) {
+      b.id = `bgt_${b.costCenterId}_${b.accountCode}_${b.fiscalYear}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+    const dir = path.join(DATA_DIR, 'budgets');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    writeJSON(path.join(dir, safeFileName(b.id) + '.json'), b);
+    res.json({ success: true, id: b.id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/budgets/:id', (req, res) => {
+  try {
+    const filePath = path.join(DATA_DIR, 'budgets', safeFileName(req.params.id) + '.json');
+    deleteFile(filePath);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ========================
 // BUSINESS PROFILES (multi-business)
 // ========================
 app.get('/api/profiles', (req, res) => {

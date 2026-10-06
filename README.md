@@ -37,18 +37,11 @@ SD-Dynamics-V.10/
 └── _system/                     ← the app (hidden after install)
 ```
 
-<!--
-  TODO before publishing: no automated one-line PowerShell installer (install.ps1) exists in the
-  repository yet. Remove this section or build the script first — a broken install command is the
-  worst possible first impression. Restore this block once install.ps1 is actually in the repo:
-
-  **Prefer one command?** Paste this into PowerShell — no admin rights needed:
-  ```powershell
-  irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
-  ```
-  It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynamics`, installs
-  Node.js if you do not have it, and creates the Desktop shortcut.
--->
+**Prefer one command?** Paste this into PowerShell — no admin rights needed:
+```powershell
+irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
+```
+It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynamics`, installs Node.js if you do not have it, and creates the Desktop shortcut.
 
 ---
 

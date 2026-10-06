@@ -1021,7 +1021,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
       hideMoney: hideMoneyOnDc,
       showHsnSummary: !hideMoneyOnDc && (dcOpts.hideHsnSummary !== true) && (dcOpts.showHsnSummary !== false) && showHSN && hsnRows.length > 0 && isIndia,
       hsnRows,
-      showTaxInWords: !hideMoneyOnDc && options.showTaxInWords === true && showGST && totalTax > 0,
+      showTaxInWords: !hideMoneyOnDc && options.showTaxInWords !== false && showGST && totalTax > 0,
       totalTax, termsHtml, notesHtml, termsClassMod,
       showDeclaration: options.showDeclaration !== false && isIndia,
       declarationText,

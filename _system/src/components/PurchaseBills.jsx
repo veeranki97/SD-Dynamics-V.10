@@ -2,9 +2,11 @@ import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile , getAllPurchaseOrders, getAllWorkOrders} from '../store';
+import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBudgets } from '../store';
 import { getAllWorkOrders as fetchWOs, getAllCostCenters as fetchCCs } from '../store';
-import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode} from '../utils';
+import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode, getFinancialYearLabel } from '../utils';
+import { ACCOUNTS } from '../utils/ledger';
+import { checkBudgetLimit } from '../utils/budget';
 import UnassignedBanner from './UnassignedBanner';
 import { getPrintSettings } from '../utils/printSettings';
 import { toast } from './Toast';
@@ -53,8 +55,6 @@ const emptyForm = {
   applyRoundOff: false, // off by default — purchase bill totals are usually pre-rounded by the supplier. Users with suppliers that don't pre-round can opt in here.
   note: '',
   workOrderId: '',
-  purchaseOrderId: '',
-  poNumber: '',
   costCenterId: '',
   site: '',
 };
@@ -93,9 +93,6 @@ export default function PurchaseBills() {
   // suggestions. Loaded on mount alongside purchases.
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
-  const [workOrdersList, setWorkOrdersList] = useState([]);
-  const [woFilter, setWoFilter] = useState('');
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -198,8 +195,6 @@ export default function PurchaseBills() {
       // saved before businesses were separated has no owner recorded and is
       // always shown, so nothing disappears from an existing ledger.
       setPurchases((rows || []).filter(r => belongsToProfile(r, prof)));
-        getAllPurchaseOrders().then(setPurchaseOrders).catch(() => {});
-        getAllWorkOrders().then(setWorkOrdersList).catch(() => {});
     } catch {
       toast('Failed to load purchases', 'error');
     }
@@ -223,16 +218,20 @@ export default function PurchaseBills() {
     }
   };
 
+  const [budgets, setBudgets] = useState([]);
+
   useEffect(() => {
     try {
       fetchWOs().then(setPurchaseWOs).catch(() => {});
       fetchCCs().then(setPurchaseCCs).catch(() => {});
+      getAllBudgets().then(setBudgets).catch(() => {});
     } catch {}
   }, []);
   useEffect(() => {
     if (fyOptions[0]) setFyFilter(fyOptions[0].value);
     loadPurchases();
     loadProducts();
+    getAllBudgets().then(setBudgets).catch(() => {});
   }, []);
 
   const filtered = purchases.filter(p => {
@@ -277,6 +276,10 @@ export default function PurchaseBills() {
       // just default to off — they won't suddenly change totals on re-save.
       applyRoundOff: !!purchase.applyRoundOff || (typeof purchase.roundOff === 'number' && purchase.roundOff !== 0),
       note: purchase.note || '',
+      workOrderId: purchase.workOrderId || '',
+      costCenterId: purchase.costCenterId || '',
+      site: purchase.site || '',
+      linkedPO: purchase.linkedPO || '',
     });
     setEditingId(purchase.id);
     setShowForm(true);
@@ -409,6 +412,44 @@ export default function PurchaseBills() {
     }
     try {
       const totals = calcPurchaseTotal(form.items, form.applyRoundOff);
+
+      // Budget vs Actual enforcement for Purchases (mapped to Direct Costs by default)
+      if (form.costCenterId) {
+        const purchaseAmt = totals.taxable || 0;
+        const currentFY = getFinancialYearLabel(form.date ? new Date(form.date) : new Date());
+        const priorActual = (purchases || []).reduce((acc, p) => {
+          if (editingId && p.id === editingId) return acc;
+          if (p.costCenterId !== form.costCenterId) return acc;
+          const pFY = getFinancialYearLabel(p.date ? new Date(p.date) : new Date());
+          if (pFY !== currentFY) return acc;
+          return acc + (Number(p.taxableAmount || p.totalAmount) || 0);
+        }, 0);
+
+        const budgetCheck = checkBudgetLimit({
+          budgets,
+          costCenterId: form.costCenterId,
+          accountCode: ACCOUNTS.DIRECT,
+          fiscalYear: currentFY,
+          newAmount: purchaseAmt,
+          currentActual: priorActual,
+        });
+
+        if (budgetCheck.exceeded) {
+          if (budgetCheck.action === 'Stop') {
+            toast(`Purchase exceeds budget! Limit: ₹${budgetCheck.budgetAmount}, Projected: ₹${budgetCheck.projectedTotal}. Save blocked.`, 'error');
+            return;
+          } else if (budgetCheck.action === 'Warn') {
+            const proceed = await confirmAction({
+              title: 'Budget Limit Exceeded',
+              message: `This purchase bill will push spend to ₹${budgetCheck.projectedTotal}, exceeding budget ₹${budgetCheck.budgetAmount} by ₹${budgetCheck.overAmount}. Proceed anyway?`,
+              confirmLabel: 'Proceed & Save',
+              tone: 'warning',
+            });
+            if (!proceed) return;
+          }
+        }
+      }
+
       const purchase = {
         ...(editingId ? { id: editingId } : {}),
         date: form.date,
@@ -439,6 +480,10 @@ export default function PurchaseBills() {
         paymentStatus: form.paymentStatus,
         interstate: !!form.interstate,
         note: form.note.trim(),
+        workOrderId: form.workOrderId || '',
+        costCenterId: form.costCenterId || '',
+        site: form.site || '',
+        linkedPO: form.linkedPO || '',
       };
       await savePurchase(purchase);
 
@@ -923,17 +968,6 @@ export default function PurchaseBills() {
       </div>
 
       {/* Filters */}
-      {/* WO filter */}
-      <div style={{ marginBottom: 8 }}>
-        <label style={{ fontSize: 12, marginRight: 8 }}>Filter by Work Order</label>
-        <select className="filter-select" value={woFilter} onChange={e => setWoFilter(e.target.value)}>
-          <option value="">All WOs</option>
-          {(workOrdersList || []).map(w => (
-            <option key={w.id} value={w.id}>{w.woNumber || w.id} — {w.clientName}</option>
-          ))}
-        </select>
-      </div>
-
       <div className="glass-panel p-4 mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '300px' }}>
@@ -1042,6 +1076,11 @@ export default function PurchaseBills() {
                     <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
                   ))}
                 </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Linked PO</label>
+                <input type="text" className="form-input" value={form.linkedPO || ''}
+                  onChange={e => updateField('linkedPO', e.target.value)} placeholder="PO number (if any)" />
               </div>
 <div className="form-group">
                 <label className="form-label">Invoice Number *</label>

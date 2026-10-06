@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, FileText, Printer } from 'lucide-react';
 import {
   getAllPurchaseOrders,
-  getAllWorkOrders,
   savePurchaseOrder,
   deletePurchaseOrder,
   getAllClients,
   getProfile,
   getAllCostCenters,
   getNextInvoiceNumber,
+  getAllWorkOrders,
+  getAllPurchases,
 } from '../store';
 import { emptyWOItem, calcItemAmount } from '../utils/workOrder';
 import { formatCurrency } from '../utils';
@@ -331,6 +332,8 @@ function printPO(po, profile, fingerprint) {
 
 export default function PurchaseOrdersView() {
   const [list, setList] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [purchases, setPurchases] = useState([]); // for billing-status badge
   const [costCenters, setCostCenters] = useState([]);
   const [clients, setClients] = useState([]);
   const [shipSites, setShipSites] = useState(['Main Site']);
@@ -352,23 +355,23 @@ export default function PurchaseOrdersView() {
   const [vendors, setVendors] = useState([]);
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState(null);
-  const [workOrders, setWorkOrders] = useState([]);
-  const [subFilter, setSubFilter] = useState('all'); // all | direct | subcontract
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [pos, clients, prof, wos] = await Promise.all([
+      const [pos, clients, prof, wos, purs] = await Promise.all([
         getAllPurchaseOrders(),
         getAllClients(), // filtered to vendors below
         getProfile().catch(() => null),
         getAllWorkOrders().catch(() => []),
+        getAllPurchases().catch(() => []),
       ]);
       setList(pos || []);
       setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
       setProfile(prof);
       setWorkOrders(wos || []);
+      setPurchases(purs || []);
     } catch {
       toast('Failed to load Purchase Orders', 'error');
     } finally {
@@ -397,6 +400,8 @@ export default function PurchaseOrdersView() {
       vendorName: '',
       vendorGstin: '',
       vendorState: '',
+      workOrderId: '',
+      isSubcontract: false,
       site: 'Main Site',
       date: new Date().toISOString().split('T')[0],
       status: 'draft',
@@ -404,10 +409,6 @@ export default function PurchaseOrdersView() {
       notes: '',
       items: [emptyWOItem()],
       createdAt: new Date().toISOString(),
-      workOrderId: '',
-      workOrderNumber: '',
-      isSubcontract: false,
-      costCenterId: '',
     });
 
   const updateItem = (idx, field, value) => {
@@ -437,10 +438,7 @@ export default function PurchaseOrdersView() {
       ...totals,
       fingerprint: await sha256Hex(JSON.stringify({
         po: form.poNumber, vendor: form.vendorName, items, totals, date: form.date,
-      
-      workOrderId: form.workOrderId || '',
-      workOrderNumber: form.workOrderNumber || '',
-      isSubcontract: !!form.isSubcontract,})),
+      })),
       updatedAt: new Date().toISOString(),
     };
     try {
@@ -522,36 +520,6 @@ export default function PurchaseOrdersView() {
               {(form.site ? [form.site] : []).map(s => <option key={s} value={s} />)}
             </datalist>
           </div>
-            <div className="form-group">
-              <label className="form-label">Linked Work Order / Project</label>
-              <select
-                className="form-input"
-                value={form.workOrderId || ''}
-                onChange={e => {
-                  const wo = workOrders.find(w => w.id === e.target.value);
-                  setForm({
-                    ...form,
-                    workOrderId: e.target.value,
-                    workOrderNumber: wo ? (wo.woNumber || wo.id) : '',
-                    site: wo?.site || form.site || '',
-                    costCenterId: wo?.costCenterId || form.costCenterId || '',
-                  });
-                }}
-              >
-                <option value="">None (General PO)</option>
-                {workOrders.map(wo => (
-                  <option key={wo.id} value={wo.id}>
-                    {wo.woNumber} — {wo.clientName} ({wo.title || wo.site || 'Project'})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="checkbox" id="po-subcontract" checked={!!form.isSubcontract}
-                onChange={e => setForm({ ...form, isSubcontract: e.target.checked })} />
-              <label htmlFor="po-subcontract" className="form-label" style={{ margin: 0 }}>Subcontract Work (Labor / EPC Execution)</label>
-            </div>
-
           <div className="form-group">
             <label className="form-label">PO Status</label>
             <select className="form-input" value={form.status || 'issued'}
@@ -561,6 +529,25 @@ export default function PurchaseOrdersView() {
               <option value="partially-received">Partially Received</option>
               <option value="fully-received">Fully Received</option>
               <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Work Order</label>
+            <select className="form-input" value={form.workOrderId || ''}
+              onChange={e => {
+                const wid = e.target.value;
+                const wo = workOrders.find(w => w.id === wid);
+                setForm(prev => ({
+                  ...prev,
+                  workOrderId: wid,
+                  costCenterId: wo?.costCenterId || prev.costCenterId,
+                  site: wo?.site || prev.site,
+                }));
+              }}>
+              <option value="">— Link Work Order —</option>
+              {workOrders.map(wo => (
+                <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.site || wo.clientName || ''}</option>
+              ))}
             </select>
           </div>
           <div className="form-group">
@@ -577,6 +564,13 @@ export default function PurchaseOrdersView() {
             <label className="form-label">GST %</label>
             <input type="number" className="form-input" value={form.taxRate}
               onChange={e => setForm({ ...form, taxRate: e.target.value })} />
+          </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', paddingTop: 20 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.85rem' }}>
+              <input type="checkbox" checked={!!form.isSubcontract}
+                onChange={e => setForm({ ...form, isSubcontract: e.target.checked })} />
+              Subcontract PO
+            </label>
           </div>
         </div>
 
@@ -662,43 +656,92 @@ export default function PurchaseOrdersView() {
       <table className="data-table" style={{ width: '100%' }}>
         <thead>
           <tr>
-            <th>PO #</th><th>Date</th><th>Vendor</th><th>Site</th><th>Status</th>
+            <th>PO #</th><th>Date</th><th>Vendor</th><th>Site</th><th>PO Status</th><th>Billing Status</th>
             <th className="text-end">Taxable</th><th className="text-end">GST</th><th className="text-end">Total</th><th></th>
           </tr>
         </thead>
         <tbody>
-          {list.map(po => (
-            <tr key={po.id}>
-              <td>{po.poNumber}</td>
-              <td>{po.date}</td>
-              <td>{po.vendorName}
-                {(po.workOrderNumber || po.workOrderId) && (
-                  <div style={{ fontSize: 11, marginTop: 2 }}>
-                    <span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 4 }}>{po.workOrderNumber || po.workOrderId}</span>
-                    {po.isSubcontract ? <span style={{ marginLeft: 4, color: '#7c3aed' }}>Subcontract</span> : null}
-                  </div>
-                )}
-              </td>
-              <td>{po.site}</td>
-              <td>{po.status}</td>
-              <td className="text-end">{formatCurrency(po.sub || 0)}</td>
-              <td className="text-end">{formatCurrency(po.gst || 0)}</td>
-              <td className="text-end">{formatCurrency(po.total || 0)}</td>
-              <td>
-                <ActionMenu items={[
-                  { label: 'Edit', onClick: () => setForm({ ...po }) },
-                  { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                  { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint) },
-                  { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
-                    { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
-                    { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },
-                    { key: 'status', label: 'Status' }, { key: 'total', label: 'Total' },
-                  ]) },
-                  { label: 'Delete', danger: true, onClick: () => remove(po.id) },
-                ]} />
-              </td>
-            </tr>
-          ))}
+          {list.map(po => {
+            // Compute billing status using the same calcWOUsage-style pattern
+            const poNum = (po.poNumber || '').trim().toLowerCase();
+            const matchingPurchases = (purchases || []).filter(p => {
+              const lp = (p.linkedPO || '').trim().toLowerCase();
+              return poNum && lp && lp === poNum;
+            });
+            const billedSum = matchingPurchases.reduce((acc, p) => acc + (Number(p.totalAmount) || 0), 0);
+            const poTotal = Number(po.total) || 0;
+            let billingStatus = 'Open';
+            let badgeStyle = { background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', border: '1px solid rgba(59, 130, 246, 0.25)' };
+            if (billedSum >= poTotal && poTotal > 0) {
+              billingStatus = 'Fully Billed';
+              badgeStyle = { background: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.25)' };
+            } else if (billedSum > 0) {
+              billingStatus = 'Partially Billed';
+              badgeStyle = { background: 'rgba(245, 158, 11, 0.1)', color: '#d97706', border: '1px solid rgba(245, 158, 11, 0.25)' };
+            }
+
+            const handleCreateBill = () => {
+              // Map PO items to Purchase Bill items schema: { name, hsn, quantity, rate, taxPercent, cessPercent }
+              const billItems = (po.items || []).map(it => ({
+                name: it.description || it.name || '',
+                hsn: it.hsn || '',
+                quantity: Number(it.qty ?? it.quantity) || 1,
+                rate: Number(it.rate) || 0,
+                taxPercent: Number(po.taxRate) || 18,
+                cessPercent: 0,
+              }));
+              sessionStorage.setItem('sd_purchase_from_po', JSON.stringify({
+                fromPO: po.poNumber,
+                supplierName: po.vendorName,
+                supplierGstin: po.vendorGstin,
+                items: billItems,
+                workOrderId: po.workOrderId,
+                costCenterId: po.costCenterId,
+                site: po.site,
+              }));
+              sessionStorage.setItem('gst_currentView', 'purchases');
+              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' }));
+            };
+
+            return (
+              <tr key={po.id}>
+                <td>
+                  <span style={{ fontWeight: 600 }}>{po.poNumber}</span>
+                  {po.isSubcontract && (
+                    <span style={{ marginLeft: 6, fontSize: '0.68rem', padding: '1px 5px', borderRadius: 4, background: 'rgba(139, 92, 246, 0.15)', color: '#7c3aed', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
+                      Subcontract
+                    </span>
+                  )}
+                </td>
+                <td>{po.date}</td>
+                <td>{po.vendorName}</td>
+                <td>{po.site}</td>
+                <td><span className="badge">{po.status}</span></td>
+                <td>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 999, ...badgeStyle }}>
+                    {billingStatus}
+                  </span>
+                </td>
+                <td className="text-end">{formatCurrency(po.sub || 0)}</td>
+                <td className="text-end">{formatCurrency(po.gst || 0)}</td>
+                <td className="text-end">{formatCurrency(po.total || 0)}</td>
+                <td>
+                  <ActionMenu items={[
+                    { label: 'Create Bill', onClick: handleCreateBill },
+                    { label: 'Edit', onClick: () => setForm({ ...po }) },
+                    { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
+                    { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint) },
+                    { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
+                      { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
+                      { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },
+                      { key: 'status', label: 'Status' }, { key: 'total', label: 'Total' },
+                    ]) },
+                    { label: 'Delete', danger: true, onClick: () => remove(po.id) },
+                  ]} />
+                </td>
+              </tr>
+            );
+          })}
           {list.length === 0 && (
             <tr><td colSpan={9} style={{ textAlign: 'center', color: '#94a3b8' }}>No purchase orders yet</td></tr>
           )}

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Wallet, Plus, Edit3, Trash2, Search, X, Save, Download, Calendar } from 'lucide-react';
-import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity } from '../store';
+import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity, getAllBudgets } from '../store';
 import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
-import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
-import { journalFromExpense } from '../utils/ledger';
+import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getFinancialYearLabel } from '../utils';
+import { journalFromExpense, expensePlAccount } from '../utils/ledger';
+import { checkBudgetLimit } from '../utils/budget';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { getExpenseCategories } from '../utils/masterData';
@@ -13,8 +14,6 @@ const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'
 
 const emptyForm = {
   workOrderId: '',
-    poNumber: '',
-    isSubcontract: false,
   againstInvoice: '',
   receiptData: '',
   receiptName: '',
@@ -45,7 +44,6 @@ export default function ExpenseTracker() {
   const [ownerProfile, setOwnerProfile] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [woFilter, setWoFilter] = useState('');
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -53,8 +51,10 @@ export default function ExpenseTracker() {
   const [masterCats, setMasterCats] = useState([]);
   const [woList, setWoList] = useState([]);
   const [billList, setBillList] = useState([]);
+  const [budgets, setBudgets] = useState([]);
 
   useEffect(() => {
+    getAllBudgets().then(setBudgets).catch(() => {});
     getAllWorkOrders().then(rows => {
       setWoList(rows || []);
       setWorkOrders(rows || []);
@@ -114,11 +114,6 @@ export default function ExpenseTracker() {
         if (exp.date < fy.from || exp.date > fy.to) return false;
       }
     }
-    if (woFilter) {
-      const wid = String(woFilter);
-      const ewo = String(exp.workOrderId || exp.woId || exp.woNumber || '');
-      if (ewo !== wid && ewo !== String((workOrders || []).find(w => w.id === wid)?.woNumber || '')) return false;
-    }
     return true;
   });
 
@@ -167,6 +162,46 @@ export default function ExpenseTracker() {
     if (!(form.costCenterId || '').trim()) { toast('Cost Center is required on every expense', 'error'); return; }
     if (!form.description.trim()) { toast('Description is required', 'warning'); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter a valid amount', 'warning'); return; }
+
+    // Budget vs Actual enforcement
+    const expAmt = parseFloat(form.amount) || 0;
+    const accountCode = expensePlAccount({ category: form.category, isDirect: false });
+    const currentFY = getFinancialYearLabel(form.date ? new Date(form.date) : new Date());
+    
+    // Sum prior actual spend for this Cost Center + Account in this FY
+    const priorActual = (expenses || []).reduce((acc, e) => {
+      if (editingId && e.id === editingId) return acc;
+      if (e.costCenterId !== form.costCenterId) return acc;
+      const eFY = getFinancialYearLabel(e.date ? new Date(e.date) : new Date());
+      if (eFY !== currentFY) return acc;
+      const eAcc = expensePlAccount(e);
+      if (eAcc !== accountCode) return acc;
+      return acc + (Number(e.amount) || 0);
+    }, 0);
+
+    const budgetCheck = checkBudgetLimit({
+      budgets,
+      costCenterId: form.costCenterId,
+      accountCode,
+      fiscalYear: currentFY,
+      newAmount: expAmt,
+      currentActual: priorActual,
+    });
+
+    if (budgetCheck.exceeded) {
+      if (budgetCheck.action === 'Stop') {
+        toast(`Budget exceeded! Limit: ₹${budgetCheck.budgetAmount}, Projected: ₹${budgetCheck.projectedTotal}. Save blocked.`, 'error');
+        return;
+      } else if (budgetCheck.action === 'Warn') {
+        const proceed = await confirmAction({
+          title: 'Budget Limit Exceeded',
+          message: `This expense will push spend to ₹${budgetCheck.projectedTotal}, exceeding budget ₹${budgetCheck.budgetAmount} by ₹${budgetCheck.overAmount}. Proceed anyway?`,
+          confirmLabel: 'Proceed & Save',
+          tone: 'warning',
+        });
+        if (!proceed) return;
+      }
+    }
     try {
       const expense = {
         ...(editingId ? { id: editingId } : {}),
@@ -190,6 +225,7 @@ export default function ExpenseTracker() {
       expense.receiptData = form.receiptData || '';
       expense.receiptName = form.receiptName || '';
       expense.costCenterId = form.costCenterId;
+      expense.costSplits = form.costSplits || [];
       expense.site = form.site || '';
       expense.claimStatus = form.claimStatus || 'Draft';
       
@@ -340,12 +376,6 @@ export default function ExpenseTracker() {
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
           </div>
-          <select className="filter-select" value={woFilter || ''} onChange={e => setWoFilter(e.target.value)} style={{ marginRight: 8 }}>
-            <option value="">All WOs</option>
-            {(workOrders || woList || []).map(w => (
-              <option key={w.id} value={w.id}>{w.woNumber || w.id}{w.clientName ? ` — ${w.clientName}` : ''}</option>
-            ))}
-          </select>
           <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="all">All Categories</option>
             {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
@@ -353,8 +383,8 @@ export default function ExpenseTracker() {
           <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
-          {(search || categoryFilter !== 'all' || woFilter) && (
-            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); setWoFilter(''); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
+          {(search || categoryFilter !== 'all') && (
+            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
           )}
         </div>
       </div>
@@ -492,15 +522,83 @@ export default function ExpenseTracker() {
     ))}
   </datalist>
 </div>
-              <div className="form-group">
-                <label className="form-label">Cost Center *</label>
-                <select className="form-input" value={form.costCenterId || ''}
-                  onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
-                  <option value="">— Select Cost Center —</option>
-                  {costCenters.map(cc => (
-                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
-                  ))}
-                </select>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label className="form-label" style={{ margin: 0 }}>Cost Center *</label>
+                  <button type="button" className="btn btn-sm btn-secondary" style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+                    onClick={() => {
+                      const cur = form.costSplits || [];
+                      if (cur.length === 0) {
+                        setForm(f => ({
+                          ...f,
+                          costSplits: [
+                            { costCenterId: f.costCenterId || '', percent: 50 },
+                            { costCenterId: '', percent: 50 },
+                          ]
+                        }));
+                      } else {
+                        setForm(f => ({ ...f, costSplits: [...cur, { costCenterId: '', percent: 0 }] }));
+                      }
+                    }}>
+                    + Split across Cost Centers
+                  </button>
+                </div>
+                {(!form.costSplits || form.costSplits.length === 0) ? (
+                  <select className="form-input" value={form.costCenterId || ''}
+                    onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                    <option value="">— Select Cost Center —</option>
+                    {costCenters.map(cc => (
+                      <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div style={{ background: 'rgba(0,0,0,0.03)', padding: 10, borderRadius: 6, border: '1px dashed #cbd5e1' }}>
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Allocations must total 100%</span>
+                      <button type="button" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem' }}
+                        onClick={() => setForm(f => ({ ...f, costSplits: [] }))}>
+                        Remove split
+                      </button>
+                    </div>
+                    {form.costSplits.map((sp, idx) => (
+                      <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
+                        <select className="form-input" style={{ flex: 2 }} value={sp.costCenterId || ''}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setForm(f => {
+                              const arr = [...(f.costSplits || [])];
+                              arr[idx] = { ...arr[idx], costCenterId: val };
+                              return { ...f, costSplits: arr, costCenterId: arr[0]?.costCenterId || f.costCenterId };
+                            });
+                          }}>
+                          <option value="">— Select Cost Center —</option>
+                          {costCenters.map(cc => (
+                            <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                          ))}
+                        </select>
+                        <input type="number" className="form-input" style={{ width: 90 }} value={sp.percent}
+                          placeholder="%" min="0" max="100"
+                          onChange={e => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setForm(f => {
+                              const arr = [...(f.costSplits || [])];
+                              arr[idx] = { ...arr[idx], percent: val };
+                              return { ...f, costSplits: arr };
+                            });
+                          }} />
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>%</span>
+                        <button type="button" className="btn-icon" onClick={() => {
+                          setForm(f => ({ ...f, costSplits: f.costSplits.filter((_, i) => i !== idx) }));
+                        }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))}
+                    <div style={{ fontSize: '0.78rem', marginTop: 4, fontWeight: 600, color: (form.costSplits.reduce((s, x) => s + (Number(x.percent) || 0), 0) === 100) ? '#059669' : '#d97706' }}>
+                      Total: {form.costSplits.reduce((s, x) => s + (Number(x.percent) || 0), 0)}%
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Row 5: Amount, GST %, Payment Mode */}

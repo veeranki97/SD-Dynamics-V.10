@@ -438,6 +438,21 @@ export const deleteReceipt = async (id) => {
   return apiFetch(`${API}/receipts/${encodeURIComponent(id)}`, { method: 'DELETE' });
 };
 
+// ---- Budgets (Cost Center x Account x FY) ----
+export const getAllBudgets = async () => {
+  return apiFetch(`${API}/budgets`);
+};
+
+export const saveBudget = async (budget) => {
+  const res = await apiFetch(`${API}/budgets`, { method: 'POST', body: JSON.stringify(budget) });
+  if (res.id) budget.id = res.id;
+  return budget;
+};
+
+export const deleteBudget = async (id) => {
+  return apiFetch(`${API}/budgets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+};
+
 // ---- Business Profiles (multi-business) ----
 export const getAllProfiles = async () => {
   return apiFetch(`${API}/profiles`);

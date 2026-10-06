@@ -572,6 +572,77 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     else toast('No editable data saved for this invoice', 'warning');
   };
 
+  const executeRecordPayment = async (bill, { amount, date, mode, note, source = 'manual' }) => {
+    const billTotal = parseMoney(bill.totalAmount);
+    let receiptNoSeq = '';
+    try { receiptNoSeq = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }
+    catch { receiptNoSeq = 'REC/' + String(Date.now()).slice(-6); }
+    const payId = 'pay_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const paymentEntry = {
+      id: payId,
+      amount,
+      date: date || new Date().toISOString().split('T')[0],
+      mode: mode || 'bank-transfer',
+      note: note || '',
+      recordedAt: new Date().toISOString(),
+      receiptNo: receiptNoSeq,
+      againstInvoice: bill.invoiceNumber || bill.id,
+    };
+    const payments = [...(bill.payments || []), paymentEntry];
+    const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const updatedBill = {
+      ...bill,
+      payments,
+      paidAmount: totalPaid,
+      status: totalPaid >= billTotal ? 'paid' : 'partial',
+    };
+    await saveBill(updatedBill, { overwrite: true });
+
+    try {
+      await saveReceipt({
+        id: paymentEntry.id,
+        date: paymentEntry.date,
+        receiptNo: paymentEntry.receiptNo,
+        clientName: bill.data?.client?.name || bill.clientName || '',
+        clientAddress: bill.data?.client?.address || '',
+        amount: paymentEntry.amount,
+        paymentMode: paymentEntry.mode,
+        referenceNo: paymentEntry.note || '',
+        againstInvoice: bill.invoiceNumber || bill.id || '',
+        note: paymentEntry.note || '',
+        currency: bill.currency || bill.data?.invoiceOptions?.currency || 'INR',
+        source,
+        billId: bill.id,
+        ownerGstin: profile?.gstin || '',
+        ownerName: profile?.businessName || '',
+        profileId: profile?.id || '',
+      });
+    } catch { /* non-fatal */ }
+
+    try {
+      const isAdvanceApply = /advance\s*apply|from convert|_fromConvert/i.test(String(paymentEntry.note || ''))
+        || paymentEntry.mode === 'advance-apply';
+      const jnl = isAdvanceApply
+        ? null
+        : journalFromPayment(updatedBill, amount, paymentEntry.mode, {
+            id: paymentEntry.id,
+            date: paymentEntry.date,
+            party: bill.clientName || bill.data?.client?.name,
+            againstDoc: bill.invoiceNumber || bill.id,
+          });
+      if (jnl) {
+        jnl.againstInvoice = bill.invoiceNumber || bill.id;
+        jnl.invoiceNumber = bill.invoiceNumber || bill.id;
+        jnl.receiptNo = paymentEntry.receiptNo;
+        jnl.refId = bill.invoiceNumber || bill.id;
+        await saveJournal(jnl);
+      }
+    } catch (e) {
+      console.warn('[ledger] payment journal failed', e);
+    }
+    return { updatedBill, paymentEntry, totalPaid, billTotal };
+  };
+
   const changeStatus = async (bill, newStatus) => {
     const alreadyPaid = (bill.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
       || Number(bill.paidAmount) || 0;
@@ -609,43 +680,13 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         updated.status = (updated.paidAmount + 0.01 >= billTotal) ? 'paid' : 'partial';
       }
       if (postAmt > 0.005) {
-        let receiptNo = '';
-        try { receiptNo = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }
-        catch { receiptNo = 'REC/' + String(Date.now()).slice(-6); }
-        const payId = 'pay_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        const paymentEntry = {
-          id: payId,
+        await executeRecordPayment(updated, {
           amount: postAmt,
           date: today,
           mode: 'bank-transfer',
           note: newStatus === 'paid' ? 'Marked paid' : 'Partial payment',
-          recordedAt: new Date().toISOString(),
-          receiptNo,
-          againstInvoice: bill.invoiceNumber || bill.id,
-        };
-        updated.payments = [...(bill.payments || []), paymentEntry];
-        await saveBill(updated, { overwrite: true });
-        try {
-          const jnl = journalFromPayment(updated, postAmt, paymentEntry.mode, {
-            id: payId, date: today, party: bill.clientName || bill.data?.client?.name,
-          });
-          if (jnl) {
-            jnl.againstInvoice = bill.invoiceNumber || bill.id;
-            jnl.receiptNo = receiptNo;
-            await saveJournal(jnl);
-          }
-          await saveReceipt({
-            id: payId, date: today, receiptNo,
-            clientName: bill.clientName || bill.data?.client?.name || '',
-            amount: postAmt, paymentMode: paymentEntry.mode,
-            againstInvoice: bill.invoiceNumber || bill.id,
-            note: paymentEntry.note, currency: bill.currency || 'INR',
-            source: 'status-change', billId: bill.id,
-          }).catch(() => null);
-        } catch (e) {
-          console.warn('[ledger] status change journal failed', e);
-          toast('Status saved but ledger post failed', 'warning');
-        }
+          source: 'status-change',
+        });
       } else {
         await saveBill(updated, { overwrite: true });
       }
@@ -849,79 +890,15 @@ const openPaymentModal = (bill) => {
       );
       return;
     }
-    let receiptNoSeq = '';
-    try { receiptNoSeq = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }
-    catch { receiptNoSeq = 'REC/' + String(Date.now()).slice(-6); }
-    const paymentEntry = {
-      id: 'pay_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      amount, date: paymentInput.date, mode: paymentInput.mode,
-      note: paymentInput.note, recordedAt: new Date().toISOString(),
-      receiptNo: receiptNoSeq,
-      againstInvoice: bill.invoiceNumber || bill.id,
-    };
-    const payments = [...(bill.payments || []), paymentEntry];
-    const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const updatedBill = {
-      ...bill, payments, paidAmount: totalPaid,
-      status: totalPaid >= billTotal ? 'paid' : 'partial',
-    };
-    await saveBill(updatedBill, { overwrite: true });
-    // v1.10.10 — Also persist a Receipt record so this payment shows up
-    // in the Receipts view. Prior code only appended to bill.payments —
-    // the standalone Receipts page saw "No receipts generated yet"
-    // even after multiple payments were recorded, which was the user's
-    // exact complaint. `saveReceipt` writes to data/receipts/*.json.
-    try {
-      await saveReceipt({
-        id: paymentEntry.id,
-        date: paymentEntry.date,
-        receiptNo: paymentEntry.receiptNo,
-        clientName: bill.data?.client?.name || bill.clientName || '',
-        clientAddress: bill.data?.client?.address || '',
-        amount: paymentEntry.amount,
-        paymentMode: paymentEntry.mode,
-        referenceNo: paymentEntry.note || '',
-        againstInvoice: bill.invoiceNumber || bill.id || '',
-        note: paymentEntry.note || '',
-        currency: bill.currency || bill.data?.invoiceOptions?.currency || 'INR',
-        source: 'auto-from-payment',
-        billId: bill.id,
-        // P2: stamp current business so receipt is not "unassigned" under all profiles
-        ownerGstin: profile?.gstin || '',
-        ownerName: profile?.businessName || '',
-        profileId: profile?.id || '',
-      });
-    } catch { /* non-fatal — receipt is still viewable from the invoice's Payment History */ }
+    const { updatedBill, paymentEntry, totalPaid } = await executeRecordPayment(bill, {
+      amount,
+      date: paymentInput.date,
+      mode: paymentInput.mode,
+      note: paymentInput.note,
+      source: 'auto-from-payment',
+    });
     toast(`Payment of ${formatCurrency(amount, bill.currency)} recorded`, 'success');
-    
-    // Double-entry + cash book: Bank/Cash Dr · Debtors Cr (party-tagged)
-    try {
-      // P0: if this payment only applies convert-advance (no new cash), skip Bank journal
-      const isAdvanceApply = /advance\s*apply|from convert|_fromConvert/i.test(String(paymentInput.note || ''))
-        || paymentInput.mode === 'advance-apply';
-      const jnl = isAdvanceApply
-        ? null
-        : journalFromPayment(updatedBill, amount, paymentInput.mode, {
-            id: paymentEntry.id,
-            date: paymentEntry.date,
-            party: bill.clientName || bill.data?.client?.name,
-            againstDoc: bill.invoiceNumber || bill.id,
-          });
-      if (jnl) {
-        jnl.againstInvoice = bill.invoiceNumber || bill.id;
-        jnl.invoiceNumber = bill.invoiceNumber || bill.id;
-        jnl.receiptNo = paymentEntry.receiptNo;
-        jnl.refId = bill.invoiceNumber || bill.id; // human ref, not hash
-        await saveJournal(jnl);
-      }
-    } catch (e) {
-      console.warn('[ledger] payment journal failed', e);
-    }
     setPaymentModal(null);
-    // v1.10.22 — reported: "Balance should be 1 but calculating zero" —
-    // ₹649 invoice + ₹650 paid was hiding the ₹1 overpayment because the
-    // remaining calc used Math.max(0, …). Now: send the signed value so
-    // the receipt can show "Overpaid ₹1" instead of silently rounding away.
     setReceiptTarget({ bill: updatedBill, payment: paymentEntry, remaining: billTotal - totalPaid });
     loadBills();
   };
@@ -1142,7 +1119,7 @@ const openPaymentModal = (bill) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `SD-Dynamics-bills-${sel.length}-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `freegstbill-bills-${sel.length}-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast(`Exported ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as JSON`, 'success');
@@ -1234,7 +1211,7 @@ const openPaymentModal = (bill) => {
       if (window.__fgsbBulkAbort) { toast(`Aborted after ${ok} of ${sel.length}`, 'warning'); }
       window.__fgsbBulkAbort = false;
       if (ok === 0) { toast('Could not generate any PDFs', 'error'); return; }
-      const filename = `SD-Dynamics-invoices-${ok}-${new Date().toISOString().split('T')[0]}.pdf`;
+      const filename = `freegstbill-invoices-${ok}-${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(filename);
       toast(`Exported ${ok} of ${sel.length} invoices`, 'success');
     } catch (e) {
@@ -1869,13 +1846,13 @@ const openPaymentModal = (bill) => {
                   const todayD = new Date(); todayD.setHours(0,0,0,0);
                   // Open docs: days past due (if due set), else days since invoice date (aging)
                   let daysOverdue = null;
+                  let rawDiff = null; // raw day difference: positive = past due, negative = future days remaining
                   if (status !== 'paid' && status !== 'cancelled') {
                     const base = dueD || invD;
                     if (base) {
                       const b0 = new Date(base); b0.setHours(0,0,0,0);
-                      const diff = Math.floor((todayD - b0) / 86400000);
-                      // If due date is in the future, show 0 (not overdue yet); if using invoice date, show age
-                      daysOverdue = dueD ? Math.max(0, diff) : Math.max(0, diff);
+                      rawDiff = Math.floor((todayD - b0) / 86400000);
+                      daysOverdue = dueD ? Math.max(0, rawDiff) : Math.max(0, rawDiff);
                     }
                   }
                   const isOverdue = (daysOverdue != null && daysOverdue > 0 && dueD && status !== 'paid' && status !== 'cancelled')
@@ -1905,7 +1882,25 @@ const openPaymentModal = (bill) => {
                       </td>}
                       {visibleColumns.currency && <td className="text-muted">{billCurrency}</td>}
                       {visibleColumns.dueDate && <td className="text-muted">{bill.data?.details?.dueDate ? new Date(bill.data.details.dueDate).toLocaleDateString('en-IN') : <span className="cell-empty">—</span>}</td>}
-                      {visibleColumns.daysOverdue && <td className="text-muted" style={{ color: daysOverdue > 0 ? '#dc2626' : undefined, fontWeight: daysOverdue > 0 ? 600 : undefined }}>{daysOverdue > 0 ? daysOverdue : '—'}</td>}
+                      {visibleColumns.daysOverdue && <td className="text-muted" style={{
+                        color: daysOverdue > 0 ? '#dc2626' : (rawDiff != null && rawDiff < 0 ? '#2563eb' : undefined),
+                        fontWeight: (daysOverdue > 0 || (rawDiff != null && rawDiff < 0)) ? 600 : undefined
+                      }}>
+                        {(() => {
+                          if (status === 'paid' || status === 'cancelled') return <span className="cell-empty">—</span>;
+                          if (daysOverdue != null && daysOverdue > 0) {
+                            return <span title={`Payment overdue by ${daysOverdue} day${daysOverdue > 1 ? 's' : ''}`}>{daysOverdue}d overdue</span>;
+                          }
+                          if (dueD && rawDiff != null && rawDiff < 0) {
+                            const daysRemaining = Math.abs(rawDiff);
+                            return <span style={{ color: '#0284c7' }} title={`Payment due in ${daysRemaining} day${daysRemaining > 1 ? 's' : ''}`}>Due in {daysRemaining}d</span>;
+                          }
+                          if (daysOverdue === 0 && dueD) {
+                            return <span style={{ color: '#d97706', fontWeight: 600 }} title="Payment due today">Due today</span>;
+                          }
+                          return '—';
+                        })()}
+                      </td>}
                       {visibleColumns.workOrder && <td className="text-muted">{(() => {
                         const id = bill.workOrderId || bill.data?.workOrderId || bill.data?.details?.workOrderId || '';
                         const no = bill.data?.details?.workOrderNo || bill.workOrderNo || '';
