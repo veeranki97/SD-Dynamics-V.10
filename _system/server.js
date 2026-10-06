@@ -105,9 +105,16 @@ if (_sqliteInit.ok) {
 }
 
 
-// Helper: safe filename from ID (replace slashes, etc.)
+// Helper: safe filename from ID (sanitizes path separators, .., and Windows reserved device names)
 function safeFileName(id) {
-  return String(id).replace(/[/\\:*?"<>|]/g, '_');
+  if (id === undefined || id === null) return 'unnamed';
+  let s = String(id);
+  try { s = decodeURIComponent(s); } catch {}
+  s = s.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+  s = s.replace(/\.{2,}/g, '_');                    // squash .. to prevent path traversal
+  s = s.replace(/^[.\s]+|[.\s]+$/g, '');            // trim leading/trailing . and space (Windows reserved)
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(s)) s = `_${s}`;
+  return s || 'unnamed';
 }
 
 // v1.10.0 — Path-traversal-safe user-string → single path segment.
@@ -240,7 +247,7 @@ function writeJSON(filePath, data) {
       const key = pathToCollectionId(filePath, DATA_DIR);
       if (key) {
         if (data.id == null) data.id = key.id;
-        sqliteUpsert(key.collection, data);
+        sqliteUpsert(key.collection, data, { mirror: false });
       }
     }
   } catch (se) { console.warn('[sqlite] upsert on writeJSON:', se.message); }
@@ -2806,6 +2813,42 @@ async function processDueRecurring() {
       };
 
       writeJSON(path.join(DATA_DIR, 'bills', safeFileName(invoiceNumber) + '.json'), bill);
+
+      // Auto-post double-entry Journal Entry for financial tax invoices so Books & Ledgers stay consistent
+      const isFinTax = !/proforma|quotation|estimate|delivery|challan|bill-of-supply|composition/.test(String(bill.invoiceType || '').toLowerCase());
+      if (isFinTax) {
+        try {
+          const jnlId = 'jnl_inv_' + safeFileName(invoiceNumber);
+          const taxableAmt = Number(totals.taxableAmount) || (totalAmount - taxTotal);
+          const jEntries = [
+            { account: 'Sundry Debtors', debit: totalAmount, credit: 0 },
+            { account: 'Sales', debit: 0, credit: Math.max(0, taxableAmt) },
+          ];
+          if (totals.cgst > 0) jEntries.push({ account: 'Output CGST', debit: 0, credit: totals.cgst });
+          if (totals.sgst > 0) jEntries.push({ account: 'Output SGST', debit: 0, credit: totals.sgst });
+          if (totals.igst > 0) jEntries.push({ account: 'Output IGST', debit: 0, credit: totals.igst });
+
+          const jDiff = +(jEntries.reduce((s, e) => s + e.debit, 0) - jEntries.reduce((s, e) => s + e.credit, 0)).toFixed(2);
+          if (Math.abs(jDiff) >= 0.01) {
+            if (jDiff > 0) jEntries.push({ account: 'Round Off', debit: 0, credit: jDiff });
+            else jEntries.push({ account: 'Round Off', debit: -jDiff, credit: 0 });
+          }
+
+          const jnl = {
+            id: jnlId,
+            date: invoiceDate,
+            narration: `Recurring Invoice ${invoiceNumber} — ${tpl.clientName}`,
+            refType: 'invoice',
+            refId: invoiceNumber,
+            party: tpl.clientName,
+            clientName: tpl.clientName,
+            entries: jEntries,
+          };
+          writeJSON(path.join(DATA_DIR, 'journals', safeFileName(jnlId) + '.json'), jnl);
+        } catch (je) {
+          console.warn('[recurring] Journal auto-post failed:', je.message);
+        }
+      }
 
       // Advance the template
       tpl.nextDate = advanceDate(tpl.nextDate, tpl.frequency, tpl.interval);

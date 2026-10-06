@@ -1,9 +1,11 @@
+import RaBillPanel from './RaBillPanel';
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff, Copy, ArrowDown, Layers, Link2 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllBills, getAllWorkOrders, saveJournal, getAllCostCenters } from '../store';
 import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, htmlHasText, numberToWords } from '../utils';
+import { computeRaSchedule } from '../utils/raBilling';
 // isValidIndianGSTIN used in save validation
 import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
@@ -697,6 +699,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   }, [editingBill, workOrders]);
 
   const [units, setUnits] = useState(getAllUnits());
+  const [isRaBill, setIsRaBill] = useState(!!(draft?.invoiceOptions?.isRaBill || editingBill?.data?.invoiceOptions?.isRaBill));
+  const [raFields, setRaFields] = useState(draft?.raFields || editingBill?.data?.raFields || {});
   const [taxInclusive, setTaxInclusive] = useState(draft?.taxInclusive || false);
 
   // v1.10.4 — totals is now a `useMemo` (was a `useState` fed by
@@ -4479,6 +4483,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
 
             </div>
+          </div>
+
+          {/* Running Account (RA) / Contracting */}
+          <div className="glass-panel p-4 mb-4" style={{ margin: '0 0 1rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
+              <input type="checkbox" checked={!!isRaBill} onChange={e => setIsRaBill(e.target.checked)} />
+              Running Account (RA) Bill / Contracting Mode
+            </label>
+            <RaBillPanel enabled={!!isRaBill} value={raFields} grossTotal={totals?.total || totals?.grandTotal || 0} onChange={setRaFields} />
           </div>
 
           {/* Line Items */}

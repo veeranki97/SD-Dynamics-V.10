@@ -13,6 +13,8 @@ const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'
 
 const emptyForm = {
   workOrderId: '',
+    poNumber: '',
+    isSubcontract: false,
   againstInvoice: '',
   receiptData: '',
   receiptName: '',
@@ -43,6 +45,7 @@ export default function ExpenseTracker() {
   const [ownerProfile, setOwnerProfile] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [woFilter, setWoFilter] = useState('');
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -110,6 +113,11 @@ export default function ExpenseTracker() {
       if (fy && exp.date) {
         if (exp.date < fy.from || exp.date > fy.to) return false;
       }
+    }
+    if (woFilter) {
+      const wid = String(woFilter);
+      const ewo = String(exp.workOrderId || exp.woId || exp.woNumber || '');
+      if (ewo !== wid && ewo !== String((workOrders || []).find(w => w.id === wid)?.woNumber || '')) return false;
     }
     return true;
   });
@@ -332,6 +340,12 @@ export default function ExpenseTracker() {
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
           </div>
+          <select className="filter-select" value={woFilter || ''} onChange={e => setWoFilter(e.target.value)} style={{ marginRight: 8 }}>
+            <option value="">All WOs</option>
+            {(workOrders || woList || []).map(w => (
+              <option key={w.id} value={w.id}>{w.woNumber || w.id}{w.clientName ? ` — ${w.clientName}` : ''}</option>
+            ))}
+          </select>
           <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="all">All Categories</option>
             {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
@@ -339,8 +353,8 @@ export default function ExpenseTracker() {
           <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
-          {(search || categoryFilter !== 'all') && (
-            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
+          {(search || categoryFilter !== 'all' || woFilter) && (
+            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); setWoFilter(''); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
           )}
         </div>
       </div>

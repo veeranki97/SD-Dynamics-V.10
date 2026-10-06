@@ -87,6 +87,7 @@ export function initSqliteStore(DATA_DIR) {
       CREATE TABLE IF NOT EXISTS records (
         collection TEXT NOT NULL,
         id TEXT NOT NULL,
+        isDeleted INTEGER DEFAULT 0,
         invoiceNumber TEXT,
         docDate TEXT,
         clientName TEXT,
@@ -99,12 +100,17 @@ export function initSqliteStore(DATA_DIR) {
         PRIMARY KEY (collection, id)
       );
       CREATE INDEX IF NOT EXISTS idx_rec_coll ON records(collection);
+      CREATE INDEX IF NOT EXISTS idx_rec_coll_del ON records(collection, isDeleted);
       CREATE INDEX IF NOT EXISTS idx_rec_date ON records(collection, docDate);
       CREATE INDEX IF NOT EXISTS idx_rec_client ON records(collection, clientName);
       CREATE INDEX IF NOT EXISTS idx_rec_status ON records(collection, status);
       CREATE INDEX IF NOT EXISTS idx_rec_wo ON records(collection, workOrderId);
       CREATE INDEX IF NOT EXISTS idx_rec_invnum ON records(collection, invoiceNumber);
     `);
+
+    try {
+      db.exec('ALTER TABLE records ADD COLUMN isDeleted INTEGER DEFAULT 0');
+    } catch { /* column already exists */ }
 
     const migratedFlag = db.prepare('SELECT value FROM meta WHERE key = ?').get('json_import_done');
     const force = process.env.SD_SQLITE_REIMPORT === '1';
@@ -139,8 +145,10 @@ export function initSqliteStore(DATA_DIR) {
 function extractIndex(collection, obj) {
   if (!obj || typeof obj !== 'object') return {};
   const id = String(obj.id || obj.invoiceNumber || obj.empId || obj.code || '');
+  const isDeleted = (obj.deleted || obj.isDeleted || obj._deleted) ? 1 : 0;
   return {
     id,
+    isDeleted,
     invoiceNumber: obj.invoiceNumber || obj.woNumber || obj.poNumber || obj.number || obj.empCode || '',
     docDate:
       obj.invoiceDate ||
@@ -181,9 +189,10 @@ function walkJsonFiles(dir, out = []) {
 function importAllJson(DATA_DIR) {
   if (!db) return 0;
   const upsert = db.prepare(`
-    INSERT INTO records (collection, id, invoiceNumber, docDate, clientName, status, totalAmount, workOrderId, invoiceType, updatedAt, payload_json)
-    VALUES (@collection, @id, @invoiceNumber, @docDate, @clientName, @status, @totalAmount, @workOrderId, @invoiceType, @updatedAt, @payload_json)
+    INSERT INTO records (collection, id, isDeleted, invoiceNumber, docDate, clientName, status, totalAmount, workOrderId, invoiceType, updatedAt, payload_json)
+    VALUES (@collection, @id, @isDeleted, @invoiceNumber, @docDate, @clientName, @status, @totalAmount, @workOrderId, @invoiceType, @updatedAt, @payload_json)
     ON CONFLICT(collection, id) DO UPDATE SET
+      isDeleted=excluded.isDeleted,
       invoiceNumber=excluded.invoiceNumber,
       docDate=excluded.docDate,
       clientName=excluded.clientName,
@@ -299,6 +308,9 @@ export function sqliteList(collection, opts = {}) {
 
   let sql = 'SELECT payload_json FROM records WHERE collection = ?';
   const params = [collection];
+  if (!includeDeleted) {
+    sql += ' AND isDeleted = 0';
+  }
   if (status) {
     sql += ' AND status = ?';
     params.push(status);
@@ -328,9 +340,11 @@ export function sqliteList(collection, opts = {}) {
 
 export function sqliteCount(collection, { status, q, includeDeleted = false } = {}) {
   if (!ready || !db) return 0;
-  // Count via payload filter is expensive; approximate with SQL then filter deleted in rare cases
-  let sql = 'SELECT payload_json FROM records WHERE collection = ?';
+  let sql = 'SELECT COUNT(*) AS c FROM records WHERE collection = ?';
   const params = [collection];
+  if (!includeDeleted) {
+    sql += ' AND isDeleted = 0';
+  }
   if (status) {
     sql += ' AND status = ?';
     params.push(status);
@@ -340,16 +354,8 @@ export function sqliteCount(collection, { status, q, includeDeleted = false } = 
     const like = '%' + q + '%';
     params.push(like, like, like);
   }
-  const rows = db.prepare(sql).all(...params);
-  let n = 0;
-  for (const r of rows) {
-    try {
-      const obj = JSON.parse(r.payload_json);
-      if (!includeDeleted && (obj.deleted || obj.isDeleted || obj._deleted)) continue;
-      n += 1;
-    } catch { /* */ }
-  }
-  return n;
+  const row = db.prepare(sql).get(...params);
+  return row?.c || 0;
 }
 
 export function sqliteGet(collection, id) {
@@ -365,14 +371,15 @@ export function sqliteGet(collection, id) {
   }
 }
 
-export function sqliteUpsert(collection, obj) {
+export function sqliteUpsert(collection, obj, { mirror = true } = {}) {
   if (!ready || !db || !obj) return false;
   const idx = extractIndex(collection, obj);
   if (!idx.id) return false;
   db.prepare(`
-    INSERT INTO records (collection, id, invoiceNumber, docDate, clientName, status, totalAmount, workOrderId, invoiceType, updatedAt, payload_json)
-    VALUES (@collection, @id, @invoiceNumber, @docDate, @clientName, @status, @totalAmount, @workOrderId, @invoiceType, @updatedAt, @payload_json)
+    INSERT INTO records (collection, id, isDeleted, invoiceNumber, docDate, clientName, status, totalAmount, workOrderId, invoiceType, updatedAt, payload_json)
+    VALUES (@collection, @id, @isDeleted, @invoiceNumber, @docDate, @clientName, @status, @totalAmount, @workOrderId, @invoiceType, @updatedAt, @payload_json)
     ON CONFLICT(collection, id) DO UPDATE SET
+      isDeleted=excluded.isDeleted,
       invoiceNumber=excluded.invoiceNumber,
       docDate=excluded.docDate,
       clientName=excluded.clientName,
@@ -387,7 +394,7 @@ export function sqliteUpsert(collection, obj) {
     ...idx,
     payload_json: JSON.stringify(obj),
   });
-  mirrorWrite(collection, idx.id, obj);
+  if (mirror) mirrorWrite(collection, idx.id, obj);
   return true;
 }
 

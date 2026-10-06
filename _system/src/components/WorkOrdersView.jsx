@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, ClipboardList } from 'lucide-react';
 import {
-  getAllWorkOrders, saveWorkOrder, deleteWorkOrder,
+  getAllWorkOrders, getAllExpenses, getAllPurchases, getAllPurchaseOrders, saveWorkOrder, deleteWorkOrder,
   getAllBills, getAllClients, getAllCostCenters,
 } from '../store';
 import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus } from '../utils/workOrder';
@@ -39,6 +39,11 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [unitMaster, setUnitMaster] = useState([]);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [dossierWo, setDossierWo] = useState(null);
+  const [dossierTab, setDossierTab] = useState('invoices');
 
   useEffect(() => {
     setHsnMaster(getHsnMaster());
@@ -48,10 +53,18 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const load = async () => {
     setLoading(true);
     try {
-      const [wos, bs, cs] = await Promise.all([getAllWorkOrders(), getAllBills(), getAllClients()]);
+      const [wos, bs, cs, pos, pbs, exps] = await Promise.all([
+        getAllWorkOrders(), getAllBills(), getAllClients(),
+        getAllPurchaseOrders().catch(() => []),
+        getAllPurchases().catch(() => []),
+        getAllExpenses().catch(() => []),
+      ]);
       setList(wos || []);
-      setBills(bs || []);
+      setBills(Array.isArray(bs) ? bs : (bs?.items || []));
       setClients((cs || []).filter(c => !c.isVendor && c.type !== 'vendor'));
+      setPurchaseOrders(pos || []);
+      setPurchases(pbs || []);
+      setExpenses(exps || []);
       getAllCostCenters().then(setCostCenters).catch(() => {});
     } catch {
       toast('Failed to load Work Orders', 'error');
@@ -336,6 +349,8 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   }
 
   return (
+    <>
+    
     <div className="page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <div>
@@ -361,13 +376,14 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
               <th>Budget</th>
               <th>Billed</th>
               <th>Remaining</th>
-              <th>Status</th>
+              <th>Status</th><th>Client Billed</th><th>Committed POs</th><th>Actual Cost</th><th>Gross Margin</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {list.map(woRow => {
-              const { billedAmount, remaining } = calcWOUsage(woRow, bills);
+              const usage = calcWOUsage(woRow, bills, purchaseOrders, purchases, expenses);
+              const { billedAmount, remaining, committedCost = 0, actualCost = 0, projectedProfit = 0, costOverrun } = usage;
               return (
                 <tr key={woRow.id}>
                   <td><strong>{woRow.woNumber || woRow.id}</strong></td>
@@ -416,6 +432,13 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                         </div>
                       );
                     })()}
+                    {costOverrun ? <div style={{ color: '#dc2626', fontSize: 11 }}>Cost Overrun Risk</div> : null}
+                  </td>
+                  <td className="text-end">{formatCurrency(billedAmount)}</td>
+                  <td className="text-end">{formatCurrency(committedCost)}</td>
+                  <td className="text-end">{formatCurrency(actualCost)}</td>
+                  <td className="text-end" style={{ color: projectedProfit >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
+                    {formatCurrency(projectedProfit)} ({billedAmount > 0 ? ((projectedProfit / billedAmount) * 100).toFixed(1) : '0'}%)
                   </td>
                   <td>
                     <ActionMenu items={[
@@ -447,6 +470,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                           { label: 'Convert to Delivery Challan', onClick: () => go('delivery-challan') },
                         ];
                       })()),
+                      { label: 'View Project Dossier', onClick: () => { setDossierTab('invoices'); setDossierWo(woRow); } },
                       { label: 'Edit', onClick: () => setForm({ ...woRow, items: (woRow.items && woRow.items.length) ? woRow.items : [emptyWOItem()] }) },
                       { label: 'Copy', onClick: () => setForm({ ...woRow, id: 'wo_' + Date.now().toString(36), woNumber: '', items: (woRow.items || []).map(it => ({ ...it })) }) },
                       { label: 'Delete', danger: true, onClick: () => remove(woRow.id) },
@@ -457,12 +481,86 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
             })}
             {!list.length && (
               <tr>
-                <td colSpan={9} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No work orders yet</td>
+                <td colSpan={13} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No work orders yet</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
     </div>
+
+      {dossierWo && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setDossierWo(null)}>
+          <div className="glass-panel" style={{ width: 'min(920px, 96vw)', maxHeight: '90vh', overflow: 'auto', padding: 20 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 style={{ margin: 0, fontSize: '1.15rem' }}>Project Dossier — {dossierWo.woNumber || dossierWo.id}</h2>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDossierWo(null)}>Close</button>
+            </div>
+            <p className="text-muted" style={{ fontSize: 13 }}>{dossierWo.clientName} · {dossierWo.site || ''} · {dossierWo.title || ''}</p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {[['invoices', 'Client Invoices'], ['pos', 'Subcontract POs'], ['purchases', 'Vendor Purchases'], ['expenses', 'Site Expenses']].map(([id, lab]) => (
+                <button key={id} type="button" className={`btn btn-sm ${dossierTab === id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDossierTab(id)}>{lab}</button>
+              ))}
+            </div>
+            {dossierTab === 'invoices' && (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>Invoice</th><th>Date</th><th>Status</th><th>Total</th><th>Paid</th></tr></thead>
+                <tbody>
+                  {(bills || []).filter(b => b.workOrderId === dossierWo.id || (dossierWo.woNumber && (b.data?.details?.workOrderNo || b.workOrderNo) === dossierWo.woNumber)).map(b => (
+                    <tr key={b.id}>
+                      <td>{b.invoiceNumber}</td><td>{b.invoiceDate}</td><td>{b.status}</td>
+                      <td className="text-end">{formatCurrency(b.totalAmount)}</td>
+                      <td className="text-end">{formatCurrency(b.paidAmount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {dossierTab === 'pos' && (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>PO</th><th>Vendor</th><th>Date</th><th>Status</th><th>Value</th></tr></thead>
+                <tbody>
+                  {(purchaseOrders || []).filter(p => p.workOrderId === dossierWo.id || p.workOrderId === dossierWo.woNumber).map(p => (
+                    <tr key={p.id}>
+                      <td>{p.poNumber}</td><td>{p.vendorName}</td><td>{p.date}</td><td>{p.status}{p.isSubcontract ? ' · Sub' : ''}</td>
+                      <td className="text-end">{formatCurrency(p.total || p.totalAmount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {dossierTab === 'purchases' && (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>Bill</th><th>Vendor</th><th>GSTIN</th><th>Taxable</th><th>Total</th></tr></thead>
+                <tbody>
+                  {(purchases || []).filter(p => p.workOrderId === dossierWo.id || p.workOrderId === dossierWo.woNumber).map(p => (
+                    <tr key={p.id}>
+                      <td>{p.invoiceNumber}</td><td>{p.supplierName}</td><td>{p.supplierGstin}</td>
+                      <td className="text-end">{formatCurrency(p.totals?.taxable)}</td>
+                      <td className="text-end">{formatCurrency(p.totalAmount || p.totals?.finalTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {dossierTab === 'expenses' && (
+              <table className="data-table" style={{ width: '100%' }}>
+                <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {(expenses || []).filter(e => e.workOrderId === dossierWo.id || e.workOrderId === dossierWo.woNumber).map(e => (
+                    <tr key={e.id}>
+                      <td>{e.date}</td><td>{e.vendorName || e.payee || e.description}</td><td>{e.category}</td>
+                      <td className="text-end">{formatCurrency(e.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
+

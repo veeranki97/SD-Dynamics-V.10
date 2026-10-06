@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, FileText, Printer } from 'lucide-react';
 import {
   getAllPurchaseOrders,
+  getAllWorkOrders,
   savePurchaseOrder,
   deletePurchaseOrder,
   getAllClients,
@@ -351,19 +352,23 @@ export default function PurchaseOrdersView() {
   const [vendors, setVendors] = useState([]);
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState(null);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [subFilter, setSubFilter] = useState('all'); // all | direct | subcontract
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [pos, clients, prof] = await Promise.all([
+      const [pos, clients, prof, wos] = await Promise.all([
         getAllPurchaseOrders(),
         getAllClients(), // filtered to vendors below
         getProfile().catch(() => null),
+        getAllWorkOrders().catch(() => []),
       ]);
       setList(pos || []);
       setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
       setProfile(prof);
+      setWorkOrders(wos || []);
     } catch {
       toast('Failed to load Purchase Orders', 'error');
     } finally {
@@ -399,6 +404,10 @@ export default function PurchaseOrdersView() {
       notes: '',
       items: [emptyWOItem()],
       createdAt: new Date().toISOString(),
+      workOrderId: '',
+      workOrderNumber: '',
+      isSubcontract: false,
+      costCenterId: '',
     });
 
   const updateItem = (idx, field, value) => {
@@ -428,7 +437,10 @@ export default function PurchaseOrdersView() {
       ...totals,
       fingerprint: await sha256Hex(JSON.stringify({
         po: form.poNumber, vendor: form.vendorName, items, totals, date: form.date,
-      })),
+      
+      workOrderId: form.workOrderId || '',
+      workOrderNumber: form.workOrderNumber || '',
+      isSubcontract: !!form.isSubcontract,})),
       updatedAt: new Date().toISOString(),
     };
     try {
@@ -510,6 +522,36 @@ export default function PurchaseOrdersView() {
               {(form.site ? [form.site] : []).map(s => <option key={s} value={s} />)}
             </datalist>
           </div>
+            <div className="form-group">
+              <label className="form-label">Linked Work Order / Project</label>
+              <select
+                className="form-input"
+                value={form.workOrderId || ''}
+                onChange={e => {
+                  const wo = workOrders.find(w => w.id === e.target.value);
+                  setForm({
+                    ...form,
+                    workOrderId: e.target.value,
+                    workOrderNumber: wo ? (wo.woNumber || wo.id) : '',
+                    site: wo?.site || form.site || '',
+                    costCenterId: wo?.costCenterId || form.costCenterId || '',
+                  });
+                }}
+              >
+                <option value="">None (General PO)</option>
+                {workOrders.map(wo => (
+                  <option key={wo.id} value={wo.id}>
+                    {wo.woNumber} — {wo.clientName} ({wo.title || wo.site || 'Project'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="po-subcontract" checked={!!form.isSubcontract}
+                onChange={e => setForm({ ...form, isSubcontract: e.target.checked })} />
+              <label htmlFor="po-subcontract" className="form-label" style={{ margin: 0 }}>Subcontract Work (Labor / EPC Execution)</label>
+            </div>
+
           <div className="form-group">
             <label className="form-label">PO Status</label>
             <select className="form-input" value={form.status || 'issued'}
@@ -629,7 +671,14 @@ export default function PurchaseOrdersView() {
             <tr key={po.id}>
               <td>{po.poNumber}</td>
               <td>{po.date}</td>
-              <td>{po.vendorName}</td>
+              <td>{po.vendorName}
+                {(po.workOrderNumber || po.workOrderId) && (
+                  <div style={{ fontSize: 11, marginTop: 2 }}>
+                    <span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 4 }}>{po.workOrderNumber || po.workOrderId}</span>
+                    {po.isSubcontract ? <span style={{ marginLeft: 4, color: '#7c3aed' }}>Subcontract</span> : null}
+                  </div>
+                )}
+              </td>
               <td>{po.site}</td>
               <td>{po.status}</td>
               <td className="text-end">{formatCurrency(po.sub || 0)}</td>

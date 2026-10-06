@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { getAllBills, getAllExpenses, saveBill, saveExpense } from '../store';
+import { getAllBills, getAllExpenses, saveBill, saveExpense, saveReceipt, saveJournal } from '../store';
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 
@@ -113,7 +113,40 @@ export default function BankFeedView() {
         const newPaid = (bill.paidAmount || 0) + amt;
         const status = newPaid >= (bill.totalAmount || 0) - 0.01 ? 'paid' : 'partial';
         await saveBill({ ...bill, paidAmount: newPaid, status, payments: nextPayments }, { overwrite: true });
-        toast(`Matched to ${bill.invoiceNumber}`, 'success');
+
+        // Synchronize double-entry General Ledger and Cash Book
+        try {
+          const rcptId = 'rcpt_bf_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+          await saveReceipt({
+            id: rcptId,
+            receiptNumber: 'REC-' + (bill.invoiceNumber || bill.id),
+            date: row.date || new Date().toISOString().split('T')[0],
+            partyName: bill.clientName || bill.data?.client?.name || '',
+            amount: amt,
+            mode: 'bank-transfer',
+            againstInvoiceId: bill.id,
+            againstInvoice: bill.invoiceNumber || bill.id,
+            notes: `Auto-reconciled from bank statement: ${row.narration || ''}`,
+          });
+
+          const jnlId = 'jnl_pay_bf_' + String(bill.id || 'inv').replace(/[^a-zA-Z0-9_-]/g, '_') + '_' + Date.now();
+          await saveJournal({
+            id: jnlId,
+            date: row.date || new Date().toISOString().split('T')[0],
+            narration: `Bank receipt for ${bill.invoiceNumber} — ${bill.clientName || ''}`,
+            refType: 'payment',
+            refId: bill.id,
+            party: bill.clientName || '',
+            entries: [
+              { account: 'Bank', debit: amt, credit: 0 },
+              { account: 'Sundry Debtors', debit: 0, credit: amt },
+            ],
+          });
+        } catch (je) {
+          console.warn('[BankFeed] Ledger journal post failed:', je);
+        }
+
+        toast(`Matched to ${bill.invoiceNumber} & posted to Bank ledger`, 'success');
       } else {
         toast('Expense already recorded — marked matched', 'success');
       }

@@ -2,7 +2,7 @@ import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile } from '../store';
+import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile , getAllPurchaseOrders, getAllWorkOrders} from '../store';
 import { getAllWorkOrders as fetchWOs, getAllCostCenters as fetchCCs } from '../store';
 import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode} from '../utils';
 import UnassignedBanner from './UnassignedBanner';
@@ -53,6 +53,8 @@ const emptyForm = {
   applyRoundOff: false, // off by default — purchase bill totals are usually pre-rounded by the supplier. Users with suppliers that don't pre-round can opt in here.
   note: '',
   workOrderId: '',
+  purchaseOrderId: '',
+  poNumber: '',
   costCenterId: '',
   site: '',
 };
@@ -91,6 +93,9 @@ export default function PurchaseBills() {
   // suggestions. Loaded on mount alongside purchases.
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [workOrdersList, setWorkOrdersList] = useState([]);
+  const [woFilter, setWoFilter] = useState('');
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -193,6 +198,8 @@ export default function PurchaseBills() {
       // saved before businesses were separated has no owner recorded and is
       // always shown, so nothing disappears from an existing ledger.
       setPurchases((rows || []).filter(r => belongsToProfile(r, prof)));
+        getAllPurchaseOrders().then(setPurchaseOrders).catch(() => {});
+        getAllWorkOrders().then(setWorkOrdersList).catch(() => {});
     } catch {
       toast('Failed to load purchases', 'error');
     }
@@ -916,6 +923,17 @@ export default function PurchaseBills() {
       </div>
 
       {/* Filters */}
+      {/* WO filter */}
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontSize: 12, marginRight: 8 }}>Filter by Work Order</label>
+        <select className="filter-select" value={woFilter} onChange={e => setWoFilter(e.target.value)}>
+          <option value="">All WOs</option>
+          {(workOrdersList || []).map(w => (
+            <option key={w.id} value={w.id}>{w.woNumber || w.id} — {w.clientName}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="glass-panel p-4 mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '300px' }}>

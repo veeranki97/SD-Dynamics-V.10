@@ -21,8 +21,8 @@ export function calcItemAmount(item) {
   return +(qty * rate).toFixed(2);
 }
 
-export function calcWOUsage(wo, allBills) {
-  if (!wo) return { billedAmount: 0, remaining: 0, linkedInvoiceIds: [], billedByItem: {}, remainingByItem: [] };
+export function calcWOUsage(wo, allBills, allPOs = [], allPurchases = [], allExpenses = []) {
+  if (!wo) return { billedAmount: 0, remaining: 0, linkedInvoiceIds: [], billedByItem: {}, remainingByItem: [], committedCost: 0, actualCost: 0, projectedProfit: 0, costOverrun: false };
 
   const linked = (allBills || []).filter(b => {
     if (b.status === 'cancelled' || b.status === 'converted') return false;
@@ -67,12 +67,31 @@ export function calcWOUsage(wo, allBills) {
   });
 
   const remaining = Math.max(0, (Number(wo.approvedBudget) || 0) - billedAmount);
+  const woKeys = [wo.id, wo.woNumber].filter(Boolean).map(String);
+  const matchWo = (id) => id && woKeys.includes(String(id));
+  const committedCost = (allPOs || [])
+    .filter(p => matchWo(p.workOrderId) && String(p.status || '').toLowerCase() !== 'cancelled')
+    .reduce((sum, p) => sum + (Number(p.totalAmount ?? p.total ?? p.approvedBudget) || 0), 0);
+  const purchaseCost = (allPurchases || [])
+    .filter(p => matchWo(p.workOrderId))
+    .reduce((sum, p) => sum + (Number(p.totalAmount ?? p.total ?? p.totals?.finalTotal) || 0), 0);
+  const expenseCost = (allExpenses || [])
+    .filter(e => matchWo(e.workOrderId))
+    .reduce((sum, e) => sum + (Number(e.amount ?? e.total ?? e.gstAmount) || 0), 0);
+  const actualCost = purchaseCost + expenseCost;
+  const budget = Number(wo.approvedBudget) || 0;
+  const costOverrun = budget > 0 && (committedCost + actualCost) > budget + 0.5;
+  const projectedProfit = billedAmount - (actualCost || committedCost);
   return {
     billedAmount,
     remaining,
     linkedInvoiceIds: linked.map(b => b.id),
     billedByItem,
     remainingByItem,
+    committedCost,
+    actualCost,
+    projectedProfit,
+    costOverrun,
   };
 }
 
