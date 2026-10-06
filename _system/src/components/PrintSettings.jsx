@@ -797,6 +797,12 @@ export default function PrintSettings() {
               to be on in the other place. See the deleted duplicate
               section further down + the "warning banner" the v1.10.10
               comment described. */}
+          <SettingGroup title="Invoice text options">
+            <ToggleRow label="Show Tax Amount (in words) on PDF" value={!!settings.showTaxInWords}
+              onChange={v => set({ showTaxInWords: v })}
+              hint="When off, the PDF omits the 'Tax Amount (in words)' line under the totals." />
+          </SettingGroup>
+
           <SettingGroup title="Watermark">
             <ToggleRow label="Show watermark" value={settings.watermarkEnabled} onChange={v => set({ watermarkEnabled: v })}
               hint="Big diagonal stamp across the PDF (e.g. PAID / DUPLICATE / DRAFT)." />

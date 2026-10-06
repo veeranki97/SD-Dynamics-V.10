@@ -631,7 +631,7 @@ export default function SettingsView({ onSaved }) {
   const runExport = async () => {
     try {
       const json = await exportAllData(exportSel);
-      const fileName = `freegstbill-backup-${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `SD-Dynamics-backup-${new Date().toISOString().split('T')[0]}.json`;
 
       // Local download (always)
       const blob = new Blob([json], { type: 'application/json' });
@@ -673,7 +673,7 @@ export default function SettingsView({ onSaved }) {
     try {
       const text = await file.text();
       const inspection = inspectBackup(text);
-      if (!inspection.valid) { toast("This file doesn't look like a Free GST Billing backup.", 'error'); return; }
+      if (!inspection.valid) { toast("This file doesn't look like an SD Dynamics backup.", 'error'); return; }
       setImportInspection(inspection);
       setImportJsonText(text);
       // Auto-tick only the parts that actually have data in the file
@@ -791,13 +791,19 @@ export default function SettingsView({ onSaved }) {
            real changes, so it never nags. */}
       {/* v1.10.75 — bottom Save-all bar (multi-section dirty) */}
       <div ref={saveBarRef} className="settings-savebar" style={{
-        zIndex: 40,
-        display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
-        padding: '0.6rem 1.25rem',
+        position: 'fixed',
+        left: 'var(--sidebar-width, 240px)',
+        right: 0,
+        bottom: 0,
+        zIndex: 100,
+        padding: '10px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        boxShadow: '0 -2px 12px rgba(0,0,0,0.08)',
         borderTop: unsaved.length ? '2px solid #f59e0b' : '1px solid var(--border, #e2e8f0)',
         background: unsaved.length ? 'rgba(245, 158, 11, 0.12)' : 'var(--card-bg, #fff)',
-        boxShadow: '0 -4px 16px rgba(15, 23, 42, 0.10)',
-      }}>
+}}>
         <span style={{ flex: '1 1 220px', fontSize: '0.85rem', fontWeight: 600,
           color: unsaved.length ? '#b45309' : '#059669' }}
           title="Features, Region, Print & bank accounts still save as you change them.">

@@ -5,6 +5,7 @@
 // ============================================================================
 
 export const DEFAULT_PRINT_SETTINGS = {
+  showTaxInWords: false,
   // ==== Thermal-only ====
   // Typography
   fontFamily: 'mono',    // 'mono' | 'sans'

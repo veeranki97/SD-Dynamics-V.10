@@ -1142,7 +1142,7 @@ const openPaymentModal = (bill) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `freegstbill-bills-${sel.length}-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `SD-Dynamics-bills-${sel.length}-${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
     toast(`Exported ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as JSON`, 'success');
@@ -1234,7 +1234,7 @@ const openPaymentModal = (bill) => {
       if (window.__fgsbBulkAbort) { toast(`Aborted after ${ok} of ${sel.length}`, 'warning'); }
       window.__fgsbBulkAbort = false;
       if (ok === 0) { toast('Could not generate any PDFs', 'error'); return; }
-      const filename = `freegstbill-invoices-${ok}-${new Date().toISOString().split('T')[0]}.pdf`;
+      const filename = `SD-Dynamics-invoices-${ok}-${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(filename);
       toast(`Exported ${ok} of ${sel.length} invoices`, 'success');
     } catch (e) {

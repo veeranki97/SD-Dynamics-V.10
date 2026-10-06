@@ -3221,7 +3221,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       // Wrapped around buildPDF only (the rest of the flow can happen with
       // preview back to collapsed state).
       const pdf = await withPreviewOnScreen(() => buildPDF());
-      const fileName = `${typeConfig.prefix}_${details.invoiceNumber.replace(/\//g, '-')}.pdf`;
+      const fileName = `${String(details.invoiceNumber || typeConfig.prefix || 'invoice').replace(/[/\\]/g, '-')}.pdf`;
       pdf.save(fileName);
 
       // v1.9.0 — bump print history + save. Both the local bill record and
