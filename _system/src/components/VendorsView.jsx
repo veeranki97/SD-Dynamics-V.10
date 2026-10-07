@@ -120,8 +120,16 @@ export default function VendorsView() {
       if (p.status === 'cancelled') return;
       const vName = p.vendorName || p.supplierName || p.data?.vendor?.name || '';
       const total = Number(p.totalAmount || p.total || 0);
-      let paid = Number(p.paidAmount || (p.status === 'paid' ? total : 0));
+      const st = String(p.status || p.paymentStatus || '').toLowerCase().trim();
+      let paid = Number(p.paidAmount ?? p.amountPaid ?? 0) || 0;
+      // Status "Paid" / "Fully Paid" must count even if paidAmount was never written
+      if (paid <= 0 && (/^paid$|fully.?paid|received|settled/.test(st))) paid = total;
+      if (paid > total && total > 0) paid = total;
       const id = String(p.id || p.billNumber || '');
+      const derivedStatus =
+        total > 0 && paid >= total - 0.01 ? 'paid'
+        : paid > 0.01 ? 'partial'
+        : (st || 'unpaid');
       const tx = {
         id: id || p.billNumber || Math.random(),
         type: 'Purchase Bill',
@@ -133,7 +141,7 @@ export default function VendorsView() {
         total,
         paid,
         outstanding: Math.max(0, total - paid),
-        status: p.status || (paid >= total && total > 0 ? 'paid' : paid > 0 ? 'partial' : 'unpaid'),
+        status: derivedStatus,
         raw: p
       };
       if (id) purchaseById.set(id, tx);

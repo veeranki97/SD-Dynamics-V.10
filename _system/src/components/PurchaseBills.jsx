@@ -478,6 +478,15 @@ export default function PurchaseBills() {
         applyRoundOff: !!form.applyRoundOff,
         roundOff: totals.roundOff,
         paymentStatus: form.paymentStatus,
+        // Keep paidAmount in sync so vendor statement / AP reports stay correct
+        paidAmount: (() => {
+          const tot = Number(form.totalAmount || form.total || 0) || 0;
+          const st = String(form.paymentStatus || '').toLowerCase();
+          if (st === 'paid') return tot;
+          if (st === 'partial') return Number(form.paidAmount || 0) || 0;
+          return 0;
+        })(),
+        status: form.paymentStatus,
         interstate: !!form.interstate,
         note: form.note.trim(),
         workOrderId: form.workOrderId || '',
