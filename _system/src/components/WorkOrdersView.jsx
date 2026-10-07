@@ -178,7 +178,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
           </div>
         </div>
 
-        <div className="glass-panel p-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
+        <div className="glass-panel" style={{ padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 10 }}>
           <div className="form-group">
             <label className="form-label">WO NUMBER</label>
             <input className="form-input" value={form.woNumber || ''} placeholder="Auto on save"
@@ -246,7 +246,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
           </div>
         </div>
 
-        <div className="glass-panel p-4" style={{ marginTop: 16 }}>
+        <div className="glass-panel" style={{ padding: 12, marginTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <strong>Line items</strong>
             <button type="button" className="btn btn-secondary btn-sm" onClick={addItem}>

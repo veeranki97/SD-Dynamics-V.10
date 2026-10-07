@@ -526,9 +526,20 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   }, [bills, search, typeFilter, statusFilter, fyFilter, dateFrom, dateTo]);
 
   const typeCounts = useMemo(() => {
-    const counts = { all: 0 };
+    const counts = { all: 0, 'tax-invoice': 0, proforma: 0, quotation: 0, 'credit-note': 0, 'debit-note': 0, 'delivery-challan': 0 };
+    const norm = (raw) => {
+      const s = String(raw || 'tax-invoice').toLowerCase();
+      if (/proforma|estimate/.test(s)) return 'proforma';
+      if (/quot/.test(s)) return 'quotation';
+      if (/credit/.test(s)) return 'credit-note';
+      if (/debit/.test(s)) return 'debit-note';
+      if (/challan|delivery/.test(s)) return 'delivery-challan';
+      if (/tax|invoice|bill-of-supply/.test(s)) return 'tax-invoice';
+      return s;
+    };
     for (const b of bills || []) {
-      const t = b.invoiceType || 'tax-invoice';
+      if (String(b.status || '').toLowerCase() === 'cancelled') continue; // optional: still count cancelled under type
+      const t = norm(b.invoiceType || b.data?.invoiceType);
       counts[t] = (counts[t] || 0) + 1;
       counts.all += 1;
     }
@@ -1655,7 +1666,7 @@ const openPaymentModal = (bill) => {
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
           
-          <div className="type-quick-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%', marginBottom: 8 }}>
+          <div className="type-quick-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 10 }}>
             {[
               { id: 'all', label: 'All' },
               { id: 'tax-invoice', label: 'Tax Invoice' },
@@ -1664,14 +1675,32 @@ const openPaymentModal = (bill) => {
               { id: 'credit-note', label: 'Credit Note' },
               { id: 'debit-note', label: 'Debit Note' },
               { id: 'delivery-challan', label: 'Delivery Challan' },
-            ].map(t => (
-              <button key={t.id} type="button"
-                className={typeFilter === t.id ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'}
-                onClick={() => setTypeFilter(t.id)}
-                style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}>
-                {t.label}{typeCounts ? ` (${typeCounts[t.id] || 0})` : ''}
-              </button>
-            ))}
+            ].map(t => {
+              const n = typeCounts ? (typeCounts[t.id] || 0) : 0;
+              const active = typeFilter === t.id;
+              return (
+                <button key={t.id} type="button"
+                  onClick={() => { setTypeFilter(t.id); setSelectedIds(new Set()); }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    fontSize: '0.78rem', fontWeight: 600, padding: '6px 12px',
+                    borderRadius: 10, cursor: 'pointer',
+                    border: active ? '1px solid var(--primary)' : '1px solid var(--border)',
+                    background: active ? 'var(--primary)' : 'var(--card)',
+                    color: active ? '#fff' : 'var(--text)',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                  }}>
+                  <span>{t.label}</span>
+                  <span style={{
+                    minWidth: 22, height: 22, borderRadius: 999, padding: '0 6px',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '0.72rem', fontWeight: 700,
+                    background: active ? 'rgba(255,255,255,0.25)' : 'var(--bg-muted, #f1f5f9)',
+                    color: active ? '#fff' : 'var(--text-muted)',
+                  }}>{n}</span>
+                </button>
+              );
+            })}
           </div>
 
           <select className="filter-select" value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setSelectedIds(new Set()); }}>

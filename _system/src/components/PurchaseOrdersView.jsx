@@ -494,7 +494,7 @@ export default function PurchaseOrdersView() {
             <button type="button" className="btn btn-primary" onClick={save}>Save PO</button>
           </div>
         </div>
-        <div className="glass-panel p-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 12 }}>
+        <div className="glass-panel" style={{ padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 12 }}>
           <div className="form-group">
             <label className="form-label">PO Number</label>
             <input className="form-input" value={form.poNumber} placeholder="Auto on save"
@@ -560,13 +560,32 @@ export default function PurchaseOrdersView() {
             <select className="form-input" value={form.workOrderId || ''}
               onChange={e => {
                 const wid = e.target.value;
-                const wo = workOrders.find(w => w.id === wid);
-                setForm(prev => ({
-                  ...prev,
-                  workOrderId: wid,
-                  costCenterId: wo?.costCenterId || prev.costCenterId,
-                  site: wo?.site || prev.site,
-                }));
+                const wo = (workOrders || []).find(w => w.id === wid || w.woNumber === wid);
+                setForm(prev => {
+                  if (!wo) return { ...prev, workOrderId: wid, workOrderNumber: '' };
+                  const itemsFromWo = (Array.isArray(wo.items) && wo.items.length)
+                    ? wo.items.map((it, i) => ({
+                        id: 'poi_' + Date.now() + '_' + i,
+                        description: it.description || it.name || '',
+                        hsn: it.hsn || it.sac || '',
+                        qty: it.qty ?? it.quantity ?? 1,
+                        unit: it.unit || 'Nos',
+                        rate: Number(it.rate) || 0,
+                      }))
+                    : prev.items;
+                  return {
+                    ...prev,
+                    workOrderId: wid,
+                    workOrderNumber: wo.woNumber || '',
+                    costCenterId: wo.costCenterId || wo.costCenter || prev.costCenterId,
+                    site: wo.site || prev.site,
+                    shipToSite: wo.site || prev.shipToSite || prev.site,
+                    gstPercent: wo.gstPercent != null ? wo.gstPercent : prev.gstPercent,
+                    isSubcontract: true,
+                    notes: prev.notes || wo.title || wo.notes || '',
+                    items: itemsFromWo,
+                  };
+                });
               }}>
               <option value="">— Link Work Order —</option>
               {workOrders.map(wo => (
@@ -598,7 +617,7 @@ export default function PurchaseOrdersView() {
           </div>
         </div>
 
-        <div className="glass-panel p-4 mt-4">
+        <div className="glass-panel" style={{ padding: 12, marginTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <h3 style={{ margin: 0 }}>Line items</h3>
             <button type="button" className="btn btn-sm btn-secondary"
@@ -641,8 +660,8 @@ export default function PurchaseOrdersView() {
                         {hsnMaster.map(h => <option key={h} value={h} />)}
                       </datalist>
                     </td>
-                    <td><input type="number" className="form-input" style={{ width: 70 }} value={it.qty}
-                      onChange={e => updateItem(idx, 'qty', e.target.value)} style={{ width: '100%', boxSizing: 'border-box' }} /></td>
+                    <td><input type="number" className="form-input" style={{ width: '100%', boxSizing: 'border-box' }} value={it.qty}
+                      onChange={e => updateItem(idx, 'qty', e.target.value)} /></td>
                     <td>
                       <input className="form-input" style={{ width: 80 }} list={`po-unit-${idx}`}
                         value={it.unit || ''} onChange={e => updateItem(idx, 'unit', e.target.value)} />
@@ -650,8 +669,8 @@ export default function PurchaseOrdersView() {
                         {unitMaster.map(u => <option key={u} value={u} />)}
                       </datalist>
                     </td>
-                    <td><input type="number" className="form-input" style={{ width: 90 }} value={it.rate}
-                      onChange={e => updateItem(idx, 'rate', e.target.value)} style={{ width: '100%', boxSizing: 'border-box' }} /></td>
+                    <td><input type="number" className="form-input" style={{ width: '100%', boxSizing: 'border-box' }} value={it.rate}
+                      onChange={e => updateItem(idx, 'rate', e.target.value)} /></td>
                     <td style={{ textAlign: 'right' }}>{formatCurrency(calcItemAmount(it))}</td>
                     <td>
                       <button type="button" className="btn-icon" onClick={() =>

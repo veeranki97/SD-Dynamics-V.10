@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Target, Plus, Trash2, Edit3, Save, X, AlertTriangle } from 'lucide-react';
-import { getAllBudgets, saveBudget, deleteBudget, getAllCostCenters, getAllJournals } from '../store';
+import { getAllBudgets, saveBudget, deleteBudget, getAllCostCenters, getAllJournals, getAllExpenses, getAllPurchases } from '../store';
 import { formatCurrency, getFYOptions, getFinancialYearLabel } from '../utils';
 import { ACCOUNTS } from '../utils/ledger';
 import { toast } from './Toast';
@@ -26,6 +26,8 @@ export default function BudgetSettingsView() {
   const [budgets, setBudgets] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
   const [journals, setJournals] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -44,14 +46,18 @@ export default function BudgetSettingsView() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [bgts, ccs, jnls] = await Promise.all([
+      const [bgts, ccs, jnls, exps, purs] = await Promise.all([
         getAllBudgets().catch(() => []),
         getAllCostCenters().catch(() => []),
         getAllJournals().catch(() => []),
+        getAllExpenses().catch(() => []),
+        getAllPurchases().catch(() => []),
       ]);
       setBudgets(bgts || []);
       setCostCenters(ccs || []);
       setJournals(jnls || []);
+      setExpenses(exps || []);
+      setPurchases(purs || []);
     } catch {
       toast('Failed to load budget data', 'error');
     } finally {
@@ -129,24 +135,48 @@ export default function BudgetSettingsView() {
     }
   };
 
-  // Compute actual spend from active journals (same pattern as General Ledger)
+  // Actual spend: journals (expense-side) + expenses + purchase bills by cost center
   const actualsMap = useMemo(() => {
     const map = {};
+    const add = (cc, acc, amt) => {
+      if (!cc || !(amt > 0)) return;
+      const a = String(acc || 'Direct Costs');
+      const key = `${cc}_${a}`.toLowerCase();
+      map[key] = (map[key] || 0) + amt;
+      // also key by cost-center only for loose match
+      map[`${cc}__any`] = (map[`${cc}__any`] || 0) + amt;
+    };
+    const ccList = costCenters || [];
+    const resolveCc = (raw) => {
+      if (!raw) return '';
+      const s = String(raw);
+      const hit = ccList.find(c => c.id === s || c.name === s || String(c.name || '').toLowerCase() === s.toLowerCase());
+      return hit ? (hit.id || hit.name) : s;
+    };
     (journals || []).forEach(j => {
       if (j.IsReversed || j.isReversed || j.reversed) return;
-      const cc = j.costCenterId;
+      const cc0 = resolveCc(j.costCenterId);
       (j.entries || []).forEach(e => {
-        const acc = e.account;
-        const entryCC = e.costCenterId || cc;
-        if (!entryCC) return;
-        const key = `${entryCC}_${acc}`.toLowerCase();
+        const acc = e.account || '';
+        // only expense-like debits
+        const isExp = /expense|direct|indirect|cost|labor|subcontract|consumable|fuel|equipment/i.test(acc);
         const dr = Number(e.debit) || 0;
-        const cr = Number(e.credit) || 0;
-        map[key] = (map[key] || 0) + (dr - cr);
+        if (!isExp || dr <= 0) return;
+        add(resolveCc(e.costCenterId || cc0), acc, dr);
       });
     });
+    (expenses || []).forEach(ex => {
+      if (ex.deleted || ex.isDeleted || String(ex.status || '').toLowerCase() === 'cancelled') return;
+      const amt = Number(ex.amount || ex.total || ex.totalAmount || 0) || 0;
+      add(resolveCc(ex.costCenterId || ex.costCenter), ex.category || ex.account || 'Indirect Expenses', amt);
+    });
+    (purchases || []).forEach(p => {
+      if (p.deleted || p.isDeleted) return;
+      const amt = Number(p.totalAmount || p.total || 0) || 0;
+      add(resolveCc(p.costCenterId || p.costCenter), p.category || 'Direct Costs', amt);
+    });
     return map;
-  }, [journals]);
+  }, [journals, expenses, purchases, costCenters]);
 
   return (
     <div className="page">
@@ -180,10 +210,29 @@ export default function BudgetSettingsView() {
           </thead>
           <tbody>
             {budgets.map(b => {
-              const ccObj = costCenters.find(c => c.id === b.costCenterId || c.name === b.costCenterId);
-              const ccName = ccObj?.name || b.costCenterId;
-              const key = `${b.costCenterId}_${b.accountCode}`.toLowerCase();
-              const actual = Math.max(0, actualsMap[key] || 0);
+              const ccId = b.costCenterId;
+              const ccName = (costCenters.find(c => c.id === ccId || c.name === ccId)?.name) || ccId;
+              const acc = String(b.accountCode || '');
+              let actual = 0;
+              const tryKeys = [
+                `${ccId}_${acc}`,
+                `${ccName}_${acc}`,
+                `${ccId}__any`,
+                `${ccName}__any`,
+              ].map(k => k.toLowerCase());
+              for (const k of tryKeys) {
+                if (actualsMap[k]) { actual = actualsMap[k]; break; }
+              }
+              // fuzzy account match on this CC
+              if (!actual) {
+                const accWord = acc.toLowerCase().split(/\s+/)[0] || '';
+                Object.entries(actualsMap).forEach(([k, v]) => {
+                  if ((k.includes(String(ccId).toLowerCase()) || k.includes(String(ccName).toLowerCase())) && (!accWord || k.includes(accWord))) {
+                    actual = Math.max(actual, v);
+                  }
+                });
+              }
+              actual = Math.max(0, actual);
               const bAmt = Number(b.amount) || 0;
               const pct = bAmt > 0 ? Math.round((actual / bAmt) * 100) : 0;
               const isOver = actual > bAmt && bAmt > 0;
