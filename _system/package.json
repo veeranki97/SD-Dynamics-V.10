@@ -2,7 +2,7 @@
   "name": "sd-dynamics",
   "version": "2.4.0",
   "description": "SD Dynamics \u2014 GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
-  "author": "DiceCodes <saidurga>",
+  "author": "Bharat <saidurga>",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -91,10 +91,12 @@
     "bundle:tesseract": "node scripts/bundle-tesseract-assets.mjs",
     "release:zip": "npm run build && node scripts/build-release-zip.mjs && node scripts/verify-release.mjs",
     "test": "npm run test:unit && node tests/smoke.mjs",
-    "test:unit": "node scripts/tax-test.mjs && node scripts/discount-modes-test.mjs && node scripts/csv-test.mjs && node scripts/enterprise-features-test.mjs",
+    "test:unit": "node scripts/tax-test.mjs && node scripts/discount-modes-test.mjs && node scripts/csv-test.mjs && node scripts/enterprise-features-test.mjs && node scripts/ca-integrity-test.mjs && node scripts/payment-guard-test.mjs && node scripts/itc-setoff-test.mjs",
     "test:install": "playwright install firefox",
     "test:update-unix": "node scripts/test-update-unix.mjs",
-    "verify:release": "node scripts/verify-release.mjs"
+    "verify:release": "node scripts/verify-release.mjs",
+    "test:ca": "node scripts/ca-integrity-test.mjs && node scripts/payment-guard-test.mjs",
+    "test:sqlite": "node -e \"import('./src/db/sqliteStore.js').then(m=>{const r=m.initSqliteStore('./data'); console.log(r); process.exit(r.ok?0:1)})\""
   },
   "dependencies": {
     "chart.js": "^4.5.1",

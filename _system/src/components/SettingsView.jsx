@@ -658,7 +658,7 @@ export default function SettingsView({ onSaved }) {
         }
       }
 
-      toast('Backup downloaded', 'success');
+      try { markBackupDone(); } catch {} toast('Backup downloaded', 'success');
       setShowExportModal(false);
     } catch (err) {
       console.error(err);

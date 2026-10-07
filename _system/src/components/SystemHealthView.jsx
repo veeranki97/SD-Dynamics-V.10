@@ -21,7 +21,7 @@ export default function SystemHealthView() {
       setData(null);
     }
     try {
-      const sr = await fetch('/api/sqlite-status');
+      const sr = await fetch('/api/sqlite-status?verify=1');
       if (sr.ok) setSqlite(await sr.json());
       else setSqlite({ ready: false, error: `HTTP ${sr.status}` });
     } catch (e) {
