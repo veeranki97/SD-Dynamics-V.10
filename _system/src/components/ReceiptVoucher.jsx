@@ -1,0 +1,779 @@
+import { resolveWoCostCenter, resolveWoSite, extractBillWorkOrderRef, resolveBillCostCenterSite } from '../utils/workOrder';
+import { useState, useEffect, useRef } from 'react';
+import { Receipt, Plus, Trash2, Search, Printer, Pencil, Layers } from 'lucide-react';
+import { getAllReceipts, saveReceipt, deleteReceipt, getAllBills, getProfile, getNextInvoiceNumber, saveBill, saveJournal, getAllWorkOrders, getAllCostCenters, getAllClients } from '../store';
+import { journalFromPayment } from '../utils/ledger';
+import { checkPaymentCeiling } from '../utils/paymentGuard';
+import { formatCurrency, numberToWords, belongsToProfile, isUnassignedToBusiness } from '../utils';
+import { planBulkAllocation } from '../utils/bulkPayment';
+import UnassignedBanner from './UnassignedBanner';
+import { toast } from './Toast';
+import { confirmAction } from './ConfirmModal';
+
+const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
+
+const emptyForm = {
+  date: new Date().toISOString().split('T')[0],
+  receiptNo: '',
+  clientName: '',
+  clientAddress: '',
+  amount: '',
+  paymentMode: 'Bank Transfer',
+  referenceNo: '',
+  againstInvoice: '',
+  note: '',
+  paymentType: 'invoice', // advance | invoice | vendor
+  direction: 'in', // in | out
+  site: '',
+  workOrderId: '',
+  workOrderNo: '',
+  costCenterId: '',
+};
+
+export default function ReceiptVoucher() {
+  const [receipts, setReceipts] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [profile, setProfile] = useState({});
+  const [search, setSearch] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [workOrders, setWorkOrders] = useState([]);
+  const [vendorsList, setVendorsList] = useState([]);
+  const [clientsList, setClientsList] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
+  const [form, setForm] = useState({ ...emptyForm });
+  const [previewReceipt, setPreviewReceipt] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const receiptRef = useRef(null);
+  // Bulk FIFO allocation (custom)
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkClient, setBulkClient] = useState('');
+  const [bulkAmount, setBulkAmount] = useState('');
+  const [bulkMode, setBulkMode] = useState('Bank Transfer');
+  const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const loadData = async () => {
+    try {
+      const [recs, bls, prof] = await Promise.all([getAllReceipts(), getAllBills(), getProfile()]);
+      // v1.10.66 (#64 item 2) — receipts belong to one business, like its
+      // invoices. Both lists are narrowed: the receipts shown, and the
+      // invoices offered in Quick Select and matched by "Against Invoice".
+      // Two businesses can each have an INV/2026-27/0001, so matching across
+      // them could post a payment against the other company's invoice.
+      // Receipts saved before this carry no business and are always shown.
+      setReceipts((recs || []).filter(r => belongsToProfile(r, prof)));
+      setBills((bls || []).filter(b => belongsToProfile(b, prof)));
+      setProfile(prof || {});
+    } catch {
+      toast('Failed to load data', 'error');
+    }
+  };
+
+  useEffect(() => {
+    getAllWorkOrders().then(setWorkOrders).catch(() => {});
+    getAllClients().then(all => {
+      const list = all || [];
+      setVendorsList(list.filter(c => c.isVendor || c.type === 'vendor'));
+      setClientsList(list.filter(c => !c.isVendor && c.type !== 'vendor'));
+    }).catch(() => {});
+    getAllCostCenters().then(setCostCenters).catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Peek at the next receipt number using the SAME atomic counter that
+  // invoice numbers use. Pre-v1.6.8 this counted `receipts.length + 1`
+  // which raced under concurrent saves + two tabs.
+    const getNextReceiptNo = async () => {
+    try {
+      // GAS-style sequential payment ids: PAY-001, PAY-002, ...
+      const raw = await getNextInvoiceNumber('PAY', { peek: true, explicitPrefix: true });
+      const n = String(raw || '');
+      const num = (n.match(/(\d+)\s*$/) || [])[1];
+      if (num) return `PAY-${String(Number(num)).padStart(3, '0')}`;
+      return n.startsWith('PAY') ? n : (n ? `PAY-${n}` : 'PAY-001');
+    } catch {
+      return 'PAY-001';
+    }
+  };
+
+  const filtered = search.trim()
+    ? receipts.filter(r =>
+        (r.clientName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (r.receiptNo || '').toLowerCase().includes(search.toLowerCase()))
+    : receipts;
+
+  const openAdd = async () => {
+    const receiptNo = await getNextReceiptNo();
+    setForm({ ...emptyForm, receiptNo });
+    setEditingId(null);
+    setShowForm(true); refreshLinkMasters();
+  };
+
+  // v1.10.16 — reported: "here also add edit option" — the Payment Receipts
+  // list only had Print + Delete. Delete + re-create lost the original
+  // receipt number and the paid-against linkage. Now Edit opens the same
+  // form pre-filled with the receipt fields; save re-POSTs with the same
+  // id so the server upserts in place.
+  const openEdit = (rcp) => {
+    setForm({
+      date: rcp.date || new Date().toISOString().split('T')[0],
+      receiptNo: rcp.receiptNo || '',
+      clientName: rcp.clientName || '',
+      clientAddress: rcp.clientAddress || '',
+      amount: String(rcp.amount ?? ''),
+      paymentMode: rcp.paymentMode || 'Bank Transfer',
+      referenceNo: rcp.referenceNo || '',
+      againstInvoice: rcp.againstInvoice || '',
+      note: rcp.note || '',
+      paymentType: rcp.paymentType || 'invoice',
+      direction: rcp.direction || (Number(rcp.amount) < 0 ? 'out' : 'in'),
+    });
+    setEditingId(rcp.id);
+    setShowForm(true);
+  };
+
+
+  const applyInvoiceLink = (inv) => {
+    const bill = (bills || []).find(b =>
+      String(b.invoiceNumber || b.id || '') === inv ||
+      String(b.invoiceNumber || '').toLowerCase() === String(inv || '').toLowerCase()
+    );
+    if (!bill) {
+      updateField('againstInvoice', inv || '');
+      return;
+    }
+    const rem = Math.max(0, (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0));
+    const linked = resolveBillCostCenterSite(bill, workOrders || [], costCenters || []);
+    setForm(f => ({
+      ...f,
+      againstInvoice: inv,
+      paymentType: 'invoice',
+      direction: 'in',
+      clientName: linked.clientName || bill.clientName || bill.data?.clientName || f.clientName,
+      amount: rem > 0 ? String(rem) : f.amount,
+      workOrderId: linked.workOrderId || f.workOrderId || '',
+      workOrderNo: linked.workOrderNo || f.workOrderNo || '',
+      costCenterId: linked.costCenterId || f.costCenterId || '',
+      site: linked.site || f.site || '',
+    }));
+  };
+
+
+  const refreshLinkMasters = async () => {
+    try {
+      const [wos, ccs, bs] = await Promise.all([
+        getAllWorkOrders().catch(() => []),
+        getAllCostCenters().catch(() => []),
+        getAllBills().catch(() => []),
+      ]);
+      setWorkOrders(wos || []);
+      setCostCenters(ccs || []);
+      if (bs && bs.length) setBills(bs);
+    } catch { /* ignore */ }
+  };
+
+  const closeForm = () => { setShowForm(false); setForm({ ...emptyForm }); setEditingId(null); };
+
+  const updateField = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const selectInvoice = (bill) => {
+    setForm(prev => ({
+      ...prev,
+      clientName: bill.clientName || '',
+      clientAddress: bill.data?.client?.address || '',
+      // v1.10.23 — clamp negative (overpaid) to 0 so the new-receipt
+      // amount input doesn't start pre-filled with a negative number.
+      amount: String(Math.max(0, bill.totalAmount - (bill.paidAmount || 0))),
+      againstInvoice: bill.invoiceNumber || '',
+    }));
+  };
+
+  const handleSave = async () => {
+    if (!form.clientName.trim()) { toast('Client name required', 'warning'); return; }
+    if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter valid amount', 'warning'); return; }
+    try {
+      // v1.10.16 — Edit mode preserves the original receipt number and id so
+      // the server upserts in place. Only new receipts reserve a fresh
+      // atomic number from the RCP counter.
+      let receiptNo = form.receiptNo;
+      if (!editingId) {
+        try {
+          let raw = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+          const n = String(raw || '');
+          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+          if (digits) receiptNo = `PAY-${String(Number(digits)).padStart(3, '0')}`;
+          else if (n.startsWith('PAY')) receiptNo = n;
+          else receiptNo = n ? `PAY-${n}` : receiptNo;
+        } catch { /* fall back to peeked number */ }
+      }
+
+      // v1.10.66 (#64 item 2) — a NEW receipt is stamped with the business
+      // selected now. An edited receipt keeps what it had, including no business
+      // at all: an older receipt is assigned only through the explicit "Assign
+      // to" banner, never as a side effect of fixing a typo while some other
+      // business happens to be selected.
+      const existing = editingId ? receipts.find(r => r.id === editingId) : null;
+      const receipt = {
+        ...form,
+        receiptNo,
+        // Direction auto: vendor = out (negative amount); client/invoice/advance = in
+        amount: ((form.paymentType === 'vendor' || form.direction === 'out') ? -1 : 1) * Math.abs(parseFloat(form.amount) || 0),
+        paymentType: form.paymentType || 'invoice',
+        direction: (form.paymentType === 'vendor') ? 'out' : 'in',
+        ownerGstin: existing ? (existing.ownerGstin || '') : (profile?.gstin || ''),
+        ownerName: existing ? (existing.ownerName || '') : (profile?.businessName || ''),
+      };
+      if (editingId) receipt.id = editingId;
+      await saveReceipt(receipt);
+
+      // P1 #19: propagate the payment to the linked invoice so the Dashboard
+      // shows the invoice as paid/partial and doesn't require the user to
+      // double-record via the payment modal. If no invoice link, skip
+      // silently — receipts against ad-hoc payments (advances, deposits)
+      // aren't tied to any bill.
+      // v1.10.16 — Edit mode: find the previously-propagated payment record
+      // in the linked bill (matched by receiptNo) and update it in place
+      // instead of appending. Prevents double-counting when a receipt is
+      // edited. If the linked invoice was changed, we remove the old
+      // propagation and add a fresh one to the new invoice.
+      const modeMap = { 'Bank Transfer': 'bank-transfer', 'UPI': 'upi', 'Cash': 'cash', 'Cheque': 'cheque', 'Card': 'card', 'Other': 'other' };
+      const paidAmount = parseFloat(form.amount);
+    // A1 UI: reject over-outstanding (₹1 tol) unless explicit advance credit
+    if (form.againstInvoice && form.paymentType === 'invoice' && !form.allowAdvanceCredit) {
+      const bill = (bills || []).find(b =>
+        String(b.invoiceNumber || '') === String(form.againstInvoice).trim() ||
+        String(b.id || '') === String(form.againstInvoice).trim()
+      );
+      if (bill) {
+        const ceil = checkPaymentCeiling(paidAmount, bill, { tolerance: 1, allowAdvance: false });
+        if (!ceil.ok) {
+          toast(ceil.error, 'error');
+          return;
+        }
+      }
+    }
+
+      const stripReceiptFromBill = async (bill) => {
+        if (!bill) return;
+        const priorPayments = bill.payments || [];
+        const kept = priorPayments.filter(p => p.receiptNo !== receiptNo);
+        if (kept.length === priorPayments.length) return;
+        const newTotal = kept.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const nextStatus = newTotal >= (Number(bill.totalAmount) || 0) ? 'paid' : (newTotal > 0 ? 'partial' : 'unpaid');
+        await saveBill({ ...bill, paidAmount: newTotal, status: nextStatus, payments: kept }, { overwrite: true });
+      };
+      // If editing and the linked invoice changed (or was removed), scrub
+      // the old link first.
+      if (editingId) {
+        try {
+          const original = receipts.find(r => r.id === editingId);
+          const oldRef = original?.againstInvoice?.trim();
+          const newRef = form.againstInvoice?.trim();
+          if (oldRef && oldRef !== newRef) {
+            const oldBill = bills.find(b => b.invoiceNumber === oldRef || b.id === oldRef);
+            await stripReceiptFromBill(oldBill);
+          }
+        } catch { /* non-fatal */ }
+      }
+      if (form.againstInvoice && form.againstInvoice.trim()) {
+        try {
+          const bill = bills.find(b => b.invoiceNumber === form.againstInvoice.trim() || b.id === form.againstInvoice.trim());
+          if (bill) {
+            const priorPayments = bill.payments || [];
+            const priorIdx = priorPayments.findIndex(p => p.receiptNo === receiptNo);
+            const nextEntry = {
+              amount: paidAmount,
+              date: form.date,
+              mode: modeMap[form.paymentMode] || 'other',
+              note: `Receipt ${receiptNo}${form.referenceNo ? ' · ref ' + form.referenceNo : ''}`,
+              recordedAt: priorIdx >= 0 ? priorPayments[priorIdx].recordedAt : new Date().toISOString(),
+              receiptNo,
+            };
+            const nextPayments = priorIdx >= 0
+              ? priorPayments.map((p, i) => i === priorIdx ? nextEntry : p)
+              : [...priorPayments, nextEntry];
+            const newTotal = nextPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+            const nextStatus = newTotal >= (Number(bill.totalAmount) || 0) ? 'paid' : (newTotal > 0 ? 'partial' : 'unpaid');
+            await saveBill({ ...bill, paidAmount: newTotal, status: nextStatus, payments: nextPayments }, { overwrite: true });
+            try {
+              const jnl = journalFromPayment(bill, paidAmount, form.paymentMode || form.mode || 'bank', {
+                id: form.id || ('rv_' + Date.now()),
+                date: form.date,
+                party: form.clientName || bill.clientName,
+              });
+              if (jnl) await saveJournal(jnl);
+            } catch (e) { console.warn('[ledger] receipt voucher journal', e); }
+
+          }
+        } catch { /* non-fatal: receipt is saved; user can manually update the bill */ }
+      }
+
+      toast('Receipt saved', 'success');
+      closeForm();
+      loadData();
+    } catch {
+      toast('Failed to save', 'error');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (await confirmAction({
+      title: 'Delete this receipt?',
+      message: 'The receipt voucher is removed from your records. The underlying invoice payment (if this was linked to one) stays intact.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    })) {
+      try { await deleteReceipt(id); toast('Deleted', 'success'); loadData(); }
+      catch { toast('Failed to delete', 'error'); }
+    }
+  };
+
+  const printReceipt = (receipt) => {
+    setPreviewReceipt(receipt);
+    setTimeout(() => {
+      const el = receiptRef.current;
+      if (!el) return;
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html><head><title>Receipt ${receipt.receiptNo}</title>
+        <style>
+          body { font-family: 'Inter', Arial, sans-serif; margin: 0; padding: 2rem; color: #1a1a2e; }
+          .receipt-box { max-width: 600px; margin: 0 auto; border: 2px solid #e2e8f0; border-radius: 8px; padding: 2rem; }
+          .receipt-header { text-align: center; margin-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 1rem; }
+          .receipt-title { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0; }
+          .receipt-subtitle { font-size: 0.8rem; color: #64748b; margin: 0.25rem 0 0; }
+          .receipt-row { display: flex; justify-content: space-between; padding: 0.5rem 0; font-size: 0.9rem; border-bottom: 1px solid #f1f5f9; }
+          .receipt-label { color: #64748b; font-weight: 500; }
+          .receipt-value { color: #1e293b; font-weight: 600; }
+          .receipt-amount { font-size: 1.5rem; font-weight: 800; color: #1e40af; text-align: center; margin: 1.5rem 0; padding: 1rem; background: #eff6ff; border-radius: 8px; }
+          .receipt-words { font-size: 0.85rem; color: #334155; font-style: italic; text-align: center; margin-bottom: 1.5rem; }
+          .receipt-footer { display: flex; justify-content: space-between; margin-top: 3rem; padding-top: 1rem; }
+          .receipt-sig { text-align: center; }
+          .receipt-sig-line { width: 180px; border-bottom: 1.5px solid #1e293b; margin-bottom: 0.25rem; }
+          .receipt-sig-label { font-size: 0.75rem; color: #64748b; }
+          .business-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.25rem; }
+          .business-details { font-size: 0.75rem; color: #64748b; }
+          @media print { body { margin: 0; } .receipt-box { border: none; } }
+        </style></head><body>
+        ${el.innerHTML}
+        <script>window.print(); window.close();</script>
+        </body></html>
+      `);
+      printWindow.document.close();
+      setPreviewReceipt(null);
+    }, 100);
+  };
+
+  const unpaidBills = bills.filter(b => b.status !== 'paid');
+
+  // ===== Bulk FIFO allocation (custom) =====
+  const clientNames = [...new Set(
+    bills.filter(b => (b.status === 'unpaid' || b.status === 'partial' || b.status === 'overdue'))
+      .map(b => b.clientName).filter(Boolean)
+  )].sort();
+
+  const previewBulk = () => {
+    if (!bulkClient.trim()) { toast('Select a client', 'warning'); return; }
+    const amt = parseFloat(bulkAmount);
+    if (!amt || amt <= 0) { toast('Enter a valid amount', 'warning'); return; }
+    const plan = planBulkAllocation(bulkClient, amt, bills);
+    if (!plan.allocations.length) {
+      toast('No open invoices for this client', 'warning');
+      setBulkPreview(null);
+      return;
+    }
+    setBulkPreview(plan);
+  };
+
+  const runBulkAllocate = async () => {
+    if (!bulkPreview?.allocations?.length) return;
+    setBulkSaving(true);
+    try {
+      const modeMap = { 'Bank Transfer': 'bank-transfer', 'UPI': 'upi', 'Cash': 'cash', 'Cheque': 'cheque', 'Card': 'card', 'Other': 'other' };
+      const mode = modeMap[bulkMode] || 'other';
+      const today = new Date().toISOString().split('T')[0];
+      for (const a of bulkPreview.allocations) {
+        const bill = bills.find(b => b.id === a.billId);
+        if (!bill) continue;
+        const entry = {
+          amount: a.amount,
+          date: today,
+          mode,
+          note: `Bulk FIFO allocation`,
+          recordedAt: new Date().toISOString(),
+        };
+        const nextPayments = [...(bill.payments || []), entry];
+        const newPaid = nextPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const nextStatus = newPaid >= (Number(bill.totalAmount) || 0) - 0.01 ? 'paid' : 'partial';
+        await saveBill({ ...bill, paidAmount: newPaid, status: nextStatus, payments: nextPayments }, { overwrite: true });
+        try {
+          const jnl = journalFromPayment(bill, Number(form.amount)||0, form.paymentMode || 'bank', {
+            id: form.id || ('rv2_' + Date.now()),
+            date: form.date,
+            party: form.clientName || bill.clientName,
+          });
+          if (jnl) await saveJournal(jnl);
+        } catch (e) { console.warn('[ledger] receipt voucher journal', e); }
+
+      }
+      // Master receipt for audit
+      try {
+        let receiptNo = await getNextInvoiceNumber('PAY', { explicitPrefix: true });
+        {
+          const n = String(receiptNo || '');
+          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+          if (digits) receiptNo = `PAY-${String(Number(digits)).padStart(3, '0')}`;
+          else if (!n.startsWith('PAY')) receiptNo = n ? `PAY-${n}` : receiptNo;
+        }
+        await saveReceipt({
+          date: today,
+          receiptNo,
+          clientName: bulkClient,
+          amount: parseFloat(bulkAmount),
+          paymentMode: bulkMode,
+          againstInvoice: bulkPreview.allocations.map(a => a.invoiceNumber).join(', '),
+          note: `Bulk FIFO: ${bulkPreview.allocations.length} invoice(s)` + (bulkPreview.leftover > 0 ? `; leftover ₹${bulkPreview.leftover}` : ''),
+          ownerGstin: profile?.gstin || '',
+          ownerName: profile?.businessName || '',
+        });
+      } catch { /* non-fatal */ }
+      toast(`Allocated across ${bulkPreview.allocations.length} invoice(s)`, 'success');
+      setShowBulk(false);
+      setBulkPreview(null);
+      setBulkClient('');
+      setBulkAmount('');
+      loadData();
+    } catch (e) {
+      toast(e.message || 'Bulk allocation failed', 'error');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  // v1.10.66 (#64 item 2) — receipts saved before this release carry no
+  // business. As with expenses they are never assigned automatically: only the
+  // user knows which business took the money.
+  const unassignedReceipts = receipts.filter(isUnassignedToBusiness);
+  const assignUnassignedReceipts = async () => {
+    await Promise.all(unassignedReceipts.map(r => saveReceipt({
+      ...r,
+      ownerGstin: profile?.gstin || '',
+      ownerName: profile?.businessName || '',
+    })));
+    loadData();
+  };
+
+  return (
+    <div className="dashboard-container">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Receipts</h1>
+          <p className="page-subtitle">Generate payment receipts for clients</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn btn-secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>
+            <Layers size={18} /> Bulk FIFO Allocate
+          </button>
+          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> New Receipt</button>
+        </div>
+      </div>
+
+      <UnassignedBanner
+        count={unassignedReceipts.length}
+        businessName={profile?.businessName}
+        noun="receipt"
+        onAssign={assignUnassignedReceipts}
+      />
+
+      {/* Bulk FIFO Modal (custom) */}
+      {showBulk && (
+        <div className="modal-overlay" onClick={() => !bulkSaving && setShowBulk(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <h3 className="section-title">Bulk FIFO Payment Allocation</h3>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1rem' }}>
+              Enter a lump-sum amount. It will be applied to the client’s oldest open invoices first.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Client</label>
+              <select className="form-input" value={bulkClient} onChange={e => { setBulkClient(e.target.value); setBulkPreview(null); }}>
+                <option value="">Select client with open invoices</option>
+                {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Amount received (₹)</label>
+              <input type="number" className="form-input" value={bulkAmount} onChange={e => { setBulkAmount(e.target.value); setBulkPreview(null); }} min="0" step="0.01" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Payment mode</label>
+              <select className="form-input" value={bulkMode} onChange={e => setBulkMode(e.target.value)}>
+                {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <button type="button" className="btn btn-secondary" onClick={previewBulk} style={{ marginBottom: '1rem' }}>Preview allocation</button>
+            {bulkPreview && (
+              <div style={{ background: '#f8fafc', borderRadius: 8, padding: '0.75rem', marginBottom: '1rem', maxHeight: 200, overflowY: 'auto' }}>
+                {bulkPreview.allocations.map(a => (
+                  <div key={a.billId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '0.25rem 0' }}>
+                    <span>{a.invoiceNumber}</span>
+                    <span>₹{a.amount.toLocaleString('en-IN')} → {a.newStatus}</span>
+                  </div>
+                ))}
+                {bulkPreview.leftover > 0.01 && (
+                  <div style={{ marginTop: 6, color: '#d97706', fontWeight: 600 }}>Leftover (credit): ₹{bulkPreview.leftover.toLocaleString('en-IN')}</div>
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" disabled={bulkSaving} onClick={() => setShowBulk(false)}>Cancel</button>
+              <button className="btn btn-primary" disabled={bulkSaving || !bulkPreview?.allocations?.length} onClick={runBulkAllocate}>
+                {bulkSaving ? 'Allocating…' : 'Allocate now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Modal */}
+      {showForm && (
+        <div className="modal-overlay" onClick={closeForm}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px' }}>
+            <h3 className="section-title">{editingId ? 'Edit Payment Receipt' : 'New Payment Receipt'}</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
+              <div className="form-group">
+                <label className="form-label">Transaction type</label>
+                <select className="form-input" value={form.paymentType || 'invoice'}
+                  onChange={e => {
+                    const t = e.target.value;
+                    setForm(f => ({
+                      ...f,
+                      paymentType: t,
+                      // Money IN from clients; OUT only for vendor payments (auto, no radio)
+                      direction: t === 'vendor' ? 'out' : 'in',
+                    }));
+                  }}>
+                  <option value="invoice">Against invoice (client payment)</option>
+                  <option value="advance">Advance from client</option>
+                  <option value="vendor">Vendor / payment out</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Receipt No</label>
+                <input type="text" className="form-input" value={form.receiptNo || ''}
+                  onChange={e => updateField('receiptNo', e.target.value)} placeholder="Auto PAY-###" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Date *</label>
+                <input type="date" className="form-input" value={form.date}
+                  onChange={e => updateField('date', e.target.value)} />
+              </div>
+
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Against Invoice (type to search unpaid)</label>
+                <input type="text" className="form-input" list="rcp-unpaid-inv"
+                  value={form.againstInvoice || ''}
+                  placeholder="Select unpaid invoice…"
+                  onChange={e => applyInvoiceLink(e.target.value)}
+                  onBlur={e => applyInvoiceLink(e.target.value)}
+                />
+                <datalist id="rcp-unpaid-inv">
+                  {(bills || []).filter(b => {
+                    const st = String(b.status || '').toLowerCase();
+                    if (st === 'cancelled' || st === 'paid') return false;
+                    const t = String(b.invoiceType || '').toLowerCase();
+                    if (/quotation|delivery|challan/.test(t)) return false;
+                    return (Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0) > 0.5;
+                  }).slice(0, 300).map(b => (
+                    <option key={b.id || b.invoiceNumber} value={b.invoiceNumber}>
+                      {b.clientName} · due ₹{Math.max(0, (Number(b.totalAmount)||0)-(Number(b.paidAmount)||0)).toFixed(0)}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">{(form.paymentType === 'vendor') ? 'Vendor *' : 'Client *'}</label>
+                <input type="text" className="form-input" list={form.paymentType === 'vendor' ? 'rcp-vendors' : 'rcp-clients'}
+                  value={form.clientName || ''}
+                  onChange={e => updateField('clientName', e.target.value)}
+                  placeholder="Type to search…" />
+                <datalist id="rcp-clients">
+                  {(clientsList || []).map(c => (
+                    <option key={c.id || c.name} value={c.name || c.companyName} />
+                  ))}
+                </datalist>
+                <datalist id="rcp-vendors">
+                  {(vendorsList || []).map(c => (
+                    <option key={c.id || c.name} value={c.name || c.companyName} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount *</label>
+                <input type="number" className="form-input" value={form.amount}
+                  onChange={e => updateField('amount', e.target.value)} min="0" step="0.01" placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Payment mode</label>
+                <select className="form-input" value={form.paymentMode || 'Bank Transfer'}
+                  onChange={e => updateField('paymentMode', e.target.value)}>
+                  {['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'].map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Reference No</label>
+                <input type="text" className="form-input" value={form.referenceNo || ''}
+                  onChange={e => updateField('referenceNo', e.target.value)} placeholder="UTR / Cheque no" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Work Order</label>
+                <select className="form-input" value={
+                    (() => {
+                      const id = form.workOrderId || '';
+                      if (!id) return '';
+                      if ((workOrders || []).some(w => w.id === id)) return id;
+                      const byNo = (workOrders || []).find(w => w.woNumber === id || w.woNumber === form.workOrderNo);
+                      return byNo ? byNo.id : id;
+                    })()
+                  }
+                  onChange={e => {
+                    const id = e.target.value;
+                    const wo = (workOrders || []).find(w => w.id === id);
+                    setForm(f => ({
+                      ...f,
+                      workOrderId: id,
+                      workOrderNo: wo?.woNumber || '',
+                      costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
+                      site: resolveWoSite(wo) || wo?.site || f.site || '',
+                      clientName: f.clientName || wo?.clientName || '',
+                    }));
+                  }}>
+                  <option value="">— None —</option>
+                  {(workOrders || []).map(wo => (
+                    <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.clientName || wo.title || ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Cost Center</label>
+                <select className="form-input" value={form.costCenterId || ''}
+                  onChange={e => updateField('costCenterId', e.target.value)}>
+                  <option value="">— None —</option>
+                  {(costCenters || []).map(cc => (
+                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Site</label>
+                <input type="text" className="form-input" value={form.site || ''}
+                  onChange={e => updateField('site', e.target.value)} placeholder="Site / location" />
+              </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">Note</label>
+                <input type="text" className="form-input" value={form.note || ''}
+                  onChange={e => updateField('note', e.target.value)} placeholder="Optional" />
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+              Direction is automatic: client / invoice / advance = money <strong>in</strong>; vendor payment = money <strong>out</strong>.
+            </p>
+            <div className="modal-actions" style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={closeForm}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSave}>Save Receipt</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hidden receipt for printing */}
+      {previewReceipt && (
+        <div style={{ position: 'absolute', left: '-9999px' }} ref={receiptRef}>
+          <div className="receipt-box">
+            <div className="receipt-header">
+              <p className="business-name">{profile.businessName || 'Your Business'}</p>
+              <p className="business-details">{profile.address}</p>
+              {profile.gstin && <p className="business-details">GSTIN: {profile.gstin}</p>}
+              <h2 className="receipt-title">PAYMENT RECEIPT</h2>
+            </div>
+            <div className="receipt-row"><span className="receipt-label">Receipt No:</span><span className="receipt-value">{previewReceipt.receiptNo}</span></div>
+            <div className="receipt-row"><span className="receipt-label">Date:</span><span className="receipt-value">{new Date(previewReceipt.date).toLocaleDateString('en-IN')}</span></div>
+            <div className="receipt-row"><span className="receipt-label">Received From:</span><span className="receipt-value">{previewReceipt.clientName}</span></div>
+            <div className="receipt-row"><span className="receipt-label">Payment Mode:</span><span className="receipt-value">{previewReceipt.paymentMode}</span></div>
+            {previewReceipt.referenceNo && <div className="receipt-row"><span className="receipt-label">Reference No:</span><span className="receipt-value">{previewReceipt.referenceNo}</span></div>}
+            {previewReceipt.againstInvoice && <div className="receipt-row"><span className="receipt-label">Against Invoice:</span><span className="receipt-value">{previewReceipt.againstInvoice}</span></div>}
+            <div className="receipt-amount">{formatCurrency(previewReceipt.amount)}</div>
+            <p className="receipt-words">{numberToWords(previewReceipt.amount)}</p>
+            {previewReceipt.note && <p style={{ fontSize: '0.85rem', color: '#64748b' }}>Note: {previewReceipt.note}</p>}
+            <div className="receipt-footer">
+              <div className="receipt-sig"><div className="receipt-sig-line"></div><span className="receipt-sig-label">Received By</span></div>
+              <div className="receipt-sig"><div className="receipt-sig-line"></div><span className="receipt-sig-label">Authorized Signatory</span></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="glass-panel p-4 mb-6">
+        <div className="search-box" style={{ maxWidth: '400px' }}>
+          <Search size={16} className="search-icon" />
+          <input type="text" placeholder="Search receipts..." value={search}
+            onChange={e => setSearch(e.target.value)} className="search-input" />
+        </div>
+      </div>
+
+      {/* Receipts Table */}
+      <div className="glass-panel">
+        <div className="table-header"><h3>Payment Receipts</h3></div>
+        {filtered.length === 0 ? (
+          <div className="empty-state">
+            <Receipt size={48} />
+            <p>{receipts.length === 0 ? 'No receipts generated yet.' : 'No receipts match your search.'}</p>
+            {receipts.length === 0 && <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Create Receipt</button>}
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table" style={{ minWidth: '700px' }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Receipt No</th>
+                  <th>Client</th>
+                  <th>Against Invoice</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                  <th>Mode</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(rcp => (
+                  <tr key={rcp.id}>
+                    <td className="text-muted">{rcp.date ? new Date(rcp.date).toLocaleDateString('en-IN') : ''}</td>
+                    <td><span className="invoice-badge">{rcp.receiptNo}</span></td>
+                    <td className="font-medium">{rcp.clientName}</td>
+                    <td className="text-muted">{rcp.againstInvoice || '-'}</td>
+                    <td style={{ textAlign: 'right' }} className="font-bold">{formatCurrency(rcp.amount)}</td>
+                    <td className="text-muted">{rcp.paymentMode}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="icon-btn icon-btn-blue" onClick={() => printReceipt(rcp)} title="Print"><Printer size={15} /></button>
+                        <button className="icon-btn" onClick={() => openEdit(rcp)} title="Edit"><Pencil size={15} /></button>
+                        <button className="icon-btn icon-btn-red" onClick={() => handleDelete(rcp.id)} title="Delete"><Trash2 size={15} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

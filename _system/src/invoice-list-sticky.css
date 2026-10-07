@@ -1,0 +1,14 @@
+
+/* Sticky invoice list headers */
+.invoice-list-scroll .invoice-list-table thead th,
+.invoice-list-panel .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.08);
+}
+:root[data-theme="dark"] .invoice-list-scroll .invoice-list-table thead th,
+:root[data-theme="dark"] .invoice-list-panel .data-table thead th {
+  background: var(--surface, #1e293b);
+}

@@ -1,0 +1,30 @@
+
+ORIGINAL (works - your screenshot):
+Free-GST-Billing/
+├── Free GST Billing - WINDOWS.hta
+├── READ ME FIRST.txt
+└── _system/
+    ├── package.json
+    ├── server.js
+    ├── dist/                 ← pre-built
+    ├── install-windows.ps1
+    ├── start-windows.ps1
+    ├── node_modules/         ← created by Install (not in ZIP)
+    └── ...
+
+YOUR GITHUB DOWNLOAD (fails - red "missing"):
+SD-Dynamics-2.1.0/
+├── package.json              ← HTA does not look here
+├── server.js
+└── (no _system)              ← HTA requires this name
+
+TARGET FOR SD DYNAMICS (after Build-Release-ZIP.ps1):
+SD-Dynamics/
+├── SD Dynamics - WINDOWS.hta
+├── READ ME FIRST.txt
+└── _system/
+    ├── package.json
+    ├── server.js
+    ├── dist/
+    ├── install-windows.ps1
+    └── start-windows.ps1

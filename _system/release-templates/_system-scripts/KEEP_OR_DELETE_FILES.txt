@@ -1,0 +1,42 @@
+SD Dynamics — which files to KEEP vs DELETE
+==========================================
+
+KEEP (never delete while using the app)
+---------------------------------------
+  data\                 All invoices, clients, journals, settings
+  data\bills\
+  data\journals\
+  data\receipts\
+  data\workorders\
+  package.json
+  server.js
+  dist\                 Built UI (or rebuild with npm run build)
+  node_modules\         After npm install (large but required)
+  src\                  Source (needed if you rebuild)
+  public\
+  scripts\
+
+SAFE TO DELETE (cleanup / free space)
+--------------------------------------
+  .git\                 Only if you do not use git pull (keeps history)
+  node_modules\         ONLY if you will run npm install again
+  dist\                 ONLY if you will run npm run build again
+  Trash\                Deleted invoices archive (optional)
+  Saved Invoices\       PDF copies (optional backup — keep if you need them)
+  .vs\, .vscode\        Editor junk
+  *.log
+  FreeGSTBill_Custom_Backup_* folders on Desktop if already restored
+  Old extract folders: Free-GST-Billing-Software-mainV6, V8, Bharatbill2 copies
+                        if you only use one working folder
+
+ONE-CLICK RELEASE LAYOUT
+------------------------
+  SD-Dynamics\
+    SD Dynamics - WINDOWS.hta     KEEP
+    READ ME FIRST.txt             KEEP
+    _system\                      KEEP entire folder
+      data\                       KEEP (your books)
+      node_modules\               KEEP after Install
+      dist\                       KEEP after Install/build
+
+Do NOT run two copies at once (two _system or two ports) — use one folder.
