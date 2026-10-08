@@ -7,6 +7,7 @@ import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, 
 // isValidIndianGSTIN used in save validation
 import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
+import { getHsnMaster, addHsnCode, getUnitMaster } from '../utils/masterData';
 import { journalFromTaxInvoice, journalApplyCustomerAdvance } from '../utils/ledger';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
@@ -347,15 +348,23 @@ const LineItem = memo(function LineItem({
               }
             }}>
             <option value="">— SAC/HSN —</option>
-            {item.hsn && ![...(() => { try { return JSON.parse(localStorage.getItem('fgsb_custom_sac')||'[]'); } catch { return []; } })()].includes(item.hsn) && (
-              <option value={item.hsn}>{item.hsn}</option>
-            )}
             {(() => {
-              try { return JSON.parse(localStorage.getItem('fgsb_custom_sac') || '[]'); } catch { return []; }
-            })().map(c => <option key={c} value={c}>{c}</option>)}
-            {['998311','998312','998313','998314','998399','998599','9954','9965','9972'].map(c => (
-              <option key={'d'+c} value={c}>{c}</option>
-            ))}
+              let master = [];
+              try { master = typeof getHsnMaster === 'function' ? getHsnMaster() : []; } catch { master = []; }
+              if (!Array.isArray(master) || !master.length) {
+                try { master = JSON.parse(localStorage.getItem('fgsb_custom_sac') || localStorage.getItem('freegstbill_custom_sac') || '[]'); } catch { master = []; }
+              }
+              const defaults = ['998311','998312','998313','998314','998399','998599','9954','9965','9972'];
+              const all = [...new Set([...(master || []).map(String), ...defaults])];
+              return (
+                <>
+                  {item.hsn && !all.includes(String(item.hsn)) && (
+                    <option value={item.hsn}>{item.hsn}</option>
+                  )}
+                  {all.map(c => <option key={c} value={c}>{c}</option>)}
+                </>
+              );
+            })()}
             <option value="__custom__">＋ Add SAC/HSN…</option>
           </select>
           {/* Show the label of the matched HSN inline so the user can
@@ -602,6 +611,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [creditToApply, setCreditToApply] = useState(0);
   // Work Order link (custom addition)
   const [workOrders, setWorkOrders] = useState([]);
+  const [collapsedSections, setCollapsedSections] = useState({ terms: false, extras: true, options: false });
+  const toggleSection = (key) => setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
   // Prefill from Work Order convert (Tax / Proforma / DC) — runs after WO list loads
   useEffect(() => {
@@ -3451,7 +3462,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         <div className="editor-pane">
           {/* Business Profile Selector — shown only if multiple profiles saved */}
           {allProfiles.length > 1 && (
-            <div className="glass-panel p-6 mb-6">
+            <div className="glass-panel ig-panel">
               <h3 className="section-title" style={{ marginBottom: '0.75rem' }}>Billing From (Business Profile)</h3>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
                 {allProfiles.map(bp => {
@@ -3476,7 +3487,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           )}
 
           {/* Invoice Type */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <div className="flex justify-between items-center">
               <h3 className="section-title" style={{ margin: 0 }}>Document Type · Template</h3>
               <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
@@ -3998,7 +4009,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
 
           {/* Client Details */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <div className="flex justify-between items-center mb-4">
               <h3 className="section-title" style={{ margin: 0 }}>Client · Site · Billing</h3>
             </div>
@@ -4442,7 +4453,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Invoice Details */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <h3 className="section-title" style={{ margin: 0 }}>Invoice No · Dates · Period · Place of Supply</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div className="form-group">
@@ -4522,7 +4533,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <option key={u.label || u} value={u.label || u} />
             ))}
           </datalist>
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 className="section-title" style={{ margin: 0 }}>Line Items</h3>
               {/* Prices-include-tax hidden on new invoices; still applied when loading saved taxInclusive bills */}
@@ -4631,9 +4642,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Terms */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <h3 className="section-title" style={{ margin: 0 }}>Terms & Conditions</h3>
+              <h3 className="section-title" style={{ margin: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => toggleSection('terms')}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{collapsedSections.terms ? '▸' : '▾'}</span>
+                Terms & Conditions
+              </h3>
               {/* v1.10.37 — Terms rendering mode picker. Reported: PDF was
                   showing terms as compact all-caps run-together block —
                   users wanted an option for normal formatted output too.
@@ -4668,7 +4682,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 })}
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: termsTemplates.length > 0 ? '1fr 1fr' : '1fr', gap: '0.75rem', marginBottom: '0.5rem' }}>
+            {!collapsedSections.terms && (
+            <>
+            <div style={{ display: 'grid', gridTemplateColumns: termsTemplates.length > 0 ? '1fr 1fr' : '1fr', gap: '0.5rem', marginBottom: '0.4rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Insert preset (by business type)</label>
                 <select className="form-input" defaultValue=""
@@ -4735,19 +4751,26 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 style={{ fontSize: '0.82rem' }}
                 placeholder="e.g. Client asked for 15-day credit, follow up on 20th, referred by Ravi..." />
             </div>
+            </>
+            )}
           </div>
 
           {/* Extra Sections */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel ig-panel">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="section-title" style={{ margin: 0 }}>Additional Pages / Sections</h3>
+              <h3 className="section-title" style={{ margin: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => toggleSection('extras')}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{collapsedSections.extras ? '▸' : '▾'}</span>
+                Additional Pages / Sections
+              </h3>
               <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
                 onClick={() => setExtraSections(prev => [...prev, { id: Date.now().toString(), title: '', content: '' }])}>
                 <Plus size={15} /> Add Section
               </button>
             </div>
-            <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '1rem' }}>
-              Add extra sections that appear after the invoice footer. You can paste formatted HTML content (bold, lists, tables, etc.).
+            {!collapsedSections.extras && (
+            <>
+            <p className="text-muted" style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+              Add extra sections that appear after the invoice footer.
             </p>
             {extraSections.length === 0 ? (
               <p className="text-muted" style={{ fontSize: '0.85rem' }}>No extra sections. Click "Add Section" to create one.</p>
@@ -4774,6 +4797,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   </div>
                 </div>
               ))
+            )}
+            </>
             )}
           </div>
         </div>

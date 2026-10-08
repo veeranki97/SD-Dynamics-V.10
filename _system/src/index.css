@@ -3811,3 +3811,60 @@ div.stats-grid.stats-grid-kpi-4 .stat-value {
 .main-content:has(.settings-savebar) {
   /* spacer div in SettingsView handles clearance */
 }
+
+
+/* Invoice generator density (surgical, logic-safe) */
+.ig-panel {
+  padding: 0.65rem 0.85rem !important;
+  margin-bottom: 0.65rem !important;
+  background: var(--surface, var(--card, #fff));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.ig-panel .section-title {
+  margin-bottom: 0.45rem !important;
+  font-size: 0.92rem;
+}
+.ig-panel .form-group {
+  margin-bottom: 0.45rem !important;
+}
+.ig-panel .form-label {
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+}
+.ig-panel .form-input {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+.sd-line-grid.line-item-row,
+.line-item-row.sd-line-grid {
+  margin-bottom: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  gap: 0.4rem !important;
+}
+.line-item-field .form-label {
+  margin-bottom: 0.15rem !important;
+  font-size: 0.68rem !important;
+}
+.generator-toolbar.ig-fixed-savebar {
+  padding: 0.45rem 0.65rem !important;
+  gap: 0.4rem;
+}
+.sd-inv-totals {
+  padding: 0.5rem 0.75rem !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, var(--surface, #f8fafc));
+}
+.sd-inv-totals .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.15rem 0;
+  font-size: 0.85rem;
+}
+.sd-inv-totals .row.grand {
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
+}

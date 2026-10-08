@@ -412,6 +412,35 @@ export default function PurchaseOrdersView() {
   }, []);
   useEffect(() => { load(); }, []);
 
+  // Prefill from Work Order "Create PO" action
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('sd_po_from_wo');
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      sessionStorage.removeItem('sd_po_from_wo');
+      setForm({
+        id: 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        poNumber: '',
+        vendorName: '',
+        vendorGstin: '',
+        vendorState: '',
+        workOrderId: p.workOrderId || '',
+        workOrderNumber: p.workOrderNumber || '',
+        isSubcontract: p.isSubcontract !== false,
+        site: p.site || 'Main Site',
+        costCenterId: p.costCenterId || '',
+        date: new Date().toISOString().split('T')[0],
+        status: 'draft',
+        taxRate: 18,
+        notes: p.clientName ? `Subcontract for client: ${p.clientName}` : '',
+        items: [emptyWOItem()],
+        createdAt: new Date().toISOString(),
+      });
+    } catch { /* */ }
+  }, []);
+
+
   const openNew = () =>
     setForm({
       id: 'po_' + Date.now().toString(36),

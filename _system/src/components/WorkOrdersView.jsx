@@ -44,8 +44,8 @@ function navigateCreatePoFromWo(wo) {
       isSubcontract: true,
     }));
   } catch { /* */ }
-  sessionStorage.setItem('gst_currentView', 'purchase-orders');
-  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchase-orders' }));
+  sessionStorage.setItem('gst_currentView', 'purchaseorders');
+  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchaseorders' }));
 }
 
 /** Prefill New Expense from Work Order. */
@@ -592,9 +592,9 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                     ['Expenses', u.expenses || u.expenseCost || 0],
                     ['Margin', u.margin ?? u.projectedProfit],
                   ].map(([lab, val]) => (
-                    <div key={lab} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)' }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{lab}</div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: lab === 'Margin' && val < 0 ? '#dc2626' : undefined }}>
+                    <div key={lab} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface, var(--card))' }}>
+                      <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{lab}</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: lab === 'Margin' && val < 0 ? '#dc2626' : undefined }}>
                         {formatCurrency(val)}
                         {lab === 'Margin' && u.marginPct != null ? <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}> {u.marginPct}%</span> : null}
                       </div>
@@ -603,34 +603,45 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                 </div>
               );
             })()}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
               <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreatePoFromWo(dossierWo)}>Create PO</button>
               <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreateExpenseFromWo(dossierWo)}>Create Expense</button>
               <button type="button" className="btn btn-sm btn-primary" onClick={() => onConvertToInvoice?.(dossierWo, 'tax-invoice')}>Create Invoice</button>
               <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateLedgerForWo(dossierWo)}>View ledger</button>
             </div>
 
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
               {[['invoices', 'Client Invoices'], ['pos', 'Subcontract POs'], ['purchases', 'Vendor Purchases'], ['expenses', 'Site Expenses']].map(([id, lab]) => (
                 <button key={id} type="button" className={`btn btn-sm ${dossierTab === id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDossierTab(id)}>{lab}</button>
               ))}
             </div>
             {dossierTab === 'invoices' && (
-              <table className="data-table" style={{ width: '100%' }}>
-                <thead><tr><th>Invoice</th><th>Date</th><th>Status</th><th>Total</th><th>Paid</th></tr></thead>
+              <table className="data-table dossier-dense-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: '0.78rem' }}>
+                <thead><tr>
+                  <th style={{ width: '28%' }}>Invoice</th>
+                  <th style={{ width: '14%' }}>Date</th>
+                  <th style={{ width: '14%' }}>Status</th>
+                  <th style={{ width: '22%', textAlign: 'right' }}>Total</th>
+                  <th style={{ width: '22%', textAlign: 'right' }}>Paid</th>
+                </tr></thead>
                 <tbody>
                   {(bills || []).filter(b => b.workOrderId === dossierWo.id || (dossierWo.woNumber && (b.data?.details?.workOrderNo || b.workOrderNo) === dossierWo.woNumber)).map(b => (
                     <tr key={b.id}>
-                      <td>{b.invoiceNumber}</td><td>{b.invoiceDate}</td><td>{b.status}</td>
+                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.invoiceNumber}</td>
+                      <td>{b.invoiceDate}</td>
+                      <td>{b.status}</td>
                       <td className="text-end">{formatCurrency(b.totalAmount)}</td>
                       <td className="text-end">{formatCurrency(b.paidAmount)}</td>
                     </tr>
                   ))}
+                  {(bills || []).filter(b => b.workOrderId === dossierWo.id || (dossierWo.woNumber && (b.data?.details?.workOrderNo || b.workOrderNo) === dossierWo.woNumber)).length === 0 && (
+                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 8 }}>No invoices linked</td></tr>
+                  )}
                 </tbody>
               </table>
             )}
             {dossierTab === 'pos' && (
-              <table className="data-table" style={{ width: '100%' }}>
+              <table className="data-table dossier-dense-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: '0.78rem' }}>
                 <thead><tr><th>PO</th><th>Vendor</th><th>Date</th><th>Status</th><th>Value</th></tr></thead>
                 <tbody>
                   {(purchaseOrders || []).filter(p => p.workOrderId === dossierWo.id || p.workOrderId === dossierWo.woNumber).map(p => (
@@ -643,7 +654,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
               </table>
             )}
             {dossierTab === 'purchases' && (
-              <table className="data-table" style={{ width: '100%' }}>
+              <table className="data-table dossier-dense-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: '0.78rem' }}>
                 <thead><tr><th>Bill</th><th>Vendor</th><th>GSTIN</th><th>Taxable</th><th>Total</th></tr></thead>
                 <tbody>
                   {(purchases || []).filter(p => p.workOrderId === dossierWo.id || p.workOrderId === dossierWo.woNumber).map(p => (
@@ -657,7 +668,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
               </table>
             )}
             {dossierTab === 'expenses' && (
-              <table className="data-table" style={{ width: '100%' }}>
+              <table className="data-table dossier-dense-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: '0.78rem' }}>
                 <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th>Amount</th></tr></thead>
                 <tbody>
                   {(expenses || []).filter(e => e.workOrderId === dossierWo.id || e.workOrderId === dossierWo.woNumber).map(e => (
