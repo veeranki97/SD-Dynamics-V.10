@@ -11,9 +11,17 @@ export default function GeneralLedgerView() {
   const [mode, setMode] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [woFilter, setWoFilter] = useState(null);
   const [profile, setProfile] = useState(null);
 
   useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('sd_ledger_wo_filter');
+      if (raw) {
+        setWoFilter(JSON.parse(raw));
+        // keep until cleared by user
+      }
+    } catch { /* */ }
     getProfile().then(p => setProfile(p || null)).catch(() => {});
     getAllJournals().then(js => {
       const flat = [];
@@ -29,6 +37,8 @@ export default function GeneralLedgerView() {
             refType: j.refType,
             party: j.party || j.clientName || '',
             site: j.site || '',
+            workOrderId: j.workOrderId || e.workOrderId || '',
+            woNumber: j.woNumber || j.workOrderNo || '',
           });
         });
       });
@@ -38,6 +48,14 @@ export default function GeneralLedgerView() {
 
   const filtered = useMemo(() => {
     return rows.filter(r => {
+      if (woFilter) {
+        const wid = String(woFilter.workOrderId || '');
+        const wno = String(woFilter.woNumber || '');
+        const hit =
+          (wid && (String(r.workOrderId || '') === wid || (r.narration || '').includes(wid))) ||
+          (wno && ((r.woNumber || '') === wno || (r.narration || '').includes(wno) || (r.refId || '').includes(wno)));
+        if (!hit) return false;
+      }
       if (account && !(r.account || '').toLowerCase().includes(account.toLowerCase())) return false;
       if (party && !(r.party || '').toLowerCase().includes(party.toLowerCase())
         && !(r.narration || '').toLowerCase().includes(party.toLowerCase())) return false;
@@ -46,7 +64,7 @@ export default function GeneralLedgerView() {
       if (dateTo && r.date && r.date > dateTo) return false;
       return true;
     });
-  }, [rows, account, party, mode, dateFrom, dateTo]);
+  }, [rows, account, party, mode, dateFrom, dateTo, woFilter]);
 
   const partyTotals = useMemo(() => {
     if (!party) return null;
@@ -163,6 +181,12 @@ table{border-collapse:collapse;width:100%} td,th{border:1px solid #333;padding:4
 
   return (
     <div className="page">
+      {woFilter && (
+        <div style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-muted, #f8fafc)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+          <span>Filtered by Work Order: <strong>{woFilter.woNumber || woFilter.workOrderId}</strong></span>
+          <button type="button" className="btn btn-sm btn-secondary" onClick={() => { setWoFilter(null); try { sessionStorage.removeItem('sd_ledger_wo_filter'); } catch {} }}>Clear</button>
+        </div>
+      )}
       <h2>General Ledger</h2>
       <p className="page-subtitle">
         Account ledger · Party / client ledger — filter by party name, then Export PDF for Statement of Account on letterhead

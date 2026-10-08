@@ -52,6 +52,7 @@ export default function ExpenseTracker() {
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [woBanner, setWoBanner] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
   const [masterCats, setMasterCats] = useState([]);
   const [woList, setWoList] = useState([]);
@@ -73,6 +74,25 @@ export default function ExpenseTracker() {
       const cats = getExpenseCategories();
       setMasterCats(Array.isArray(cats) ? cats : []);
     } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('sd_expense_from_wo');
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      sessionStorage.removeItem('sd_expense_from_wo');
+      setWoBanner(p);
+      setShowForm(true);
+      setForm(f => ({
+        ...f,
+        workOrderId: p.workOrderId || f.workOrderId || '',
+        workOrderNo: p.workOrderNumber || p.workOrderNo || f.workOrderNo || '',
+        site: p.site || f.site || '',
+        costCenterId: p.costCenterId || f.costCenterId || '',
+        jobCost: true,
+      }));
+    } catch { /* */ }
   }, []);
 
   const fyOptions = getFYOptions();
@@ -423,6 +443,13 @@ export default function ExpenseTracker() {
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px', padding: '1rem 1.25rem' }}>
+
+            {woBanner && (
+              <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: '0.85rem', color: '#1e40af' }}>
+                Opened from Work Order <strong>{woBanner.workOrderNumber || woBanner.workOrderId}</strong> — job cost linked.
+                <button type="button" className="btn btn-sm btn-secondary" style={{ marginLeft: 8 }} onClick={() => setWoBanner(null)}>Dismiss</button>
+              </div>
+            )}
             <h3 className="section-title">{editingId ? 'Edit Expense' : 'Add Expense'}</h3>
             <div className="expense-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
               

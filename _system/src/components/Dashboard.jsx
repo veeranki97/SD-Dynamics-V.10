@@ -1666,7 +1666,7 @@ const openPaymentModal = (bill) => {
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
           
-          <div className="type-quick-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 10 }}>
+          <div className="type-quick-tabs filters-sticky" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 10 }}>
             {[
               { id: 'all', label: 'All' },
               { id: 'tax-invoice', label: 'Tax Invoice' },
@@ -1985,7 +1985,7 @@ const openPaymentModal = (bill) => {
                             && !bill.data?.convertedLocked
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
                           isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled'
-                            ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                             && !/proforma|quotation|estimate|delivery|challan|credit|debit/.test(String(bill.invoiceType||bill.data?.invoiceType||'').toLowerCase()) ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
                           isPaymentDocType(bill.invoiceType) && (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)

@@ -99,6 +99,7 @@ export default function PurchaseBills() {
   const [editingId, setEditingId] = useState(null);
   const [purchaseWOs, setPurchaseWOs] = useState([]);
   const [purchaseCCs, setPurchaseCCs] = useState([]);
+  const [woBanner, setWoBanner] = useState(null);
   const [form, setForm] = useState({ ...emptyForm, items: [{ ...emptyItem }] });
 
   // Prefill from PO ("Create Bill from PO")

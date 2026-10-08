@@ -3304,7 +3304,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   return (
     <div className="generator-container sd-inv-form">
-      <div className="generator-toolbar">
+      <style>{`.ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}.ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}`}</style>
+      <div className="generator-toolbar ig-fixed-savebar">
         <div className="flex gap-2 items-center">
           <button className="btn btn-secondary" onClick={handleBack}><ArrowLeft size={18} /> Back</button>
           <HelpButton title="Invoice Generator — how to use">

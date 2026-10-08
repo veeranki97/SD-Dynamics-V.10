@@ -74,8 +74,8 @@ function navigateLedgerForWo(wo) {
       woNumber: wo.woNumber || '',
     }));
   } catch { /* */ }
-  sessionStorage.setItem('gst_currentView', 'financial-books');
-  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'financial-books' }));
+  sessionStorage.setItem('gst_currentView', 'generalledger');
+  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'generalledger' }));
 }
 
 export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
