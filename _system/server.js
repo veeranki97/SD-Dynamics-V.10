@@ -193,29 +193,59 @@ function invalidateCache(dir) { delete dirCache[dir]; }
 
 // Helper: read all JSON files from a directory (cached, 5s TTL)
 function readAllFromDir(dir, { includeDeleted = false } = {}) {
-  if (isSqliteReady()) {
-    const list = sqliteList(dir, { includeDeleted });
-    if (list) return list;
-  }
+  // Always read JSON files from disk (source of truth for dual-write).
   const dirPath = path.join(DATA_DIR, dir);
-  if (!fs.existsSync(dirPath)) return [];
-  // In-memory cache for directory reads (JSON fallback)
-  const now = Date.now();
-  const cached = dirCache[dir];
-  if (cached && (now - (cached.ts || 0)) < DIR_CACHE_TTL_MS) {
-    return includeDeleted ? cached.data : cached.data.filter(o => !(o.deleted || o.isDeleted || o._deleted));
+  const fromFiles = [];
+  if (fs.existsSync(dirPath)) {
+    const now = Date.now();
+    const cached = dirCache[dir];
+    if (cached && (now - (cached.ts || 0)) < DIR_CACHE_TTL_MS) {
+      fromFiles.push(...(cached.data || []));
+    } else {
+      const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        try {
+          const obj = JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf8'));
+          fromFiles.push(obj);
+        } catch { /* skip corrupt */ }
+      }
+      dirCache[dir] = { data: fromFiles.slice(), ts: now };
+    }
   }
-  const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.json'));
-  const out = [];
-  for (const f of files) {
+
+  // Merge SQLite rows (may have records not yet mirrored, or JSON missing).
+  const byId = new Map();
+  for (const o of fromFiles) {
+    if (o && o.id != null) byId.set(String(o.id), o);
+    else if (o && (o.woNumber || o.poNumber || o.invoiceNumber)) {
+      byId.set(String(o.woNumber || o.poNumber || o.invoiceNumber), o);
+    }
+  }
+  if (isSqliteReady()) {
     try {
-      const obj = JSON.parse(fs.readFileSync(path.join(dirPath, f), 'utf8'));
-      out.push(obj);
-    } catch { /* skip */ }
+      const list = sqliteList(dir, { includeDeleted: true }) || [];
+      for (const o of list) {
+        if (!o) continue;
+        const key = String(o.id || o.woNumber || o.poNumber || o.invoiceNumber || '');
+        if (!key) continue;
+        // Prefer fresher updatedAt when both exist
+        const prev = byId.get(key);
+        if (!prev) {
+          byId.set(key, o);
+        } else {
+          const pt = Date.parse(prev.updatedAt || prev.createdAt || 0) || 0;
+          const ot = Date.parse(o.updatedAt || o.createdAt || 0) || 0;
+          if (ot >= pt) byId.set(key, o);
+        }
+      }
+    } catch (e) {
+      console.warn('[readAllFromDir] sqlite merge', dir, e.message);
+    }
   }
-  dirCache[dir] = { data: out, ts: now };
+
+  let out = [...byId.values()];
   if (!includeDeleted) {
-    return out.filter(o => !(o.deleted || o.isDeleted || o._deleted));
+    out = out.filter(o => !(o.deleted || o.isDeleted || o._deleted));
   }
   return out;
 }
@@ -901,10 +931,15 @@ app.delete('/api/purchases/:id', (req, res) => {
 // ========================
 app.get('/api/workorders', (req, res) => {
   try {
-    const list = readAllFromDir('workorders');
-    list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    res.json(list);
+    const list = readAllFromDir('workorders') || [];
+    list.sort((a, b) => {
+      const tb = Date.parse(b.updatedAt || b.createdAt || b.date || 0) || 0;
+      const ta = Date.parse(a.updatedAt || a.createdAt || a.date || 0) || 0;
+      return tb - ta;
+    });
+    res.json(Array.isArray(list) ? list : []);
   } catch (e) {
+    console.error('[GET /api/workorders]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -915,15 +950,22 @@ app.post('/api/workorders', (req, res) => {
     if (!wo.id) {
       wo.id = 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     }
+    if (!wo.createdAt) wo.createdAt = new Date().toISOString();
+    wo.updatedAt = new Date().toISOString();
     const dir = path.join(DATA_DIR, 'workorders');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, safeFileName(wo.id) + '.json');
-    if (fs.existsSync(filePath) && !req.query.overwrite) {
+    // Default overwrite for ERP edits (client always sends overwrite=1; tolerate missing flag)
+    const allowOverwrite = req.query.overwrite === '1' || req.query.overwrite === 'true' || true;
+    if (fs.existsSync(filePath) && !allowOverwrite) {
       return res.status(409).json({ error: 'Work Order already exists' });
     }
     writeJSON(filePath, wo);
-    res.json({ success: true, id: wo.id });
+    // Invalidate dir cache so next GET sees the write
+    try { delete dirCache['workorders']; } catch { /* */ }
+    res.json({ success: true, id: wo.id, woNumber: wo.woNumber || null });
   } catch (e) {
+    console.error('[POST /api/workorders]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1003,10 +1045,17 @@ app.post('/api/journals', (req, res) => {
 // ========================
 app.get('/api/purchaseorders', (req, res) => {
   try {
-    const list = readAllFromDir('purchaseorders');
-    list.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-    res.json(list);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const list = readAllFromDir('purchaseorders') || [];
+    list.sort((a, b) => {
+      const tb = Date.parse(b.updatedAt || b.date || b.createdAt || 0) || 0;
+      const ta = Date.parse(a.updatedAt || a.date || a.createdAt || 0) || 0;
+      return tb - ta;
+    });
+    res.json(Array.isArray(list) ? list : []);
+  } catch (e) {
+    console.error('[GET /api/purchaseorders]', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 app.post('/api/purchaseorders', (req, res) => {
   try {

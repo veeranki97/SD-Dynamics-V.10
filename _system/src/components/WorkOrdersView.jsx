@@ -114,8 +114,9 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
       setPurchases(pbs || []);
       setExpenses(exps || []);
       getAllCostCenters().then(setCostCenters).catch(() => {});
-    } catch {
-      toast('Failed to load Work Orders', 'error');
+    } catch (e) {
+      console.error('[WorkOrdersView.load]', e);
+      toast('Failed to load Work Orders: ' + (e?.message || 'network'), 'error');
     } finally {
       setLoading(false);
     }
@@ -434,6 +435,12 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
             </tr>
           </thead>
           <tbody>
+            {list.length === 0 && (
+              <tr><td colSpan={13} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                No work orders yet. Click <strong>New Work Order</strong> to create one.
+                If you saved one and it is missing, open <code>/api/workorders</code> in this browser to verify the API.
+              </td></tr>
+            )}
             {list.map(woRow => {
               const usage = calcWOUsage(woRow, bills, purchaseOrders, purchases, expenses);
               const { billedAmount, remaining, committedCost = 0, actualCost = 0, projectedProfit = 0, costOverrun } = usage;
