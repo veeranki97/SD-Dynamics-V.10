@@ -3868,3 +3868,41 @@ div.stats-grid.stats-grid-kpi-4 .stat-value {
   margin-top: 0.25rem;
   padding-top: 0.35rem;
 }
+
+
+/* Project Dossier tables — tight cells (overrides global .data-table padding) */
+.dossier-dense-table.data-table,
+table.dossier-dense-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+  font-size: 0.78rem !important;
+}
+.dossier-dense-table.data-table th,
+.dossier-dense-table.data-table td,
+table.dossier-dense-table th,
+table.dossier-dense-table td {
+  padding: 0.28rem 0.45rem !important;
+  min-width: 0 !important;
+  vertical-align: middle !important;
+  line-height: 1.25 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border, #e2e8f0) !important;
+}
+.dossier-dense-table.data-table th,
+table.dossier-dense-table th {
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #64748b);
+  background: var(--bg-secondary, #f8fafc) !important;
+}
+.dossier-dense-table .text-end {
+  text-align: right !important;
+}
+.dossier-modal-body {
+  padding: 0.75rem 1rem !important;
+}

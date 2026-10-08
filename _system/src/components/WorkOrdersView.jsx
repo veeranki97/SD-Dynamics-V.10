@@ -35,13 +35,27 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
 function navigateCreatePoFromWo(wo) {
   if (!wo) return;
   try {
+    const items = (Array.isArray(wo.items) ? wo.items : []).map((it, i) => ({
+      id: 'poi_wo_' + Date.now() + '_' + i,
+      description: it.description || it.name || '',
+      hsn: it.hsn || it.sac || '',
+      qty: it.qty ?? it.quantity ?? 1,
+      unit: it.unit || 'Nos',
+      rate: Number(it.rate) || 0,
+      amount: Number(it.amount) || ((Number(it.qty ?? it.quantity) || 0) * (Number(it.rate) || 0)),
+      costCenterId: it.costCenterId || wo.costCenterId || '',
+    }));
     sessionStorage.setItem('sd_po_from_wo', JSON.stringify({
       workOrderId: wo.id,
       workOrderNumber: wo.woNumber || '',
       site: wo.site || '',
       clientName: wo.clientName || '',
-      costCenterId: wo.costCenterId || '',
+      costCenterId: wo.costCenterId || wo.costCenter || '',
+      taxRate: wo.taxRate ?? wo.gstPercent ?? 18,
+      title: wo.title || '',
+      notes: wo.notes || wo.title || '',
       isSubcontract: true,
+      items,
     }));
   } catch { /* */ }
   sessionStorage.setItem('gst_currentView', 'purchaseorders');

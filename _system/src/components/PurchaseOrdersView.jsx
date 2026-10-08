@@ -419,6 +419,22 @@ export default function PurchaseOrdersView() {
       if (!raw) return;
       const p = JSON.parse(raw);
       sessionStorage.removeItem('sd_po_from_wo');
+      const mappedItems = (Array.isArray(p.items) && p.items.length)
+        ? p.items.map((it, i) => {
+            const row = {
+              ...emptyWOItem(),
+              id: it.id || ('poi_' + Date.now() + '_' + i),
+              description: it.description || it.name || '',
+              hsn: it.hsn || it.sac || '',
+              qty: it.qty ?? it.quantity ?? 1,
+              unit: it.unit || 'Nos',
+              rate: Number(it.rate) || 0,
+              costCenterId: it.costCenterId || p.costCenterId || '',
+            };
+            row.amount = calcItemAmount(row);
+            return row;
+          })
+        : [emptyWOItem()];
       setForm({
         id: 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         poNumber: '',
@@ -429,12 +445,13 @@ export default function PurchaseOrdersView() {
         workOrderNumber: p.workOrderNumber || '',
         isSubcontract: p.isSubcontract !== false,
         site: p.site || 'Main Site',
+        shipToSite: p.site || 'Main Site',
         costCenterId: p.costCenterId || '',
         date: new Date().toISOString().split('T')[0],
         status: 'draft',
-        taxRate: 18,
-        notes: p.clientName ? `Subcontract for client: ${p.clientName}` : '',
-        items: [emptyWOItem()],
+        taxRate: p.taxRate != null ? Number(p.taxRate) : 18,
+        notes: p.notes || (p.clientName ? `Subcontract for client: ${p.clientName}` : '') || (p.title || ''),
+        items: mappedItems,
         createdAt: new Date().toISOString(),
       });
     } catch { /* */ }
