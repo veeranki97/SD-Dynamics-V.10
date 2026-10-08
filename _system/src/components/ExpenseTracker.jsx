@@ -419,7 +419,7 @@ export default function ExpenseTracker() {
       </div>
 
       {/* Filters */}
-      <div className="glass-panel p-4 mb-6">
+      <div className="glass-panel p-4 mb-6 expense-filters-sticky" style={{ position: 'sticky', top: 0, zIndex: 15, background: 'var(--surface, #fff)' }}>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '350px' }}>
             <Search size={16} className="search-icon" />
@@ -446,7 +446,7 @@ export default function ExpenseTracker() {
 
             {woBanner && (
               <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: '0.85rem', color: '#1e40af' }}>
-                Opened from Work Order <strong>{woBanner.workOrderNumber || woBanner.workOrderId}</strong> — job cost linked.
+                Job: <strong>{woBanner.workOrderNumber || woBanner.woNumber || woBanner.workOrderId}</strong> — job cost linked.
                 <button type="button" className="btn btn-sm btn-secondary" style={{ marginLeft: 8 }} onClick={() => setWoBanner(null)}>Dismiss</button>
               </div>
             )}

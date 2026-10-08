@@ -107,7 +107,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
         getAllPurchases().catch(() => []),
         getAllExpenses().catch(() => []),
       ]);
-      setList(wos || []);
+      setList(Array.isArray(wos) ? wos : (wos?.items || []));
       setBills(Array.isArray(bs) ? bs : (bs?.items || []));
       setClients((cs || []).filter(c => !c.isVendor && c.type !== 'vendor'));
       setPurchaseOrders(pos || []);
@@ -182,8 +182,9 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
     const items = (form.items || []).map(it => ({ ...it, amount: calcItemAmount(it) }));
     const t = calcWOTotals(items, form.taxRate ?? 18, form.clientState, form.hostState);
     try {
+      const woId = form.id || ('wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
       await saveWorkOrder({
-        ...form, woNumber, items,
+        ...form, id: woId, woNumber, items,
         approvedBudget: t.total,
         taxable: t.sub, cgst: t.cgst, sgst: t.sgst, igst: t.igst, total: t.total,
       }, { overwrite: true });

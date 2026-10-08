@@ -3362,16 +3362,482 @@ kbd {
 }
 
 
-/* Tally / SD ruled invoice grid */
-.inv-table-ruled th,
-.inv-table-ruled td {
+/* ===== Sidebar alignment + collapsible groups (ERP nav) ===== */
+.sidebar-nav {
+  gap: 0.15rem;
+}
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.55rem 0.85rem;
+  margin-top: 0.35rem;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 8px;
+  text-align: left;
+}
+.nav-group-header:hover {
+  background: rgba(255,255,255,0.06);
+  color: #e2e8f0;
+}
+.nav-group-header .nav-group-chevron {
+  opacity: 0.7;
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+.nav-group-header.open .nav-group-chevron {
+  transform: rotate(90deg);
+}
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-btn .nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-btn-nested {
+  padding-left: 1.85rem !important;
+  font-size: 0.86rem !important;
+  opacity: 0.92;
+}
+.nav-btn-nested svg {
+  flex-shrink: 0;
+}
+.sidebar.sidebar-collapsed .nav-group-header {
+  justify-content: center;
+  padding: 0.4rem 0.25rem;
+}
+.sidebar.sidebar-collapsed .nav-group-header span:first-child {
+  display: none;
+}
+.sidebar.sidebar-collapsed .nav-btn-nested {
+  padding-left: 0.5rem !important;
+}
+/* denser invoice form */
+.invoice-form-compact .glass-panel {
+  padding: 0.85rem 1rem !important;
+  margin-bottom: 0.75rem !important;
+}
+.invoice-form-compact .section-title {
+  margin-bottom: 0.5rem !important;
+  font-size: 0.95rem;
+}
+.invoice-form-compact .form-group {
+  margin-bottom: 0.45rem;
+}
+.invoice-form-compact .form-label {
+  margin-bottom: 0.2rem;
+  font-size: 0.75rem;
+}
+.pre-save-verify {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 10px;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.82rem;
+}
+.pre-save-verify .psv-label { color: #94a3b8; font-size: 0.7rem; }
+.pre-save-verify .psv-value { font-weight: 700; font-size: 0.95rem; }
+.pre-save-verify .psv-words { grid-column: 1 / -1; color: #cbd5e1; font-style: italic; font-size: 0.8rem; }
+@media (max-width: 900px) {
+  .pre-save-verify { grid-template-columns: 1fr 1fr; }
+  .invoice-bill-details-row { grid-template-columns: 1fr !important; }
+}
+
+.inv-table-ruled th, .inv-table-ruled td {
   border: 1px solid #1e293b !important;
-  padding: 4px 6px !important;
+  padding: 3px 5px !important;
+  font-size: 10.5px !important;
 }
-.inv-table-ruled {
-  border-collapse: collapse !important;
-  width: 100% !important;
+.inv-table-ruled { border-collapse: collapse !important; width: 100% !important; }
+.tally-box { border: 1.5px solid #0f172a; }
+.tally-box-title { background: #f1f5f9; border-bottom: 1.5px solid #0f172a; padding: 3px 8px; font-weight: 700; font-size: 10px; }
+
+/* ===== SD Dynamics–style Invoice Editor ===== */
+.sd-inv-form .editor-pane {
+  padding: 0.75rem 1rem 2rem !important;
 }
-.sd-invoice, .template-tally {
-  border: 2px solid #0f172a;
+.sd-inv-form .glass-panel {
+  padding: 0.75rem 1rem !important;
+  margin-bottom: 0.65rem !important;
+  border-radius: 10px;
+}
+.sd-inv-form .section-title {
+  font-size: 0.88rem !important;
+  margin-bottom: 0.45rem !important;
+}
+.sd-inv-form .form-label {
+  font-size: 0.72rem !important;
+  margin-bottom: 0.15rem !important;
+  font-weight: 600;
+  color: #64748b;
+}
+.sd-inv-form .form-input,
+.sd-inv-form select.form-input,
+.sd-inv-form textarea.form-input {
+  padding: 0.4rem 0.55rem !important;
+  font-size: 0.85rem !important;
+  min-height: 34px;
+}
+.sd-inv-form .form-group {
+  margin-bottom: 0.4rem !important;
+}
+.sd-inv-form .type-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem !important;
+}
+.sd-inv-form .type-chip {
+  padding: 0.35rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+.sd-inv-toolbar {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.9fr 1fr 1.1fr;
+  gap: 0.5rem;
+  align-items: end;
+  margin-bottom: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.sd-inv-party {
+  display: grid;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+.sd-inv-addr {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+.sd-inv-period {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr 0.8fr;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+.sd-inv-body {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 0.75rem;
+  align-items: start;
+}
+.sd-inv-totals {
+  background: var(--card, #fff) !important;
+  border: 1px solid var(--border, #e2e8f0) !important;
+  border-radius: 10px !important;
+  padding: 0.85rem 1rem !important;
+
+  position: sticky;
+  top: 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+.sd-inv-totals .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.sd-inv-totals .row.grand {
+  border-bottom: none;
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: #1d4ed8;
+  margin-top: 0.35rem;
+  padding-top: 0.5rem;
+}
+.sd-inv-form .line-item-row {
+  gap: 0.4rem !important;
+  padding: 0.4rem 0 !important;
+  border-bottom: 1px solid #f1f5f9;
+}
+.sd-inv-form .line-item-field .form-label {
+  display: none;
+}
+.sd-inv-form .line-items-header {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  padding: 0.35rem 0;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 0.25rem;
+}
+@media (max-width: 1100px) {
+  .sd-inv-toolbar, .sd-inv-party, .sd-inv-addr, .sd-inv-period { grid-template-columns: 1fr 1fr; }
+  .sd-inv-body { grid-template-columns: 1fr; }
+}
+
+
+/* SD Dynamics — Sai Durga print: fill page without large empty footer gap */
+@media print {
+  #invoice-preview.invoice-preview-container,
+  body:has(#invoice-preview) #invoice-preview {
+    min-height: auto !important;
+    height: auto !important;
+  }
+}
+.invoice-preview-container[data-pdf-style="saidurga"],
+.invoice-preview-container[data-pdf-style="tally"] {
+  min-height: auto !important;
+}
+
+
+/* Compact 4-KPI row — no overlap on desktop */
+.stats-grid-kpi-4,
+.dashboard-kpi-row {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 0.65rem !important;
+  margin-bottom: 1rem;
+}
+.stats-grid-kpi-4 .stat-card,
+.dashboard-kpi-row .stat-card {
+  padding: 0.65rem 0.75rem !important;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+.stats-grid-kpi-4 .stat-label,
+.dashboard-kpi-row .stat-label {
+  font-size: 0.68rem !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-grid-kpi-4 .stat-value,
+.dashboard-kpi-row .stat-value {
+  font-size: 1.05rem !important;
+  line-height: 1.2 !important;
+  word-break: break-word;
+}
+@media (max-width: 900px) {
+  .stats-grid-kpi-4,
+  .dashboard-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+.stats-grid-5.stats-grid-kpi-4,
+.stats-grid.stats-grid-kpi-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+
+/* FORCE 4 KPI cards on one row (desktop) — highest priority */
+div.stats-grid.stats-grid-kpi-4 {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 0.55rem !important;
+  margin-bottom: 1rem !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-card {
+  padding: 0.55rem 0.65rem !important;
+  min-width: 0 !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-icon {
+  width: 36px !important;
+  height: 36px !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-label {
+  font-size: 0.65rem !important;
+  margin: 0 !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-value {
+  font-size: 0.95rem !important;
+  margin: 0 !important;
+}
+@media (max-width: 700px) {
+  div.stats-grid.stats-grid-kpi-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+
+/* ===== Clean SD sidebar header (letter mark, not full logo image) ===== */
+.sidebar-header.sidebar-brand,
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+.logo-wrapper,
+.sidebar-logo-animated {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  animation: sd-brand-in 0.5s ease-out, sd-logo-glow 2.8s ease-in-out infinite;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+.brand-icon-mark {
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+}
+.brand-name.sidebar-title,
+.sidebar-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  color: inherit;
+}
+.sidebar-subtitle {
+  margin: 0.1rem 0 0;
+  font-size: 0.65rem;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Hide any full company logo in the nav brand (use Settings logo only on PDFs) */
+.sidebar-brand .sidebar-logo-img,
+.sidebar-header .sidebar-logo-img {
+  display: none !important;
+}
+@keyframes sd-brand-in {
+  from { opacity: 0; transform: scale(0.85) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes sd-logo-glow {
+  0%, 100% { box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35); }
+  50% { box-shadow: 0 2px 16px rgba(56, 189, 248, 0.55); }
+}
+.logo-wrapper:hover,
+.sidebar-logo-animated:hover {
+  transform: scale(1.06);
+  transition: transform 0.2s ease;
+}
+
+/* === SD: unified sidebar left alignment === */
+.sidebar {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.sidebar-header.sidebar-brand,
+.sidebar-brand {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 1rem !important;
+  padding-right: 0.75rem !important;
+}
+.profile-switcher {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 1rem !important;
+  padding-right: 0.75rem !important;
+}
+.sidebar-nav {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+.nav-group-header {
+  padding-left: 1rem !important;
+  padding-right: 0.75rem !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+.nav-btn {
+  padding-left: 1rem !important;
+  padding-right: 0.75rem !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  border-radius: 8px !important;
+}
+.nav-btn-nested {
+  padding-left: 1.75rem !important;
+}
+.nav-btn.nav-btn-active {
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+
+/* v1.10.75 — Settings bottom Save-all bar (docked in main content, not under sidebar) */
+.settings-savebar {
+  position: fixed;
+  left: 260px; /* match .sidebar width */
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  box-sizing: border-box;
+}
+/* Collapsed sidebar (~64px) */
+.app-layout-sidebar-collapsed .settings-savebar {
+  left: 64px;
+}
+@media (max-width: 768px) {
+  .settings-savebar {
+    left: 0;
+  }
+}
+.app-layout .main-content:has(.settings-savebar),
+.main-content:has(.settings-savebar) {
+  /* spacer div in SettingsView handles clearance */
+}
+
+
+/* —— SD dense ERP (surgical) —— */
+.main-content { padding: 1.15rem 1.35rem !important; }
+.glass-panel { padding: 0.85rem 1rem !important; }
+.stat-card { padding: 0.75rem 0.9rem !important; }
+.data-table th, .data-table td { padding: 0.45rem 0.55rem !important; font-size: 0.84rem; }
+.filters-sticky-bar,
+.expense-filters-sticky,
+.clients-search-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  background: var(--surface, var(--card, #fff));
+}
+.modal-overlay {
+  animation: sd-fade-in 150ms ease-out;
+}
+.modal-content, .dossier-panel, .glass-panel.dossier {
+  animation: sd-fade-in 150ms ease-out;
+}
+@keyframes sd-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal-content, .dossier-panel, .glass-panel.dossier {
+    animation: none !important;
+  }
 }

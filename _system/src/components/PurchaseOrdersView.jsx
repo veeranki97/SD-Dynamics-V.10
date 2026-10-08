@@ -386,7 +386,7 @@ export default function PurchaseOrdersView() {
         getAllWorkOrders().catch(() => []),
         getAllPurchases().catch(() => []),
       ]);
-      setList(pos || []);
+      setList(Array.isArray(pos) ? pos : (pos?.items || []));
       setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
       setProfile(prof);
       setWorkOrders(wos || []);
@@ -453,6 +453,7 @@ export default function PurchaseOrdersView() {
     const totals = calcPOTotals(items, form.taxRate, form.vendorState, profile?.state);
     const payload = {
       ...form,
+      id: form.id || ('po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
       items,
       ...totals,
       fingerprint: await sha256Hex(JSON.stringify({

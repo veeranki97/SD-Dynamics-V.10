@@ -209,6 +209,9 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
 // message that the UI can show as "Invoice number already exists".
 export const saveBill = async (bill, { overwrite = false } = {}) => {
   const qs = overwrite ? '?overwrite=1' : '';
+  if (!bill.id) {
+    bill.id = 'bill_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
   const saved = await apiFetch(`${API}/bills${qs}`, { method: 'POST', body: JSON.stringify(bill) });
   try {
     await logActivity({
@@ -341,12 +344,18 @@ export const deletePurchase = async (id) => {
 
 // ---- Work Orders (custom addition) ----
 export const getAllWorkOrders = async () => {
-  return apiFetch(`${API}/workorders`);
+  const data = await apiFetch(`${API}/workorders`);
+  return Array.isArray(data) ? data : (data?.items || []);
 };
 
 export const saveWorkOrder = async (wo, { overwrite = false } = {}) => {
+  const payload = { ...(wo || {}) };
+  if (!payload.id) {
+    payload.id = 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
   const qs = overwrite ? '?overwrite=1' : '';
-  const _r = await apiFetch(`${API}/workorders${qs}`, { method: 'POST', body: JSON.stringify(wo) });
+  const _r = await apiFetch(`${API}/workorders${qs}`, { method: 'POST', body: JSON.stringify(payload) });
+  wo = payload;
   try {
     await logActivity({
       entityType: 'work_order',
@@ -363,10 +372,18 @@ export const deleteWorkOrder = async (id) => {
 };
 
 // ---- Purchase Orders (custom) ----
-export const getAllPurchaseOrders = async () => apiFetch(`${API}/purchaseorders`);
+export const getAllPurchaseOrders = async () => {
+  const data = await apiFetch(`${API}/purchaseorders`);
+  return Array.isArray(data) ? data : (data?.items || []);
+};
 export const savePurchaseOrder = async (po, { overwrite = false } = {}) => {
+  const payload = { ...(po || {}) };
+  if (!payload.id) {
+    payload.id = 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
   const qs = overwrite ? '?overwrite=1' : '';
-  const _r = await apiFetch(`${API}/purchaseorders${qs}`, { method: 'POST', body: JSON.stringify(po) });
+  const _r = await apiFetch(`${API}/purchaseorders${qs}`, { method: 'POST', body: JSON.stringify(payload) });
+  po = payload;
   try {
     await logActivity({
       entityType: 'purchase_order',

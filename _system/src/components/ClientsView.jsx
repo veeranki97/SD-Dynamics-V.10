@@ -772,11 +772,13 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
 
       {/* Search */}
       <div className="glass-panel p-4 mb-6">
+        <div className="clients-search-sticky" style={{ position: 'sticky', top: 0, zIndex: 16, background: 'var(--surface, var(--card, #fff))', padding: '0.5rem 0', marginBottom: '0.5rem', borderBottom: '1px solid var(--border, #e2e8f0)' }}>
         <div className="search-box" style={{ maxWidth: '400px' }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search clients..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />
           {search && <button className="icon-btn" onClick={() => setSearch('')}><X size={14} /></button>}
+        </div>
         </div>
       </div>
 

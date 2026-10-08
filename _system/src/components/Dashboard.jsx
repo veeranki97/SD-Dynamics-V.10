@@ -26,8 +26,11 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // alpha lets the underlying row bg show through and works in both
 // themes.
 const isPaymentDocType = (t) => {
-  const s = String(t || 'tax-invoice').toLowerCase();
-  return s === 'tax-invoice' || s === 'proforma' || s === 'proforma-invoice' || s.includes('proforma') || (s.includes('tax') && !s.includes('credit'));
+  // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
+  const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
+  if (!s || s === 'invoice') return true;
+  if (s.includes('proforma') || s.includes('quotation') || s.includes('estimate') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
+  return s === 'tax-invoice' || s.includes('tax-invoice') || (s.includes('tax') && !s.includes('credit'));
 };
 
 const STATUS_CONFIG = {
@@ -1053,8 +1056,18 @@ const openPaymentModal = (bill) => {
   const getSelectedBills = () => bills.filter(b => selectedIds.has(b.id));
 
   const bulkMarkStatus = async (newStatus) => {
-    const sel = getSelectedBills();
+    let sel = getSelectedBills();
     if (sel.length === 0) return;
+    if (newStatus === 'paid') {
+      const payOk = sel.filter(b => isPaymentDocType(b.invoiceType || b.data?.invoiceType));
+      const skipped = sel.length - payOk.length;
+      if (payOk.length === 0) {
+        toast('Mark paid applies to tax invoices only (not PI / QUO / DC)', 'error');
+        return;
+      }
+      if (skipped > 0) toast(`Skipped ${skipped} non-tax document(s)`, 'info');
+      sel = payOk;
+    }
     if (!await confirmAction({
       title: `Mark ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as ${newStatus}?`,
       message: newStatus === 'paid'
@@ -1544,7 +1557,7 @@ const openPaymentModal = (bill) => {
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
-            <p className="stat-label">Total Invoiced <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(incl. GST)</span></p>
+            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · incl. GST)</span></p>
             {Object.entries(stats.byCurrency).map(([cur, v]) => (
               <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
                 {formatCurrency(v.total, cur)}
@@ -1984,8 +1997,7 @@ const openPaymentModal = (bill) => {
                             && !bill.convertedToInvoiceId
                             && !bill.data?.convertedLocked
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
-                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled'
-                             && !/proforma|quotation|estimate|delivery|challan|credit|debit/.test(String(bill.invoiceType||bill.data?.invoiceType||'').toLowerCase()) ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
                           isPaymentDocType(bill.invoiceType) && (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)

@@ -15,7 +15,6 @@ import { getCountryConfig, getStatesForCountry, validateTaxId, detectCountryFrom
 import { Save, Upload, Download, Plus, Trash2, Edit3, Image as ImageIcon, PenTool, Cloud, CloudOff, Building2, Hash, RefreshCw, Save as SaveIcon } from 'lucide-react';
 import { initGoogleDrive, isConnected, disconnect } from '../services/googleDrive';
 import { toast } from './Toast';
-import MonthCloseWizard from './MonthCloseWizard';
 import { confirmAction } from './ConfirmModal';
 import PrintSettings from './PrintSettings';
 import HelpButton from './HelpButton';
@@ -1139,7 +1138,11 @@ export default function SettingsView({ onSaved }) {
             Loading company details… fields unlock when ready (prevents overwrite on slow PCs).
           </p>
         )}
-        <h3 className="section-title">Company Details</h3>
+        
+          <p className="month-close-link" style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.5rem 0 1rem' }}>
+            Month close (Export → Review → Lock) lives under <button type="button" className="btn btn-sm btn-secondary" onClick={() => { sessionStorage.setItem('gst_currentView','filing'); window.dispatchEvent(new CustomEvent('sd-navigate',{ detail: 'filing' })); }}>GST Returns</button>
+          </p>
+<h3 className="section-title">Company Details</h3>
         {(() => {
           const cc = getCountryConfig(profile.country);
           return (
@@ -2091,7 +2094,6 @@ function BackupAndTrashPanel() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
         {/* Backups list */}
         <div style={{ padding: '0.85rem', background: 'var(--bg-secondary)', borderRadius: 8 }}>
-          <MonthCloseWizard />
           <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>📅 Daily backups ({backups.length})</h4>
           {loading && backups.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Loading…</p>}
           {!loading && backups.length === 0 && <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>No backups yet — the first will be created at midnight or click "Backup now" above.</p>}

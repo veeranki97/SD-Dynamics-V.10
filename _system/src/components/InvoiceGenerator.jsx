@@ -4412,6 +4412,20 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <small style={{ color: '#64748b', display: 'block', marginTop: 4, fontSize: '0.72rem' }}>
                 Type WO number or client — auto-fills items, site, period & budget check on save.
               </small>
+              {selectedWorkOrderId && (
+                <button type="button" className="ig-wo-badge" style={{ marginTop: 6 }} title="Open linked Work Order"
+                  onClick={() => {
+                    try {
+                      sessionStorage.setItem('sd_focus_wo', selectedWorkOrderId);
+                      const wo = workOrders.find(w => w.id === selectedWorkOrderId);
+                      if (wo) sessionStorage.setItem('sd_ledger_wo_filter', JSON.stringify({ workOrderId: wo.id, woNumber: wo.woNumber || '' }));
+                    } catch { /* */ }
+                    sessionStorage.setItem('gst_currentView', 'workorders');
+                    window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'workorders' }));
+                  }}>
+                  Linked WO · {(workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId}
+                </button>
+              )}
             </div>
             </div>
 

@@ -5,7 +5,7 @@ import { getChartPrefs, chartColor } from '../utils/chartPrefs';
  * Home dashboard charts — layout aligned to SD GAS dashboard:
  * Sales Trend (line) | GST Breakdown (stacked by month)
  * Top Clients (horizontal bar) | Top Sites (pie)
- * Sales by State (horizontal bar) | Aging Summary (bar buckets)
+ * Sales by State (horizontal bar) | Aging (tax invoices only) Summary (bar buckets)
  * KPI numbers stay in Dashboard.jsx (unchanged).
  */
 export default function DashboardCharts({ stats }) {

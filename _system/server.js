@@ -911,8 +911,10 @@ app.get('/api/workorders', (req, res) => {
 
 app.post('/api/workorders', (req, res) => {
   try {
-    const wo = req.body;
-    if (!wo?.id) return res.status(400).json({ error: 'Missing id' });
+    const wo = req.body || {};
+    if (!wo.id) {
+      wo.id = 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
     const dir = path.join(DATA_DIR, 'workorders');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, safeFileName(wo.id) + '.json');
@@ -961,7 +963,9 @@ app.post('/api/journals', (req, res) => {
         return res.status(400).json({ error: 'unbalanced_journal', debit: dr, credit: cr });
       }
     }
-    if (!j?.id) return res.status(400).json({ error: 'Missing id' });
+    if (!j.id) {
+      j.id = 'jnl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
     const dir = path.join(DATA_DIR, 'journals');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     // Paise-safe money on every line; never mutate an existing journal (append-only)
@@ -1006,8 +1010,10 @@ app.get('/api/purchaseorders', (req, res) => {
 });
 app.post('/api/purchaseorders', (req, res) => {
   try {
-    const po = req.body;
-    if (!po?.id) return res.status(400).json({ error: 'Missing id' });
+    const po = req.body || {};
+    if (!po.id) {
+      po.id = 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
     const dir = path.join(DATA_DIR, 'purchaseorders');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, safeFileName(po.id) + '.json');

@@ -513,7 +513,7 @@ function StepList({ steps, title }) {
   const [checked, setChecked] = useState({});
   return (
     <div className="glass-panel mb-4">
-      <div style={{ padding: '0 1rem' }}><MonthCloseWizard /></div>
+      <div id="month-close" style={{ padding: '0 1rem' }}><MonthCloseWizard /></div>
 
       <div className="table-header"><h3>{title}</h3></div>
       <div style={{ padding: '0.5rem 0' }}>
