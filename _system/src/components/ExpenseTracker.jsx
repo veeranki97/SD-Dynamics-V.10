@@ -14,6 +14,7 @@ const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'
 
 const emptyForm = {
   workOrderId: '',
+    jobCost: false,
   againstInvoice: '',
   receiptData: '',
   receiptName: '',
@@ -174,6 +175,13 @@ export default function ExpenseTracker() {
   };
 
   const handleSave = async () => {
+    // Job cost / subcontractor: Work Order required
+    const needsWo = !!form.jobCost || !!form.isSubcontractor || !!form.subcontractor;
+    if (needsWo && !(form.workOrderId || form.workOrderNo || form.workOrderNumber)) {
+      toast('Job cost / subcontractor expense requires a Work Order', 'error');
+      return;
+    }
+
     if (!(form.costCenterId || '').trim()) { toast('Cost Center is required on every expense', 'error'); return; }
     if (!form.description.trim()) { toast('Description is required', 'warning'); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter a valid amount', 'warning'); return; }
@@ -511,6 +519,11 @@ export default function ExpenseTracker() {
               </div>
               <div className="form-group">
   <label className="form-label">Work Order</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', marginTop: 4 }}>
+                <input type="checkbox" checked={!!form.jobCost}
+                  onChange={e => setForm(f => ({ ...f, jobCost: e.target.checked }))} />
+                Job cost (requires WO)
+              </label>
   <input type="text" className="form-input" list="wo-datalist" 
     value={(() => {
       const v = form.workOrderId || '';

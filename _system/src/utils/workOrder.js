@@ -112,16 +112,38 @@ export function calcWOUsage(wo, allBills, purchaseOrders = [], purchases = [], e
   const projectedProfit = +(billedAmount - totalCost).toFixed(2);
   const costOverrun = (Number(wo.approvedBudget) || 0) > 0 && totalCost > (Number(wo.approvedBudget) || 0);
 
+  // Open PO value (not fully billed/received/cancelled)
+  const openPOs = linkedPOs.filter(po => {
+    const st = String(po.status || po.billingStatus || '').toLowerCase();
+    if (/cancel/.test(st)) return false;
+    if (/fully.?billed|fully.?received|closed|complete/.test(st)) return false;
+    return true;
+  });
+  const openPO = +(openPOs.reduce((s, p) => s + (Number(p.total || p.totalAmount) || 0), 0)).toFixed(2);
+
+  // Job margin = Billed − Purchases − Expenses (committed PO is informational only)
+  const margin = +(billedAmount - purchaseCost - expenseCost).toFixed(2);
+  const marginPct = billedAmount > 0 ? +((margin / billedAmount) * 100).toFixed(1) : null;
+
   const remaining = Math.max(0, (Number(wo.approvedBudget) || 0) - billedAmount);
   return {
     billedAmount,
     remaining,
     linkedInvoiceIds: linked.map(b => b.id),
+    linkedInvoices: linked,
     billedByItem,
     remainingByItem,
     committedCost,
+    openPO,
+    openPOCount: openPOs.length,
+    purchases: purchaseCost,
+    purchaseCost,
+    expenses: expenseCost,
+    expenseCost,
     actualCost,
-    projectedProfit,
+    projectedProfit: margin,
+    margin,
+    marginPct,
     costOverrun,
   };
 }

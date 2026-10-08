@@ -462,6 +462,10 @@ export default function PurchaseOrdersView() {
     };
     try {
     if (form.isSubcontract && !(form.workOrderId || form.workOrderNumber)) {
+      toast('Subcontract PO requires a linked Work Order', 'error');
+      return;
+    }
+    if (false && form.isSubcontract && !(form.workOrderId || form.workOrderNumber)) {
       toast('Subcontract PO must link a client Work Order / Project', 'error');
       return;
     }

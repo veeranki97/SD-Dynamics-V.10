@@ -30,6 +30,54 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
   return { sub, gst, cgst, sgst, igst, total: +(sub + gst).toFixed(2), isInterstate: !same };
 }
 
+
+/** Prefill New PO from Work Order (session + navigate). */
+function navigateCreatePoFromWo(wo) {
+  if (!wo) return;
+  try {
+    sessionStorage.setItem('sd_po_from_wo', JSON.stringify({
+      workOrderId: wo.id,
+      workOrderNumber: wo.woNumber || '',
+      site: wo.site || '',
+      clientName: wo.clientName || '',
+      costCenterId: wo.costCenterId || '',
+      isSubcontract: true,
+    }));
+  } catch { /* */ }
+  sessionStorage.setItem('gst_currentView', 'purchase-orders');
+  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchase-orders' }));
+}
+
+/** Prefill New Expense from Work Order. */
+function navigateCreateExpenseFromWo(wo) {
+  if (!wo) return;
+  try {
+    sessionStorage.setItem('sd_expense_from_wo', JSON.stringify({
+      workOrderId: wo.id,
+      workOrderNumber: wo.woNumber || '',
+      site: wo.site || '',
+      costCenterId: wo.costCenterId || '',
+      clientName: wo.clientName || '',
+      jobCost: true,
+    }));
+  } catch { /* */ }
+  sessionStorage.setItem('gst_currentView', 'expenses');
+  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'expenses' }));
+}
+
+/** Hint Financial Books / journals filtered by WO. */
+function navigateLedgerForWo(wo) {
+  if (!wo) return;
+  try {
+    sessionStorage.setItem('sd_ledger_wo_filter', JSON.stringify({
+      workOrderId: wo.id,
+      woNumber: wo.woNumber || '',
+    }));
+  } catch { /* */ }
+  sessionStorage.setItem('gst_currentView', 'financial-books');
+  window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'financial-books' }));
+}
+
 export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [list, setList] = useState([]);
   const [bills, setBills] = useState([]);
@@ -375,8 +423,12 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
               <th>Title</th>
               <th>Budget</th>
               <th>Billed</th>
+              <th>Open PO</th>
+              <th>Purchases</th>
+              <th>Expenses</th>
+              <th>Margin</th>
               <th>Remaining</th>
-              <th>Status</th><th>Client Billed</th><th>Committed POs</th><th>Actual Cost</th><th>Gross Margin</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
@@ -392,6 +444,13 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                   <td>{woRow.title}</td>
                   <td>{formatCurrency(woRow.approvedBudget)}</td>
                   <td>{formatCurrency(billedAmount)}</td>
+                  <td className="text-end" style={{ fontSize: '0.78rem' }}>{formatCurrency(usage.openPO || 0)}</td>
+                  <td className="text-end" style={{ fontSize: '0.78rem' }}>{formatCurrency(usage.purchases || usage.purchaseCost || 0)}</td>
+                  <td className="text-end" style={{ fontSize: '0.78rem' }}>{formatCurrency(usage.expenses || usage.expenseCost || 0)}</td>
+                  <td className="text-end" style={{ fontSize: '0.78rem', fontWeight: 600, color: (usage.margin ?? projectedProfit) < 0 ? '#dc2626' : '#059669' }}>
+                    {formatCurrency(usage.margin ?? projectedProfit)}
+                    {usage.marginPct != null ? <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}> ({usage.marginPct}%)</span> : null}
+                  </td>
                   <td style={{ color: remaining < 1 ? '#dc2626' : remaining < 5000 ? '#d97706' : undefined }}>
                     {formatCurrency(remaining)}
                   </td>
@@ -452,14 +511,12 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                     })()}
                     {costOverrun ? <div style={{ color: '#dc2626', fontSize: 11 }}>Cost Overrun Risk</div> : null}
                   </td>
-                  <td className="text-end">{formatCurrency(billedAmount)}</td>
-                  <td className="text-end">{formatCurrency(committedCost)}</td>
-                  <td className="text-end">{formatCurrency(actualCost)}</td>
-                  <td className="text-end" style={{ color: projectedProfit >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>
-                    {formatCurrency(projectedProfit)} ({billedAmount > 0 ? ((projectedProfit / billedAmount) * 100).toFixed(1) : '0'}%)
-                  </td>
                   <td>
                     <ActionMenu items={[
+                      { label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) },
+                      { label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) },
+                      { label: 'View ledger', onClick: () => navigateLedgerForWo(woRow) },
+
                       ...((() => {
                         const st = String(deriveWOStatus(woRow, bills)).toLowerCase();
                         const done = st === 'completed' || st === 'cancelled' || st === 'closed';
@@ -499,7 +556,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
             })}
             {!list.length && (
               <tr>
-                <td colSpan={13} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No work orders yet</td>
+                <td colSpan={12} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No work orders yet</td>
               </tr>
             )}
           </tbody>
@@ -516,6 +573,35 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDossierWo(null)}>Close</button>
             </div>
             <p className="text-muted" style={{ fontSize: 13 }}>{dossierWo.clientName} · {dossierWo.site || ''} · {dossierWo.title || ''}</p>
+            {(() => {
+              const u = calcWOUsage(dossierWo, bills, purchaseOrders, purchases, expenses);
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8, margin: '10px 0 14px' }}>
+                  {[
+                    ['Billed', u.billedAmount],
+                    ['Open PO', u.openPO || 0],
+                    ['Purchases', u.purchases || u.purchaseCost || 0],
+                    ['Expenses', u.expenses || u.expenseCost || 0],
+                    ['Margin', u.margin ?? u.projectedProfit],
+                  ].map(([lab, val]) => (
+                    <div key={lab} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{lab}</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: lab === 'Margin' && val < 0 ? '#dc2626' : undefined }}>
+                        {formatCurrency(val)}
+                        {lab === 'Margin' && u.marginPct != null ? <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}> {u.marginPct}%</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreatePoFromWo(dossierWo)}>Create PO</button>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreateExpenseFromWo(dossierWo)}>Create Expense</button>
+              <button type="button" className="btn btn-sm btn-primary" onClick={() => onConvertToInvoice?.(dossierWo, 'tax-invoice')}>Create Invoice</button>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateLedgerForWo(dossierWo)}>View ledger</button>
+            </div>
+
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
               {[['invoices', 'Client Invoices'], ['pos', 'Subcontract POs'], ['purchases', 'Vendor Purchases'], ['expenses', 'Site Expenses']].map(([id, lab]) => (
                 <button key={id} type="button" className={`btn btn-sm ${dossierTab === id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setDossierTab(id)}>{lab}</button>

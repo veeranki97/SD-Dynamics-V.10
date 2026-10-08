@@ -55,6 +55,7 @@ const emptyForm = {
   applyRoundOff: false, // off by default — purchase bill totals are usually pre-rounded by the supplier. Users with suppliers that don't pre-round can opt in here.
   note: '',
   workOrderId: '',
+  jobCost: false,
   costCenterId: '',
   site: '',
 };
@@ -396,6 +397,12 @@ export default function PurchaseBills() {
   };
 
   const handleSave = async () => {
+    const needsWo = !!form.jobCost || !!form.isSubcontractor || !!form.subcontractor;
+    if (needsWo && !(form.workOrderId || form.workOrderNo)) {
+      toast('Job cost / subcontractor purchase requires a Work Order', 'error');
+      return;
+    }
+
     if (!form.supplierName.trim()) { toast('Supplier name is required', 'warning'); return; }
     if (!form.invoiceNumber.trim()) { toast('Invoice number is required', 'warning'); return; }
     // v1.10.58 — reported (#47 item 2, @sangwanmail-eng): "Purchase also
@@ -1061,6 +1068,11 @@ export default function PurchaseBills() {
               
               <div className="form-group">
                 <label className="form-label">Work Order</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', marginTop: 4 }}>
+                  <input type="checkbox" checked={!!form.jobCost}
+                    onChange={e => updateField('jobCost', e.target.checked)} />
+                  Job cost (requires WO)
+                </label>
                 <select className="form-input" value={form.workOrderId || ''}
                   onChange={e => {
                     const id = e.target.value;

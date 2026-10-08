@@ -1,3 +1,4 @@
+import MonthCloseWizard from './MonthCloseWizard';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
 import { getAllBills, getAllExpenses, getAllPurchases, getProfile } from '../store';
@@ -512,6 +513,8 @@ function StepList({ steps, title }) {
   const [checked, setChecked] = useState({});
   return (
     <div className="glass-panel mb-4">
+      <div style={{ padding: '0 1rem' }}><MonthCloseWizard /></div>
+
       <div className="table-header"><h3>{title}</h3></div>
       <div style={{ padding: '0.5rem 0' }}>
         {steps.map((step, i) => (
