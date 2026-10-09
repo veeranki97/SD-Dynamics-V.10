@@ -62,9 +62,13 @@ const stateWithCode = (state) => {
 
 function Signature({ ctx, align = 'right' }) {
   const { sig } = ctx;
+  const biz = ctx.profile?.businessName || 'Your Business';
+  const invNo = ctx.details?.invoiceNumber || ctx.invoiceNumber || '';
+  const invDate = ctx.details?.invoiceDate || ctx.invoiceDate || '';
+  const fp = ctx.fingerprint || ctx.sha256 || '';
   return (
     <div {...blockProps} data-pdf-signature="" style={{ textAlign: align, minHeight: 52, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pageBreakInside: 'avoid', breakInside: 'avoid' }}>
-      <div style={{ fontWeight: 700 }}>for {ctx.profile?.businessName || 'Your Business'}</div>
+      <div style={{ fontWeight: 700 }}>for {biz}</div>
       {sig.show && (
         <div style={{ display: 'flex', gap: 6, justifyContent: align === 'right' ? 'flex-end' : 'center', alignItems: 'flex-end', margin: '4px 0' }}>
           {sig.stampImg && <img src={sig.stampImg} alt="Stamp" style={{ maxHeight: `${sig.stampHeight}px`, maxWidth: 110, objectFit: 'contain' }} />}
@@ -72,6 +76,14 @@ function Signature({ ctx, align = 'right' }) {
         </div>
       )}
       {ctx.showSignatoryText && <div>Authorised Signatory</div>}
+      <div style={{ marginTop: 6, fontSize: '0.72em', lineHeight: 1.35, color: '#374151', textAlign: align, borderTop: B, paddingTop: 4 }}>
+        <div style={{ fontWeight: 700 }}>Digitally attested</div>
+        <div>Signed by: {biz}</div>
+        {invDate ? <div>Date: {invDate}</div> : null}
+        {invNo ? <div>Document: {invNo}</div> : null}
+        {fp ? <div>SHA-256: {String(fp).slice(0, 16)}…</div> : null}
+        <div style={{ fontStyle: 'italic', marginTop: 2 }}>Not a certificate-based digital signature.</div>
+      </div>
     </div>
   );
 }
@@ -558,8 +570,8 @@ function BoxedLayout({ ctx }) {
                 <tr key={k}><td style={{ ...cell, ...right }}>{k}</td><td style={{ ...cell, borderRight: 'none', ...right }}>{v < 0 ? `-${num(-v)}` : num(v)}</td></tr>
               ))}
               <tr style={{ fontWeight: 800 }}>
-                <td style={{ ...cell, borderBottom: 'none', ...right }}>{ctx.invoiceType === 'credit-note' ? 'Credit Amount' : 'Grand Total'}</td>
-                <td style={{ ...cell, borderBottom: 'none', borderRight: 'none', ...right }}>{fmt(totals.total)}</td>
+                <td style={{ ...cell, ...right, fontWeight: 700 }}>{ctx.invoiceType === 'credit-note' ? 'Credit Amount' : 'Grand Total'}</td>
+                <td style={{ ...cell, ...right, fontWeight: 700 }}>{fmt(totals.total)}</td>
               </tr>
               {totals.tdsAmount > 0 && (
                 <tr style={small}><td style={{ ...cell, ...right }}>Less: TDS / Net Receivable</td><td style={{ ...cell, borderRight: 'none', ...right }}>{fmt(totals.netReceivable)}</td></tr>
@@ -571,9 +583,7 @@ function BoxedLayout({ ctx }) {
           <div {...blockProps} style={{ padding: '4px 6px', borderBottom: B }}><span style={label}>Amount in words:</span> {ctx.words(totals.total)}</div>
         )}
         {ctx.showHsnSummary && <div style={{ margin: '0 -1px' }}><HsnSummaryTable ctx={ctx} /></div>}
-        {ctx.showTaxInWords && ctx.totalTax > 0 && (
-          <div {...blockProps} style={{ padding: '4px 6px', borderBottom: B }}><span style={label}>Tax amount in words:</span> {ctx.words(ctx.totalTax)}</div>
-        )}
+        {/* Tax amount in words removed — single Amount in words only */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '4px 6px' }}>
           <div>
             {ctx.notices}

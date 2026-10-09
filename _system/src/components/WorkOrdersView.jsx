@@ -35,11 +35,12 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
 function navigateCreatePoFromWo(wo) {
   if (!wo) return;
   try {
-    const cc = (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '')
-      || wo.costCenterId || wo.costCentreId || wo.costCenter || '';
-    const site = (typeof resolveWoSite === 'function' ? resolveWoSite(wo) : '') || wo.site || '';
-    const shipAddr = [
-      wo.shipToAddress || wo.deliveryAddress || wo.address || '',
+    // Always call imported helper (header OR first line cost centre)
+    const cc = resolveWoCostCenter(wo) || '';
+    const site = resolveWoSite(wo) || wo.site || '';
+    // Client delivery address — never company profile
+    const clientAddr = [
+      wo.clientAddress || wo.billingAddress || wo.address || '',
       wo.city || '',
       wo.state || wo.clientState || '',
       wo.pincode || wo.pin || '',
@@ -57,11 +58,14 @@ function navigateCreatePoFromWo(wo) {
     sessionStorage.setItem('sd_po_from_wo', JSON.stringify({
       workOrderId: wo.id,
       workOrderNumber: wo.woNumber || '',
-      site: site || 'Main Site',
-      shipToSite: site || 'Main Site',
-      shipToAddress: shipAddr || wo.clientAddress || '',
       clientName: wo.clientName || '',
-      costCenterId: cc || '',
+      clientId: wo.clientId || '',
+      site: site || 'Main Site',
+      shipToName: wo.clientName || '',
+      shipToSite: site || 'Main Site',
+      shipToAddress: clientAddr,
+      shipToState: wo.state || wo.clientState || '',
+      costCenterId: cc,
       taxRate: wo.taxRate ?? wo.gstPercent ?? 18,
       title: wo.title || '',
       notes: wo.notes || wo.title || '',

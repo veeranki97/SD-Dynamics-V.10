@@ -2306,6 +2306,47 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // if html2canvas or jsPDF throws mid-render. Prior code only restored
   // on the success path — an exception left the on-screen preview
   // stuck at scale 1.0 until the user navigated away.
+  
+  /** A4 boxed/tally/saidurga: print via hidden iframe (vector page) — avoids html2canvas cropping. */
+  const printInvoiceViaIframe = () => {
+    try {
+      const node = printRef.current;
+      if (!node) throw new Error('Preview not ready');
+      const invNo = String(details?.invoiceNumber || invoiceType || 'Invoice').replace(/[\\/:*?"<>|]/g, '-');
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${invNo}</title>
+<style>
+  @page { size: A4 portrait; margin: 10mm; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  * { box-sizing: border-box; }
+</style></head><body>${node.outerHTML}</body></html>`;
+      let iframe = document.getElementById('sd-inv-print-frame');
+      if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id = 'sd-inv-print-frame';
+        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
+        document.body.appendChild(iframe);
+      }
+      iframe.setAttribute('title', invNo);
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument || win.document;
+      doc.open();
+      doc.write(html);
+      doc.close();
+      try { doc.title = invNo; } catch (_) {}
+      const prev = document.title;
+      try { document.title = invNo; } catch (_) {}
+      setTimeout(() => {
+        try { win.focus(); win.print(); } catch (e) { console.error(e); }
+        finally { try { document.title = prev; } catch (_) {} }
+      }, 300);
+      return true;
+    } catch (e) {
+      console.warn('printInvoiceViaIframe failed', e);
+      return false;
+    }
+  };
+
   const buildPDF = async () => {
     const printSettings = getPrintSettings();
     const scalerEl = printRef.current.closest('.preview-scaler');
@@ -3220,6 +3261,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   };
 
   const generatePDF = async () => {
+    // A4 grid layouts: browser print (vector) avoids html2canvas crop at footer
+    try {
+      const style = String(invoiceOptions?.pdfStyle || invoiceOptions?.style || '').toLowerCase();
+      const paper = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
+      if (paper.kind !== 'thermal' && /boxed|tally|saidurga|classic/.test(style)) {
+        if (printInvoiceViaIframe()) {
+          toast('Print dialog opened — choose Save as PDF for a full-page file', 'success');
+          return;
+        }
+      }
+    } catch (_) { /* fall through to canvas PDF */ }
+
     if (!printRef.current) return;
     // v1.10.58 (#47) — same gate as Save: printing persists the bill and
     // reserves an invoice number, so a blank one must not get through here
@@ -3319,7 +3372,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 .ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}
 .ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}
 .ig-billing-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:10px;font-size:0.82rem;}
-.ig-sticky-totals-rail{position:sticky;bottom:0;z-index:30;background:var(--surface,#fff);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-top:8px;box-shadow:0 -4px 16px rgba(15,23,42,0.06);}
+
 .ig-panel{padding:10px 12px!important;margin-bottom:10px!important;}
 .editor-pane .form-group{margin-bottom:0.5rem!important;}
 `}</style>
@@ -4639,7 +4692,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
 
           {/* SD-style tax summary (right-rail style totals under items) */}
-          <div className="sd-inv-totals ig-sticky-totals-rail" style={{ marginBottom: '0.65rem' }}>
+          <div className="sd-inv-totals" style={{ marginBottom: '0.65rem' }}>
             <div className="form-group" style={{ marginBottom: 8 }}>
               <label className="form-label">Tax Rate *</label>
               <div style={{ fontWeight: 600 }}>{showGST ? 'GST (as per lines / place of supply)' : 'No GST'}</div>

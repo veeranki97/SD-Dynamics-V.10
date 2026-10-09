@@ -90,19 +90,19 @@ function printPO(po, profile, fingerprint) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: site name + full address (not site label alone)
+  // Ship-To: client name, site label, client/WO address — NEVER company profile address
+  const shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
   if (!shipAddrRaw) {
     shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
       .filter(Boolean).join(', ');
   }
-  if (!shipAddrRaw && profile) {
-    shipAddrRaw = [profile.address, profile.city, profile.state, profile.pincode].filter(Boolean).join(', ');
-  }
+  // Do not fall back to seller/profile address
+  const shipName = esc(shipNameRaw);
   const shipSite = esc(shipSiteRaw || '—');
   const shipAddr = esc(shipAddrRaw);
-  const shipState = esc(po.shipToState || po.deliveryState || po.state || '');
+  const shipState = esc(po.shipToState || po.deliveryState || '');
   const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
   const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
     '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
@@ -139,11 +139,17 @@ function printPO(po, profile, fingerprint) {
   }
   .sheet {
     border: 1px solid #0f172a;
-    padding: 10px 12px 8px;
+    padding: 8px 10px;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+    height: 277mm;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
+  .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  table.items { flex: 1 1 auto; }
   .top {
     display: flex;
     justify-content: space-between;
@@ -251,7 +257,7 @@ function printPO(po, profile, fingerprint) {
     padding-top: 3px;
   }
 </style></head><body>
-  <div class="sheet">
+  <div class="sheet"><div class="sheet-body">
     <div class="top">
       <div class="co">
         <h1>${company.toUpperCase()}</h1>
@@ -272,8 +278,9 @@ function printPO(po, profile, fingerprint) {
       </div>
       <div class="box">
         <div class="lbl">Delivery Details (Ship To)</div>
-        <div class="name">${shipSite || '—'}</div>
-        <div>${shipAddr || ''}${shipState ? (shipAddr ? '<br/>' : '') + 'State: ' + shipState : ''}</div>
+        ${shipName ? `<div class="name">${shipName}</div>` : ''}
+        <div class="name" style="font-weight:600">${shipSite || '—'}</div>
+        <div>${shipAddr || ''}${shipState && shipAddr ? '<br/>' : ''}${shipState && !shipAddr.includes(shipState) ? shipState : ''}</div>
       </div>
     </div>
     ${subject ? `<div class="subject"><b>Subject:</b> ${subject}</div>` : `<div class="subject"><b>Subject:</b> —</div>`}
@@ -305,7 +312,7 @@ function printPO(po, profile, fingerprint) {
         <div class="tot-row grand"><span>Grand Total</span><span>₹${inr(t.total)}</span></div>
       </div>
     </div>
-    <div class="sign-row">
+    </div><div class="sign-row">
       <div class="sign">
         ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:48px"></div>'}
         <div>For <b>${company}</b></div>
@@ -455,9 +462,12 @@ export default function PurchaseOrdersView() {
         workOrderId: p.workOrderId || '',
         workOrderNumber: p.workOrderNumber || '',
         isSubcontract: p.isSubcontract !== false,
+        clientName: p.clientName || '',
+        clientId: p.clientId || '',
         site: p.site || 'Main Site',
+        shipToName: p.shipToName || p.clientName || '',
         shipToSite: p.shipToSite || p.site || 'Main Site',
-        shipToAddress: p.shipToAddress || p.deliveryAddress || '',
+        shipToAddress: p.shipToAddress || '',
         shipToState: p.shipToState || '',
         costCenterId: headerCc || '',
         date: new Date().toISOString().split('T')[0],
@@ -627,7 +637,7 @@ export default function PurchaseOrdersView() {
                 const wo = (workOrders || []).find(w => w.id === wid || w.woNumber === wid);
                 setForm(prev => {
                   if (!wo) return { ...prev, workOrderId: wid, workOrderNumber: '' };
-                  const woCc = (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '') || wo.costCenterId || '';
+                  const woCc = resolveWoCostCenter(wo) || wo.costCenterId || '';
                   const itemsFromWo = (Array.isArray(wo.items) && wo.items.length)
                     ? wo.items.map((it, i) => ({
                         id: 'poi_' + Date.now() + '_' + i,
@@ -643,7 +653,7 @@ export default function PurchaseOrdersView() {
                     ...prev,
                     workOrderId: wid,
                     workOrderNumber: wo.woNumber || '',
-                    costCenterId: (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '') || wo.costCenterId || wo.costCenter || prev.costCenterId,
+                    costCenterId: resolveWoCostCenter(wo) || wo.costCenterId || wo.costCenter || prev.costCenterId,
                     site: wo.site || prev.site,
                     shipToSite: wo.site || prev.shipToSite || prev.site,
                     gstPercent: wo.gstPercent != null ? wo.gstPercent : prev.gstPercent,
