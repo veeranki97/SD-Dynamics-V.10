@@ -40,3 +40,8 @@ public/tesseract/
 
 # Session scratch from other agent tooling — not part of the project
 .zcode
+
+# DB files under data/ only
+data/*.sqlite*
+*.sqlite-wal
+*.sqlite-shm

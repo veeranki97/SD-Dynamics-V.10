@@ -271,7 +271,7 @@ function readJSON(filePath, fallback = null) {
 // atomically via temp+rename so a crash mid-write can't leave a
 // truncated meta.json that resets the invoice counter.
 function writeJSON(filePath, data) {
-  // SQLite primary write when path is data/<collection>/<id>.json (incl. hrm/*)
+  // SQLite primary write when path is data/<collection>/<id>.json (incl. hrm/*, meta, master-data)
   try {
     if (isSqliteReady() && data && typeof data === 'object') {
       const key = pathToCollectionId(filePath, DATA_DIR);
@@ -282,7 +282,14 @@ function writeJSON(filePath, data) {
     }
   } catch (se) { console.warn('[sqlite] upsert on writeJSON:', se.message); }
 
-  writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+  // JSON mirror (default ON). Set SD_JSON_MIRROR=0 to skip file write after SQL is verified.
+  const skipMirror = process.env.SD_JSON_MIRROR === '0' || process.env.SD_JSON_MIRROR === 'false';
+  if (!skipMirror) {
+    writeFileAtomic(filePath, JSON.stringify(data, null, 2));
+  } else {
+    // Still create parent dir for tools that expect the folder to exist
+    try { fs.mkdirSync(path.dirname(filePath), { recursive: true }); } catch { /* */ }
+  }
   // Invalidate cache for the parent directory
   const parentDir = path.basename(path.dirname(filePath));
   if (DIRS.includes(parentDir)) invalidateCache(parentDir);
@@ -548,14 +555,16 @@ app.post('/api/bills', (req, res) => {
     if (!fs.existsSync(revDir)) fs.mkdirSync(revDir, { recursive: true });
     const invKey = safeFileName(bill.id || bill.invoiceNumber || 'unknown');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const revId = `${invKey}_${stamp}`;
     const rev = {
+      id: revId,
       timestamp: new Date().toISOString(),
       action: beforeBill ? 'EDIT' : 'CREATE',
       invoiceNumber: bill.invoiceNumber || bill.id,
       snapshot: bill,
       previous: beforeBill || null,
     };
-    writeJSON(path.join(revDir, `${invKey}_${stamp}.json`), rev);
+    writeJSON(path.join(revDir, `${revId}.json`), rev);
     // keep last 30 revisions per invoice number prefix
     const all = fs.readdirSync(revDir).filter(f => f.startsWith(invKey + '_')).sort();
     while (all.length > 30) {
@@ -566,12 +575,14 @@ app.post('/api/bills', (req, res) => {
     fs.mkdirSync(aDir, { recursive: true });
     const at = new Date().toISOString();
     const aName = at.replace(/[:.]/g, '-') + '_invoice_' + safeFileName(String(bill.invoiceNumber || bill.id || 'x')) + '.json';
-    fs.writeFileSync(path.join(aDir, aName), JSON.stringify({
+    const aId = aName.replace(/\.json$/i, '');
+    writeJSON(path.join(aDir, aName), {
+      id: aId,
       entityType: 'invoice', entityId: bill.invoiceNumber || bill.id,
       action: typeof beforeBill !== 'undefined' && beforeBill ? 'update' : 'create',
       user: 'server', at,
       diff: { totalAmount: bill.totalAmount, status: bill.status },
-    }, null, 2));
+    });
   } catch (ae) { console.warn('[activity]', ae.message); }
   try {
     auditChange({
@@ -1899,18 +1910,28 @@ ensureDir(BILL_TRASH_DIR);
 app.get('/api/trash', (req, res) => {
   try {
     ensureDir(BILL_TRASH_DIR);
-    const files = fs.readdirSync(BILL_TRASH_DIR)
-      .filter(n => n.endsWith('.json'))
-      .map(name => {
-        try {
-          const p = path.join(BILL_TRASH_DIR, name);
-          const bill = readJSON(p, null);
-          const stat = fs.statSync(p);
-          return bill ? { ...bill, _trashedAt: stat.mtime.toISOString() } : null;
-        } catch { return null; }
-      })
-      .filter(Boolean);
-    res.json(files);
+    const byId = new Map();
+    if (isSqliteReady()) {
+      try {
+        for (const o of (sqliteList('trash', { includeDeleted: true }) || [])) {
+          if (o && (o.id != null || o.invoiceNumber)) {
+            byId.set(String(o.id || o.invoiceNumber), { ...o, _trashedAt: o.deleted_at || o.updatedAt || null });
+          }
+        }
+      } catch (e) { console.warn('[trash] sqlite', e.message); }
+    }
+    for (const name of fs.readdirSync(BILL_TRASH_DIR).filter(n => n.endsWith('.json'))) {
+      try {
+        const p = path.join(BILL_TRASH_DIR, name);
+        const bill = readJSON(p, null);
+        const stat = fs.statSync(p);
+        if (bill) {
+          const id = String(bill.id || name.replace(/\.json$/i, ''));
+          byId.set(id, { ...bill, _trashedAt: stat.mtime.toISOString() });
+        }
+      } catch { /* */ }
+    }
+    res.json([...byId.values()]);
   } catch (err) { errRes(res, 500, 'server-error', err); }
 });
 
@@ -1967,6 +1988,7 @@ app.post('/api/master-data', (req, res) => {
     const body = req.body || {};
     const prev = readJSON(MASTER_DATA_PATH, { hsn: [], units: [], expenseCategories: [] });
     const next = {
+      id: 'default',
       hsn: Array.isArray(body.hsn) ? body.hsn : (prev.hsn || []),
       units: Array.isArray(body.units) ? body.units : (prev.units || []),
       expenseCategories: Array.isArray(body.expenseCategories) ? body.expenseCategories : (prev.expenseCategories || []),
@@ -1983,18 +2005,41 @@ app.post('/api/master-data', (req, res) => {
 
 app.get('/api/invoice-revisions', (req, res) => {
   try {
-    const dir = path.join(DATA_DIR, 'invoice-revisions');
-    if (!fs.existsSync(dir)) return res.json([]);
     const inv = String(req.query.invoice || req.query.id || '').trim();
-    let files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
-    if (inv) {
-      const key = safeFileName(inv);
-      files = files.filter(f => f.startsWith(key + '_'));
+    const byId = new Map();
+    if (isSqliteReady()) {
+      try {
+        for (const o of (sqliteList('invoice_revisions', { includeDeleted: true, limit: 200 }) || [])) {
+          if (!o) continue;
+          if (inv) {
+            const key = safeFileName(inv);
+            const oid = String(o.id || '');
+            const onum = String(o.invoiceNumber || '');
+            if (!oid.startsWith(key + '_') && onum !== inv && !oid.includes(key)) continue;
+          }
+          byId.set(String(o.id || o.timestamp || Math.random()), o);
+        }
+      } catch (e) { console.warn('[revisions] sqlite', e.message); }
     }
-    files.sort().reverse();
-    const out = files.slice(0, 100).map(f => {
-      try { return readJSON(path.join(dir, f), null); } catch { return null; }
-    }).filter(Boolean);
+    const dir = path.join(DATA_DIR, 'invoice-revisions');
+    if (fs.existsSync(dir)) {
+      let files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+      if (inv) {
+        const key = safeFileName(inv);
+        files = files.filter(f => f.startsWith(key + '_'));
+      }
+      files.sort().reverse();
+      for (const f of files.slice(0, 100)) {
+        try {
+          const o = readJSON(path.join(dir, f), null);
+          if (o) {
+            if (o.id == null) o.id = f.replace(/\.json$/i, '');
+            byId.set(String(o.id), o);
+          }
+        } catch { /* */ }
+      }
+    }
+    const out = [...byId.values()].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || ''))).slice(0, 100);
     res.json(out);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2003,13 +2048,28 @@ app.get('/api/invoice-revisions', (req, res) => {
 
 app.get('/api/activity-logs', (req, res) => {
   try {
+    const byId = new Map();
+    if (isSqliteReady()) {
+      try {
+        for (const o of (sqliteList('activity_logs', { includeDeleted: true, limit: 500 }) || [])) {
+          if (!o) continue;
+          const id = String(o.id || o.at || Math.random());
+          byId.set(id, { file: id + '.json', ...o });
+        }
+      } catch (e) { console.warn('[activity] sqlite list', e.message); }
+    }
     const dir = path.join(DATA_DIR, 'activity-logs');
-    if (!fs.existsSync(dir)) return res.json([]);
-    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 500);
-    const rows = files.map(f => {
-      try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) }; }
-      catch { return { file: f }; }
-    });
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().reverse().slice(0, 500);
+      for (const f of files) {
+        try {
+          const o = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+          const id = String(o.id || f.replace(/\.json$/i, ''));
+          if (!byId.has(id)) byId.set(id, { file: f, ...o });
+        } catch { byId.set(f, { file: f }); }
+      }
+    }
+    const rows = [...byId.values()].sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 500);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2031,8 +2091,10 @@ app.post('/api/activity-logs', (req, res) => {
     };
     const ts = String(entry.at).replace(/[:.]/g, '-');
     const safe = (s) => String(s || 'x').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
-    const fp = path.join(dir, ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId) + '.json');
-    fs.writeFileSync(fp, JSON.stringify(entry, null, 2), 'utf8');
+    const base = ts + '_' + safe(entry.entityType) + '_' + safe(entry.entityId);
+    entry.id = base;
+    const fp = path.join(dir, base + '.json');
+    writeJSON(fp, entry);
     // Cap growth: keep newest 500 activity files (safe for 1000+ invoices)
     try {
       const all = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
@@ -2126,16 +2188,19 @@ function hrmInvalidate(subdir) {
 }
 function hrmGetConfig() {
   hrmEnsure();
+  const def = {
+    id: 'config',
+    pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
+    sites: [{ id: 'site_hq', name: 'Head Office', state: '' }],
+    establishmentCode: '', esicCode: '', employerName: '',
+  };
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(HRM_DIR, 'settings', 'config.json'), 'utf8'));
+    const cfg = readJSON(path.join(HRM_DIR, 'settings', 'config.json'), def) || def;
+    if (!cfg.id) cfg.id = 'config';
     if (!Array.isArray(cfg.sites)) cfg.sites = [{ id: 'site_hq', name: 'Head Office', state: '' }];
     return cfg;
   } catch {
-    return {
-      pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA', lastEmpNum: 0,
-      sites: [{ id: 'site_hq', name: 'Head Office', state: '' }],
-      establishmentCode: '', esicCode: '', employerName: '',
-    };
+    return def;
   }
 }
 function hrmSaveConfig(cfg) {

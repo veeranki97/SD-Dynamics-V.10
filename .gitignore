@@ -1,5 +1,9 @@
-*sqlite*
-*.db
+# SQLite database files only — do NOT ignore src/db/sqliteStore.js
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.sqlite3
+data/*.sqlite*
+*.db
 .vs/
 node_modules/
