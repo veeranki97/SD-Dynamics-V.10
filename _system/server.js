@@ -193,14 +193,36 @@ function invalidateCache(dir) { delete dirCache[dir]; }
 
 // Helper: read all JSON files from a directory (cached, 5s TTL)
 function readAllFromDir(dir, { includeDeleted = false } = {}) {
-  // Always read JSON files from disk (source of truth for dual-write).
+  // Rule: when SQLite is ready, SQL rows win for any id that exists in SQLite.
+  // JSON is only used for ids not present in SQLite (legacy / pre-migration).
+  // dirCache is still invalidated on writeJSON so file reads stay fresh for fallback.
+  const byId = new Map();
+  const keyOf = (o) => {
+    if (!o) return '';
+    if (o.id != null && o.id !== '') return String(o.id);
+    return String(o.woNumber || o.poNumber || o.invoiceNumber || '');
+  };
+
+  if (isSqliteReady()) {
+    try {
+      const list = sqliteList(dir, { includeDeleted: true }) || [];
+      for (const o of list) {
+        const key = keyOf(o);
+        if (key) byId.set(key, o);
+      }
+    } catch (e) {
+      console.warn('[readAllFromDir] sqlite list', dir, e.message);
+    }
+  }
+
+  // Fill gaps from JSON files only when SQLite has no row for that id
   const dirPath = path.join(DATA_DIR, dir);
-  const fromFiles = [];
   if (fs.existsSync(dirPath)) {
     const now = Date.now();
+    let fromFiles = [];
     const cached = dirCache[dir];
     if (cached && (now - (cached.ts || 0)) < DIR_CACHE_TTL_MS) {
-      fromFiles.push(...(cached.data || []));
+      fromFiles = cached.data || [];
     } else {
       const files = fs.readdirSync(dirPath).filter(f => f.endsWith('.json'));
       for (const f of files) {
@@ -211,35 +233,11 @@ function readAllFromDir(dir, { includeDeleted = false } = {}) {
       }
       dirCache[dir] = { data: fromFiles.slice(), ts: now };
     }
-  }
-
-  // Merge SQLite rows (may have records not yet mirrored, or JSON missing).
-  const byId = new Map();
-  for (const o of fromFiles) {
-    if (o && o.id != null) byId.set(String(o.id), o);
-    else if (o && (o.woNumber || o.poNumber || o.invoiceNumber)) {
-      byId.set(String(o.woNumber || o.poNumber || o.invoiceNumber), o);
-    }
-  }
-  if (isSqliteReady()) {
-    try {
-      const list = sqliteList(dir, { includeDeleted: true }) || [];
-      for (const o of list) {
-        if (!o) continue;
-        const key = String(o.id || o.woNumber || o.poNumber || o.invoiceNumber || '');
-        if (!key) continue;
-        // Prefer fresher updatedAt when both exist
-        const prev = byId.get(key);
-        if (!prev) {
-          byId.set(key, o);
-        } else {
-          const pt = Date.parse(prev.updatedAt || prev.createdAt || 0) || 0;
-          const ot = Date.parse(o.updatedAt || o.createdAt || 0) || 0;
-          if (ot >= pt) byId.set(key, o);
-        }
-      }
-    } catch (e) {
-      console.warn('[readAllFromDir] sqlite merge', dir, e.message);
+    for (const o of fromFiles) {
+      const key = keyOf(o);
+      if (!key) continue;
+      if (!byId.has(key)) byId.set(key, o);
+      // else: SQLite already has this id — keep SQL row (do not let stale JSON win)
     }
   }
 
@@ -290,9 +288,17 @@ function writeJSON(filePath, data) {
     // Still create parent dir for tools that expect the folder to exist
     try { fs.mkdirSync(path.dirname(filePath), { recursive: true }); } catch { /* */ }
   }
-  // Invalidate cache for the parent directory
+  // Invalidate list cache for this collection (folder name or hrm/* key)
+  try {
+    const key = pathToCollectionId(filePath, DATA_DIR);
+    if (key && key.collection) invalidateCache(key.collection);
+  } catch { /* */ }
   const parentDir = path.basename(path.dirname(filePath));
   if (DIRS.includes(parentDir)) invalidateCache(parentDir);
+  // hrm/employees style relative keys used by hrmReadAll
+  if (parentDir && path.basename(path.dirname(path.dirname(filePath))) === 'hrm') {
+    invalidateCache('hrm/' + parentDir);
+  }
 }
 
 // Helper: delete file (with cache invalidation)

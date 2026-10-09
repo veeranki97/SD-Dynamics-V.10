@@ -11,7 +11,7 @@ import {
   getAllWorkOrders,
   getAllPurchases,
 } from '../store';
-import { emptyWOItem, calcItemAmount } from '../utils/workOrder';
+import { emptyWOItem, calcItemAmount, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
@@ -90,9 +90,19 @@ function printPO(po, profile, fingerprint) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  const shipSite = esc(po.shipToSite || po.site || po.deliverySite || '');
-  const shipAddr = esc(po.shipToAddress || po.deliveryAddress || '');
-  const shipState = esc(po.shipToState || po.deliveryState || '');
+  // Ship-To: site name + full address (not site label alone)
+  const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
+  let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
+  if (!shipAddrRaw) {
+    shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
+      .filter(Boolean).join(', ');
+  }
+  if (!shipAddrRaw && profile) {
+    shipAddrRaw = [profile.address, profile.city, profile.state, profile.pincode].filter(Boolean).join(', ');
+  }
+  const shipSite = esc(shipSiteRaw || '—');
+  const shipAddr = esc(shipAddrRaw);
+  const shipState = esc(po.shipToState || po.deliveryState || po.state || '');
   const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
   const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
     '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
@@ -128,18 +138,17 @@ function printPO(po, profile, fingerprint) {
     line-height: 1.35;
   }
   .sheet {
-    border: 1.5px solid #0f172a;
-    padding: 12px 14px 10px;
-    min-height: calc(297mm - 24mm);
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
+    border: 1px solid #0f172a;
+    padding: 10px 12px 8px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
   .top {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    border-bottom: 2px solid #0f172a;
+    border-bottom: 1px solid #0f172a;
     padding-bottom: 8px;
     margin-bottom: 8px;
   }
@@ -162,15 +171,15 @@ function printPO(po, profile, fingerprint) {
   .grid2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    border: 1.5px solid #0f172a;
+    border: 1px solid #0f172a;
     margin-bottom: 0;
   }
   .grid2 .box { padding: 6px 8px; min-height: 60px; }
-  .grid2 .box + .box { border-left: 1.5px solid #0f172a; }
+  .grid2 .box + .box { border-left: 1px solid #0f172a; }
   .grid2 .lbl { font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; margin-bottom: 2px; }
   .grid2 .name { font-size: 10.5px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
   .subject {
-    border: 1.5px solid #0f172a;
+    border: 1px solid #0f172a;
     border-top: none;
     padding: 5px 8px;
     margin-bottom: 8px;
@@ -179,12 +188,12 @@ function printPO(po, profile, fingerprint) {
   }
   table.items { width: 100%; border-collapse: collapse; margin-bottom: 8px; flex-grow: 1; }
   table.items th, table.items td {
-    border: 1px solid #cbd5e1;
+    border: 1px solid #0f172a;
     padding: 4px 6px;
     vertical-align: top;
   }
   table.items th {
-    border: 1.5px solid #0f172a;
+    border: 1px solid #0f172a;
     background: #f1f5f9;
     font-size: 8.5px;
     text-transform: uppercase;
@@ -198,11 +207,11 @@ function printPO(po, profile, fingerprint) {
     display: grid;
     grid-template-columns: 1.2fr 0.8fr;
     gap: 0;
-    border: 1.5px solid #0f172a;
+    border: 1px solid #0f172a;
   }
   .notes {
     padding: 6px 8px;
-    border-right: 1.5px solid #0f172a;
+    border-right: 1px solid #0f172a;
     font-size: 8.5px;
     line-height: 1.35;
   }
@@ -210,7 +219,7 @@ function printPO(po, profile, fingerprint) {
   .totals { padding: 6px 8px; background: #fafafa; }
   .tot-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 9.5px; }
   .tot-row.grand {
-    border-top: 1.5px solid #0f172a;
+    border-top: 1px solid #0f172a;
     margin-top: 4px;
     padding-top: 4px;
     font-size: 11px;
@@ -307,40 +316,37 @@ function printPO(po, profile, fingerprint) {
   </div>
 </body></html>`;
 
-  // Prefer a real window so "Save as PDF" uses <title> = PO number (not the app name).
-  try {
-    const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (w) {
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      try { w.document.title = poTitle; } catch (_) {}
-      const doPrint = () => {
-        try { w.focus(); w.print(); } catch (e) { console.error(e); }
-      };
-      setTimeout(doPrint, sigSrc ? 500 : 200);
-      return;
-    }
-  } catch (e) {
-    console.warn('window.open blocked, falling back to iframe', e);
-  }
+  // Print in-tab only (hidden iframe). No blank browser tab.
+  // document.title inside the iframe becomes the suggested PDF file name.
   try {
     let iframe = document.getElementById('sd-po-print-frame');
     if (!iframe) {
       iframe = document.createElement('iframe');
       iframe.id = 'sd-po-print-frame';
-      iframe.setAttribute('title', poTitle);
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
       document.body.appendChild(iframe);
     }
+    iframe.setAttribute('title', poTitle);
     const win = iframe.contentWindow;
     const doc = iframe.contentDocument || win.document;
     doc.open();
     doc.write(html);
     doc.close();
-    try { doc.title = poTitle; } catch (_) {}
+    try {
+      doc.title = poTitle;
+      if (win.document) win.document.title = poTitle;
+    } catch (_) {}
+    const prevTitle = document.title;
+    try { document.title = poTitle; } catch (_) {}
     setTimeout(() => {
-      try { win.focus(); win.print(); } catch (e) { console.error(e); }
+      try {
+        win.focus();
+        win.print();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        try { document.title = prevTitle; } catch (_) {}
+      }
     }, sigSrc ? 450 : 180);
   } catch (e) {
     console.error('printPO failed', e);
@@ -435,6 +441,11 @@ export default function PurchaseOrdersView() {
             return row;
           })
         : [emptyWOItem()];
+      const headerCc = p.costCenterId || (mappedItems.find(it => it.costCenterId)?.costCenterId) || '';
+      const mappedWithCc = mappedItems.map(it => ({
+        ...it,
+        costCenterId: it.costCenterId || headerCc || '',
+      }));
       setForm({
         id: 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         poNumber: '',
@@ -445,13 +456,15 @@ export default function PurchaseOrdersView() {
         workOrderNumber: p.workOrderNumber || '',
         isSubcontract: p.isSubcontract !== false,
         site: p.site || 'Main Site',
-        shipToSite: p.site || 'Main Site',
-        costCenterId: p.costCenterId || '',
+        shipToSite: p.shipToSite || p.site || 'Main Site',
+        shipToAddress: p.shipToAddress || p.deliveryAddress || '',
+        shipToState: p.shipToState || '',
+        costCenterId: headerCc || '',
         date: new Date().toISOString().split('T')[0],
         status: 'draft',
         taxRate: p.taxRate != null ? Number(p.taxRate) : 18,
         notes: p.notes || (p.clientName ? `Subcontract for client: ${p.clientName}` : '') || (p.title || ''),
-        items: mappedItems,
+        items: mappedWithCc,
         createdAt: new Date().toISOString(),
       });
     } catch { /* */ }
@@ -614,6 +627,7 @@ export default function PurchaseOrdersView() {
                 const wo = (workOrders || []).find(w => w.id === wid || w.woNumber === wid);
                 setForm(prev => {
                   if (!wo) return { ...prev, workOrderId: wid, workOrderNumber: '' };
+                  const woCc = (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '') || wo.costCenterId || '';
                   const itemsFromWo = (Array.isArray(wo.items) && wo.items.length)
                     ? wo.items.map((it, i) => ({
                         id: 'poi_' + Date.now() + '_' + i,
@@ -622,13 +636,14 @@ export default function PurchaseOrdersView() {
                         qty: it.qty ?? it.quantity ?? 1,
                         unit: it.unit || 'Nos',
                         rate: Number(it.rate) || 0,
+                        costCenterId: it.costCenterId || it.costCentreId || it.costHead || woCc || '',
                       }))
                     : prev.items;
                   return {
                     ...prev,
                     workOrderId: wid,
                     workOrderNumber: wo.woNumber || '',
-                    costCenterId: wo.costCenterId || wo.costCenter || prev.costCenterId,
+                    costCenterId: (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '') || wo.costCenterId || wo.costCenter || prev.costCenterId,
                     site: wo.site || prev.site,
                     shipToSite: wo.site || prev.shipToSite || prev.site,
                     gstPercent: wo.gstPercent != null ? wo.gstPercent : prev.gstPercent,

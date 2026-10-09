@@ -611,7 +611,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [creditToApply, setCreditToApply] = useState(0);
   // Work Order link (custom addition)
   const [workOrders, setWorkOrders] = useState([]);
-  const [collapsedSections, setCollapsedSections] = useState({ terms: false, extras: true, options: false });
+  const [collapsedSections, setCollapsedSections] = useState({ terms: true, extras: true, options: true, billingFrom: true });
   const toggleSection = (key) => setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
   // Prefill from Work Order convert (Tax / Proforma / DC) — runs after WO list loads
@@ -3315,7 +3315,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   return (
     <div className="generator-container sd-inv-form">
-      <style>{`.ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}.ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}`}</style>
+      <style>{`
+.ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}
+.ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}
+.ig-billing-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:10px;font-size:0.82rem;}
+.ig-sticky-totals-rail{position:sticky;bottom:0;z-index:30;background:var(--surface,#fff);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-top:8px;box-shadow:0 -4px 16px rgba(15,23,42,0.06);}
+.ig-panel{padding:10px 12px!important;margin-bottom:10px!important;}
+.editor-pane .form-group{margin-bottom:0.5rem!important;}
+`}</style>
       <div className="generator-toolbar ig-fixed-savebar">
         <div className="flex gap-2 items-center">
           <button className="btn btn-secondary" onClick={handleBack}><ArrowLeft size={18} /> Back</button>
@@ -3463,7 +3470,13 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           {/* Business Profile Selector — shown only if multiple profiles saved */}
           {allProfiles.length > 1 && (
             <div className="glass-panel ig-panel">
-              <h3 className="section-title" style={{ marginBottom: '0.75rem' }}>Billing From (Business Profile)</h3>
+              <div className="ig-billing-compact" onClick={() => toggleSection('billingFrom')} style={{ cursor: 'pointer' }}>
+                <span><strong>{(activeProfile?.businessName || profileProp?.businessName || profile?.businessName || 'Business')}</strong>
+                  {(activeProfile?.gstin || profileProp?.gstin || profile?.gstin) ? ` · ${activeProfile?.gstin || profileProp?.gstin || profile?.gstin}` : ''}
+                </span>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{collapsedSections.billingFrom ? '▾ Expand' : '▴ Collapse'}</span>
+              </div>
+              {!collapsedSections.billingFrom && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
                 {allProfiles.map(bp => {
                   const isSelected = (activeProfile?.businessName || profileProp?.businessName) === bp.businessName;
@@ -3483,6 +3496,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   );
                 })}
               </div>
+              )}
             </div>
           )}
 
@@ -4625,7 +4639,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
 
           {/* SD-style tax summary (right-rail style totals under items) */}
-          <div className="sd-inv-totals" style={{ marginBottom: '0.65rem' }}>
+          <div className="sd-inv-totals ig-sticky-totals-rail" style={{ marginBottom: '0.65rem' }}>
             <div className="form-group" style={{ marginBottom: 8 }}>
               <label className="form-label">Tax Rate *</label>
               <div style={{ fontWeight: 600 }}>{showGST ? 'GST (as per lines / place of supply)' : 'No GST'}</div>

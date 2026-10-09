@@ -4,7 +4,7 @@ import {
   getAllWorkOrders, getAllExpenses, getAllPurchases, getAllPurchaseOrders, saveWorkOrder, deleteWorkOrder,
   getAllBills, getAllClients, getAllCostCenters,
 } from '../store';
-import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus } from '../utils/workOrder';
+import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
@@ -35,6 +35,15 @@ function calcWOTotals(items, taxRate, clientState, hostState) {
 function navigateCreatePoFromWo(wo) {
   if (!wo) return;
   try {
+    const cc = (typeof resolveWoCostCenter === 'function' ? resolveWoCostCenter(wo) : '')
+      || wo.costCenterId || wo.costCentreId || wo.costCenter || '';
+    const site = (typeof resolveWoSite === 'function' ? resolveWoSite(wo) : '') || wo.site || '';
+    const shipAddr = [
+      wo.shipToAddress || wo.deliveryAddress || wo.address || '',
+      wo.city || '',
+      wo.state || wo.clientState || '',
+      wo.pincode || wo.pin || '',
+    ].filter(Boolean).join(', ');
     const items = (Array.isArray(wo.items) ? wo.items : []).map((it, i) => ({
       id: 'poi_wo_' + Date.now() + '_' + i,
       description: it.description || it.name || '',
@@ -43,14 +52,16 @@ function navigateCreatePoFromWo(wo) {
       unit: it.unit || 'Nos',
       rate: Number(it.rate) || 0,
       amount: Number(it.amount) || ((Number(it.qty ?? it.quantity) || 0) * (Number(it.rate) || 0)),
-      costCenterId: it.costCenterId || wo.costCenterId || '',
+      costCenterId: it.costCenterId || it.costCentreId || it.costHead || cc || '',
     }));
     sessionStorage.setItem('sd_po_from_wo', JSON.stringify({
       workOrderId: wo.id,
       workOrderNumber: wo.woNumber || '',
-      site: wo.site || '',
+      site: site || 'Main Site',
+      shipToSite: site || 'Main Site',
+      shipToAddress: shipAddr || wo.clientAddress || '',
       clientName: wo.clientName || '',
-      costCenterId: wo.costCenterId || wo.costCenter || '',
+      costCenterId: cc || '',
       taxRate: wo.taxRate ?? wo.gstPercent ?? 18,
       title: wo.title || '',
       notes: wo.notes || wo.title || '',
