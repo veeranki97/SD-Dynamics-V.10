@@ -303,8 +303,8 @@ const LineItem = memo(function LineItem({
   };
   return (
     <div className="line-item-row sd-line-grid" data-item-id={item.id} onKeyDown={handleRowKeyDown}
-      style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.7fr 0.8fr 0.9fr 0.9fr 0.9fr 0.7fr auto', gap: 6, alignItems: 'end', width: '100%', minWidth: 720 }}>
-      <div className="line-item-field" style={{ position: 'relative', minWidth: 0 }}>
+      style={{ display: 'grid', gridTemplateColumns: '2.8fr 0.9fr 0.9fr 0.65fr 0.7fr 0.85fr 0.85fr 0.75fr 0.65fr auto', gap: 6, alignItems: 'end', width: '100%', minWidth: 720 }}>
+      <div className="line-item-field" style={{ position: 'relative', minWidth: 0, flex: '1 1 auto' }}>
         <label className="form-label">Description</label>
         {/* v1.10.37 — Keyboard nav on product suggestions. Reported:
             "20 invoices/day is slow because product picker forces the
@@ -4081,8 +4081,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <h3 className="section-title" style={{ margin: 0 }}>Client · Site · Billing</h3>
             </div>
             {/* SD cascade: State → Client → Site */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 8, marginBottom: 10 }}>
-              <div className="form-group" style={{ gridColumn: 'span 3' }}>
+            {/* Row 1: Filter State | Client | Site */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Filter State</label>
                 <select className="form-input" value={filterState}
                   onChange={e => { setFilterState(e.target.value); }}>
@@ -4090,7 +4091,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   {stateOptionsForFilter.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 5' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Company / Client *</label>
                 <select className="form-input"
                   value={(clientOnlyList.find(c => (c.name||'').toLowerCase() === (client.name||'').toLowerCase()) || {}).id || ''}
@@ -4112,7 +4113,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   ))}
                 </select>
               </div>
-              <div className="form-group" style={{ gridColumn: 'span 4' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Site *</label>
                 <select className="form-input" value={client.site || details.site || ''}
                   onChange={e => {
@@ -4181,214 +4182,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="form-group full-width" style={{ position: 'relative' }}>
-                <label className="form-label">Client Name</label>
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <input type="text" className="form-input" style={{ flex: 1 }} value={client.name} ref={clientNameRef}
-                    onChange={(e) => {
-                      setClient({ ...client, name: e.target.value });
-                      setSelectedClientId(null);
-                      setShowClientSuggestions(true);
-                      setClientPickerIdx(-1);
-                    }}
-                    onFocus={() => { if (savedClients.length > 0) setShowClientSuggestions(true); }}
-                    onKeyDown={(e) => {
-                      // v1.10.37 — Arrow keys / Enter / Escape on the client
-                      // picker. Reported: "20 invoices/day forces mouse on
-                      // the client autocomplete." Now: keyboard-only path.
-                      if (!showClientSuggestions || !filteredClients.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setClientPickerIdx(i => (i + 1) % filteredClients.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setClientPickerIdx(i => (i <= 0 ? filteredClients.length - 1 : i - 1));
-                      } else if (e.key === 'Enter') {
-                        // Only intercept Enter when the user has actually
-                        // arrow-nav'd to a suggestion; otherwise let Enter
-                        // fall through to the form for the "Add new client"
-                        // path via openAddClientModal.
-                        if (clientPickerIdx >= 0 && filteredClients[clientPickerIdx]) {
-                          e.preventDefault();
-                          selectSavedClient(filteredClients[clientPickerIdx]);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setShowClientSuggestions(false);
-                      }
-                    }}
-                    placeholder="Type client name to search or add new" autoComplete="off" />
-                  {selectedClientId && (
-                    <button type="button" className="btn-client-edit" onClick={() => openEditClientModal(savedClients.find(c => c.id === selectedClientId))} title="Edit saved client">
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                </div>
-                {showClientSuggestions && savedClients.length > 0 && (
-                  <div className="client-suggestions" ref={clientSuggestionsRef}>
-                    {filteredClients.length > 0 && filteredClients.map((cli, i) => (
-                      <div key={cli.id} className="client-suggestion-row"
-                        style={i === clientPickerIdx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
-                        <button type="button" className="client-suggestion-item"
-                          onMouseEnter={() => setClientPickerIdx(i)}
-                          onClick={() => selectSavedClient(cli)}>
-                          <div className="client-suggestion-main">
-                            <strong>{cli.name}</strong>
-                            {(cli.city || cli.address) && <small className="client-suggestion-addr">{cli.city || cli.address.substring(0, 30)}{!cli.city && cli.address.length > 30 ? '...' : ''}</small>}
-                          </div>
-                          <span>{cli.state}{cli.gstin ? ` · ${cli.gstin}` : ''}</span>
-                        </button>
-                        <button type="button" className="client-suggestion-edit" onClick={() => { openEditClientModal(cli); setShowClientSuggestions(false); }} title="Edit client">
-                          <Pencil size={12} />
-                        </button>
-                      </div>
-                    ))}
-                    {client.name.trim() && (
-                      <button type="button" className="client-suggestion-save" onClick={openAddClientModal}>
-                        <UserPlus size={14} /> Save "{client.name.trim()}" as new client
-                      </button>
-                    )}
-                    {filteredClients.length === 0 && !client.name.trim() && (
-                      <div className="client-picker-empty">Type to search clients</div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="form-group full-width">
-                <label className="form-label">Billing Address</label>
-                <input type="text" className="form-input" value={client.address}
-                  onChange={(e) => setClient({ ...client, address: e.target.value })} placeholder="Street address, locality" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Country</label>
-                <select className="form-input" value={client.country || profile?.country || 'India'}
-                  onChange={(e) => setClient({ ...client, country: e.target.value, state: '' })}>
-                  {(() => {
-                    const visible = getCountriesForRegion(getRegionMode());
-                    const cur = client.country || profile?.country;
-                    const out = [];
-                    if (cur && !visible.some(c => c.name === cur)) {
-                      out.push(<option key={cur} value={cur}>{cur}</option>);
-                    }
-                    return out.concat(visible.map(c => <option key={c.code} value={c.name}>{c.name}</option>));
-                  })()}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">City</label>
-                <input type="text" className="form-input" value={client.city}
-                  onChange={(e) => setClient({ ...client, city: e.target.value })} placeholder="e.g. Mumbai" />
-              </div>
-              <div className="form-group">
-                {(() => { const cc = getCountryConfig(client.country || profile?.country); return <label className="form-label">{cc.postalLabel}</label>; })()}
-                <input type="text" className="form-input" value={client.pin}
-                  onChange={(e) => setClient({ ...client, pin: e.target.value })} placeholder="Postal / PIN code" />
-              </div>
-              {invoiceOptions.showState && (() => {
-                const cc = getCountryConfig(client.country || profile?.country);
-                const stateOpts = getStatesForCountry(client.country || profile?.country);
-                return (
-                  <div className="form-group">
-                    <label className="form-label">{cc.stateLabel}</label>
-                    {stateOpts.length > 0 ? (
-                      <select className="form-input" value={client.state} onChange={(e) => setClient({ ...client, state: e.target.value })}>
-                        <option value="">Select {cc.stateLabel}</option>
-                        {stateOpts.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <input type="text" className="form-input" value={client.state}
-                        onChange={(e) => setClient({ ...client, state: e.target.value })} placeholder={cc.stateLabel} />
-                    )}
-                  </div>
-                );
-              })()}
-              {invoiceOptions.showGSTIN && (() => {
-                const cc = getCountryConfig(client.country || profile?.country);
-                return (
-                  <div className="form-group">
-                    <label className="form-label">{cc.taxIdLabel}</label>
-                    <input type="text" className="form-input" value={client.gstin}
-                      onChange={(e) => {
-                        const g = e.target.value.toUpperCase();
-                        const code = g.replace(/[^0-9A-Z]/g, '').slice(0, 2);
-                        const STATE_BY_GST = {
-                          '01':'Jammu and Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh',
-                          '05':'Uttarakhand','06':'Haryana','07':'Delhi','08':'Rajasthan','09':'Uttar Pradesh',
-                          '10':'Bihar','11':'Sikkim','12':'Arunachal Pradesh','13':'Nagaland','14':'Manipur',
-                          '15':'Mizoram','16':'Tripura','17':'Meghalaya','18':'Assam','19':'West Bengal',
-                          '20':'Jharkhand','21':'Odisha','22':'Chhattisgarh','23':'Madhya Pradesh','24':'Gujarat',
-                          '27':'Maharashtra','29':'Karnataka','30':'Goa','32':'Kerala','33':'Tamil Nadu',
-                          '34':'Puducherry','36':'Telangana','37':'Andhra Pradesh','38':'Ladakh'
-                        };
-                        const st = STATE_BY_GST[code];
-                        setClient({ ...client, gstin: g, ...(st ? { state: st } : {}) });
-                        if (st) setDetails(prev => ({ ...prev, placeOfSupply: st }));
-                      }} placeholder="Optional — state auto from GSTIN" maxLength={20} />
-                  </div>
-                );
-              })()}
-              <div className="form-group">
-                <label className="form-label">E-Way Bill No (goods only)</label>
-                <input className="form-input" value={details.eWayBillNo || ''}
-                  onChange={(e) => setDetails({ ...details, eWayBillNo: e.target.value })}
-                  placeholder="Paste e-Way Bill No from portal"
-				title="Checklist: goods HSN lines · threshold in Settings · generate JSON → file on portal → paste number here"			
-				/>
-              </div>
-              <div className="form-group">
-                <label className="form-label">E-Invoice IRN</label>
-                <input className="form-input" value={details.irnNumber || ''}
-                  onChange={(e) => setDetails({ ...details, irnNumber: e.target.value })}
-                  placeholder="64-character IRN hash" maxLength={64} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">IRN Ack No / Date</label>
-                <input className="form-input" value={details.irnAckDate || ''}
-                  onChange={(e) => setDetails({ ...details, irnAckDate: e.target.value })}
-                  placeholder="Ack No / Date from IRP" />
-              </div>
-            </div>
 
-            {/* Billing summary + Ship-to + WO typeahead — compact row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem', marginTop: '0.5rem', alignItems: 'start' }}>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">Billing Address (shown above)</label>
-              <textarea className="form-input" rows={2} readOnly
-                value={[client.address, client.city, client.pin, client.state].filter(Boolean).join(', ')}
-                placeholder="Filled from client" style={{ background: 'var(--bg-secondary, #f8fafc)', fontSize: '0.85rem' }} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.82rem', marginTop: 8 }}>
-                <input type="checkbox" checked={details.shipToSameAsBilling !== false}
-                  onChange={e => setDetails({ ...details, shipToSameAsBilling: e.target.checked })}
-                  style={{ width: 15, height: 15, accentColor: 'var(--primary)' }} />
-                <span><strong>Ship to</strong> same as billing address</span>
-              </label>
-              {details.shipToSameAsBilling === false && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                  <div className="form-group full-width" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping Address</label>
-                    <textarea className="form-input" rows={2} value={details.shippingAddress || ''}
-                      onChange={e => setDetails({ ...details, shippingAddress: e.target.value })}
-                      placeholder="Delivery address / warehouse / consignee" />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.78rem' }}>City</label>
-                    <input type="text" className="form-input" value={details.shippingCity || ''}
-                      onChange={e => setDetails({ ...details, shippingCity: e.target.value })} />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.78rem' }}>PIN</label>
-                    <input type="text" className="form-input" value={details.shippingPin || ''}
-                      onChange={e => setDetails({ ...details, shippingPin: e.target.value })} maxLength={6} />
-                  </div>
-                  <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping State</label>
-                    <input type="text" className="form-input" value={details.shippingState || ''}
-                      onChange={e => setDetails({ ...details, shippingState: e.target.value })} />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
+            {/* Row 2: Link to Work Order | Company / Client Name */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, alignItems: 'start' }}>
+<div className="form-group" style={{ marginBottom: 0 }}>
               <label className="form-label">Link to Work Order (optional)</label>
               <input
                 type="text"
@@ -4505,13 +4302,228 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 </button>
               )}
             </div>
+<div className="form-group" style={{ position: 'relative', marginBottom: 0, gridColumn: 'span 12' }}>
+                <label className="form-label">Company / Client Name</label>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <input type="text" className="form-input" style={{ flex: 1 }} value={client.name} ref={clientNameRef}
+                    onChange={(e) => {
+                      setClient({ ...client, name: e.target.value });
+                      setSelectedClientId(null);
+                      setShowClientSuggestions(true);
+                      setClientPickerIdx(-1);
+                    }}
+                    onFocus={() => { if (savedClients.length > 0) setShowClientSuggestions(true); }}
+                    onKeyDown={(e) => {
+                      // v1.10.37 — Arrow keys / Enter / Escape on the client
+                      // picker. Reported: "20 invoices/day forces mouse on
+                      // the client autocomplete." Now: keyboard-only path.
+                      if (!showClientSuggestions || !filteredClients.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setClientPickerIdx(i => (i + 1) % filteredClients.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setClientPickerIdx(i => (i <= 0 ? filteredClients.length - 1 : i - 1));
+                      } else if (e.key === 'Enter') {
+                        // Only intercept Enter when the user has actually
+                        // arrow-nav'd to a suggestion; otherwise let Enter
+                        // fall through to the form for the "Add new client"
+                        // path via openAddClientModal.
+                        if (clientPickerIdx >= 0 && filteredClients[clientPickerIdx]) {
+                          e.preventDefault();
+                          selectSavedClient(filteredClients[clientPickerIdx]);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setShowClientSuggestions(false);
+                      }
+                    }}
+                    placeholder="Type client name to search or add new" autoComplete="off" />
+                  {selectedClientId && (
+                    <button type="button" className="btn-client-edit" onClick={() => openEditClientModal(savedClients.find(c => c.id === selectedClientId))} title="Edit saved client">
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                </div>
+                {showClientSuggestions && savedClients.length > 0 && (
+                  <div className="client-suggestions" ref={clientSuggestionsRef}>
+                    {filteredClients.length > 0 && filteredClients.map((cli, i) => (
+                      <div key={cli.id} className="client-suggestion-row"
+                        style={i === clientPickerIdx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
+                        <button type="button" className="client-suggestion-item"
+                          onMouseEnter={() => setClientPickerIdx(i)}
+                          onClick={() => selectSavedClient(cli)}>
+                          <div className="client-suggestion-main">
+                            <strong>{cli.name}</strong>
+                            {(cli.city || cli.address) && <small className="client-suggestion-addr">{cli.city || cli.address.substring(0, 30)}{!cli.city && cli.address.length > 30 ? '...' : ''}</small>}
+                          </div>
+                          <span>{cli.state}{cli.gstin ? ` · ${cli.gstin}` : ''}</span>
+                        </button>
+                        <button type="button" className="client-suggestion-edit" onClick={() => { openEditClientModal(cli); setShowClientSuggestions(false); }} title="Edit client">
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    {client.name.trim() && (
+                      <button type="button" className="client-suggestion-save" onClick={openAddClientModal}>
+                        <UserPlus size={14} /> Save "{client.name.trim()}" as new client
+                      </button>
+                    )}
+                    {filteredClients.length === 0 && !client.name.trim() && (
+                      <div className="client-picker-empty">Type to search clients</div>
+                    )}
+                  </div>
+                )}
+              </div>
+              
             </div>
 
-            <div className="form-group" style={{ marginTop: '0.5rem' }}>
+            {/* Row 3: Billing Address | Ship to same as bill-to address */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10, alignItems: 'start' }}>
+<div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Billing Address</label>
+                <input type="text" className="form-input" value={client.address}
+                  onChange={(e) => setClient({ ...client, address: e.target.value })} placeholder="Street address, locality" />
+              </div>
+              
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Shipping</label>
+<label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', userSelect: 'none', fontSize: '0.82rem', marginTop: 8 }}>
+                <input type="checkbox" checked={details.shipToSameAsBilling !== false}
+                  onChange={e => setDetails({ ...details, shipToSameAsBilling: e.target.checked })}
+                  style={{ width: 15, height: 15, accentColor: 'var(--primary)' }} />
+                <span>Ship to same as bill-to address</span>
+              </label>
+              {details.shipToSameAsBilling === false && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                  <div className="form-group full-width" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping Address</label>
+                    <textarea className="form-input" rows={2} value={details.shippingAddress || ''}
+                      onChange={e => setDetails({ ...details, shippingAddress: e.target.value })}
+                      placeholder="Delivery address / warehouse / consignee" />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>City</label>
+                    <input type="text" className="form-input" value={details.shippingCity || ''}
+                      onChange={e => setDetails({ ...details, shippingCity: e.target.value })} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>PIN</label>
+                    <input type="text" className="form-input" value={details.shippingPin || ''}
+                      onChange={e => setDetails({ ...details, shippingPin: e.target.value })} maxLength={6} />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.78rem' }}>Shipping State</label>
+                    <input type="text" className="form-input" value={details.shippingState || ''}
+                      onChange={e => setDetails({ ...details, shippingState: e.target.value })} />
+                  </div>
+                </div>
+              )}
+              </div>
+            </div>
+
+            {/* Row 4: Country | City | PIN | State */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+<div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Country</label>
+                <select className="form-input" value={client.country || profile?.country || 'India'}
+                  onChange={(e) => setClient({ ...client, country: e.target.value, state: '' })}>
+                  {(() => {
+                    const visible = getCountriesForRegion(getRegionMode());
+                    const cur = client.country || profile?.country;
+                    const out = [];
+                    if (cur && !visible.some(c => c.name === cur)) {
+                      out.push(<option key={cur} value={cur}>{cur}</option>);
+                    }
+                    return out.concat(visible.map(c => <option key={c.code} value={c.name}>{c.name}</option>));
+                  })()}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">City</label>
+                <input type="text" className="form-input" value={client.city}
+                  onChange={(e) => setClient({ ...client, city: e.target.value })} placeholder="e.g. Mumbai" />
+              </div>
+              <div className="form-group">
+                {(() => { const cc = getCountryConfig(client.country || profile?.country); return <label className="form-label">{cc.postalLabel}</label>; })()}
+                <input type="text" className="form-input" value={client.pin}
+                  onChange={(e) => setClient({ ...client, pin: e.target.value })} placeholder="Postal / PIN code" />
+              </div>
+              {invoiceOptions.showState && (() => {
+                const cc = getCountryConfig(client.country || profile?.country);
+                const stateOpts = getStatesForCountry(client.country || profile?.country);
+                return (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">{cc.stateLabel}</label>
+                    {stateOpts.length > 0 ? (
+                      <select className="form-input" value={client.state} onChange={(e) => setClient({ ...client, state: e.target.value })}>
+                        <option value="">Select {cc.stateLabel}</option>
+                        {stateOpts.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <input type="text" className="form-input" value={client.state}
+                        onChange={(e) => setClient({ ...client, state: e.target.value })} placeholder={cc.stateLabel} />
+                    )}
+                  </div>
+                );
+              })()}
+              
+            </div>
+
+            {/* Row 5: GSTIN / Tax ID | E-Way Bill No. | E-Invoice IRN | IRN Ack No / Date */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+{invoiceOptions.showGSTIN && (() => {
+                const cc = getCountryConfig(client.country || profile?.country);
+                return (
+                  <div className="form-group">
+                    <label className="form-label">{cc.taxIdLabel}</label>
+                    <input type="text" className="form-input" value={client.gstin}
+                      onChange={(e) => {
+                        const g = e.target.value.toUpperCase();
+                        const code = g.replace(/[^0-9A-Z]/g, '').slice(0, 2);
+                        const STATE_BY_GST = {
+                          '01':'Jammu and Kashmir','02':'Himachal Pradesh','03':'Punjab','04':'Chandigarh',
+                          '05':'Uttarakhand','06':'Haryana','07':'Delhi','08':'Rajasthan','09':'Uttar Pradesh',
+                          '10':'Bihar','11':'Sikkim','12':'Arunachal Pradesh','13':'Nagaland','14':'Manipur',
+                          '15':'Mizoram','16':'Tripura','17':'Meghalaya','18':'Assam','19':'West Bengal',
+                          '20':'Jharkhand','21':'Odisha','22':'Chhattisgarh','23':'Madhya Pradesh','24':'Gujarat',
+                          '27':'Maharashtra','29':'Karnataka','30':'Goa','32':'Kerala','33':'Tamil Nadu',
+                          '34':'Puducherry','36':'Telangana','37':'Andhra Pradesh','38':'Ladakh'
+                        };
+                        const st = STATE_BY_GST[code];
+                        setClient({ ...client, gstin: g, ...(st ? { state: st } : {}) });
+                        if (st) setDetails(prev => ({ ...prev, placeOfSupply: st }));
+                      }} placeholder="Optional — state auto from GSTIN" maxLength={20} />
+                  </div>
+                );
+              })()}
+              <div className="form-group">
+                <label className="form-label">E-Way Bill No. (Goods &gt; ₹50,000)</label>
+                <input className="form-input" value={details.eWayBillNo || ''}
+                  onChange={(e) => setDetails({ ...details, eWayBillNo: e.target.value })}
+                  placeholder="Paste e-Way Bill No from portal"
+				title="Checklist: goods HSN lines · threshold in Settings · generate JSON → file on portal → paste number here"			
+				/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">E-Invoice IRN</label>
+                <input className="form-input" value={details.irnNumber || ''}
+                  onChange={(e) => setDetails({ ...details, irnNumber: e.target.value })}
+                  placeholder="64-character IRN hash" maxLength={64} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">IRN Ack No / Date</label>
+                <input className="form-input" value={details.irnAckDate || ''}
+                  onChange={(e) => setDetails({ ...details, irnAckDate: e.target.value })}
+                  placeholder="Ack No / Date from IRP" />
+              </div>
+            </div>
+
+            {/* Row 6: Work Description / Notes */}
+<div className="form-group" style={{ marginTop: '0.5rem', gridColumn: '1 / -1' }}>
               <label className="form-label" style={{ fontWeight: 700, color: '#1e40af' }}>Work Description / Notes</label>
               <textarea
                 className="form-input"
-                rows={2}
+                rows={3}
                 value={details.workDetails || ''}
                 onChange={(e) => setDetails({ ...details, workDetails: e.target.value })}
                 placeholder="Scope / site notes for this bill period (printed on invoice)"
@@ -4601,8 +4613,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
             ))}
           </datalist>
           <div className="glass-panel ig-panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', gap: 8, flexWrap: 'wrap' }}>
               <h3 className="section-title" style={{ margin: 0 }}>Line Items</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
               {/* Prices-include-tax hidden on new invoices; still applied when loading saved taxInclusive bills */}
               {showGST && taxInclusive && editingBill && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', cursor: 'pointer', userSelect: 'none' }} title="This saved bill uses tax-inclusive line rates">
@@ -4611,9 +4624,25 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                   <span style={{ fontWeight: 500 }}>Prices include tax (saved bill)</span>
                 </label>
               )}
+            <div className="flex gap-1 flex-wrap" style={{ alignItems: 'center', justifyContent: 'flex-end', margin: 0 }}>
+              <button type="button" className="btn btn-secondary" title="Add line item" onClick={addItem} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Plus size={16} /></button>
+              <button type="button" className="btn btn-secondary" title="Duplicate last row" onClick={() => items.length && duplicateItem(items[items.length-1].id)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Copy size={16} /></button>
+              <span style={{ width: 1, height: 22, background: 'var(--border-color, #e2e8f0)', margin: '0 2px' }} />
+              <button type="button" className="btn btn-secondary" title="Fill down HSN/SAC from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'hsn')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>SAC</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Unit from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'unit')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Unit</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Tax % from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'taxRate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Tax</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Rate from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'rate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Rate</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down Description from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'name')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Desc</span></button>
+              <button type="button" className="btn btn-secondary" title="Fill down all columns from first row" onClick={() => {
+                if (!items.length) return;
+                ['name','hsn','unit','taxPercent','rate','discount','cessPercent','costCenterId'].forEach(f => fillDownFrom(items[0].id, f));
+                toast('Filled down all columns from first row', 'success');
+              }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Layers size={16} /></button>
+            </div>
+              </div>
             </div>
             
-            <div className="line-items-header sd-line-grid" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 0.7fr 0.8fr 0.9fr 0.9fr 0.9fr 0.7fr auto', gap: 6, fontSize: '0.72rem', fontWeight: 700, color: '#2563eb', padding: '0.35rem 0', borderBottom: '2px solid #e2e8f0', width: '100%' }}>
+            <div className="line-items-header sd-line-grid" style={{ display: 'grid', gridTemplateColumns: '2.8fr 0.9fr 0.9fr 0.65fr 0.7fr 0.85fr 0.85fr 0.75fr 0.65fr auto', gap: 6, fontSize: '0.72rem', fontWeight: 700, color: '#2563eb', padding: '0.35rem 0', borderBottom: '2px solid #e2e8f0', width: '100%' }}>
               <span>Description</span>
               <span>CostHead</span>
               <span>SAC</span>
@@ -4652,21 +4681,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 onAddRow={addItem}
               />
             ))}
-            <div className="flex gap-2 mt-2 flex-wrap" style={{ alignItems: 'center' }}>
-              <button type="button" className="btn btn-secondary" title="Add line item" onClick={addItem} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Plus size={16} /></button>
-              <button type="button" className="btn btn-secondary" title="Duplicate last row" onClick={() => items.length && duplicateItem(items[items.length-1].id)} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Copy size={16} /></button>
-              <span style={{ width: 1, height: 22, background: 'var(--border-color, #e2e8f0)', margin: '0 2px' }} />
-              <button type="button" className="btn btn-secondary" title="Fill down HSN/SAC from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'hsn')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>SAC</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down Unit from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'unit')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Unit</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down Tax % from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'taxRate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Tax</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down Rate from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'rate')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Rate</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down Description from first row" onClick={() => items.length && fillDownFrom(items[0].id, 'name')} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><ArrowDown size={14} /><span style={{ fontSize: 10, fontWeight: 700 }}>Desc</span></button>
-              <button type="button" className="btn btn-secondary" title="Fill down all columns from first row" onClick={() => {
-                if (!items.length) return;
-                ['hsn','unit','taxPercent','rate','discount','cessPercent'].forEach(f => fillDownFrom(items[0].id, f));
-                toast('Filled down all columns from first row', 'success');
-              }} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '0.4rem 0.55rem', minWidth: 36 }}><Layers size={16} /></button>
-            </div>
+            {/* line tools moved to Line Items header */}
+
 
             {/* Discount hard-disabled for service ERP — line + whole-bill UI hidden; totals force discount 0 */}
             {false && (

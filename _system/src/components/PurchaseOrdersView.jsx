@@ -71,7 +71,7 @@ async function sha256Hex(text) {
   }
 }
 
-function printPO(po, profile, fingerprint, clientsList) {
+function printPO(po, profile, fingerprint) {
   let sigSrc = '';
   try {
     const ps = (typeof getPrintSettings === 'function' ? getPrintSettings() : {}) || {};
@@ -90,42 +90,21 @@ function printPO(po, profile, fingerprint, clientsList) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: Line1 name, Line2 site, Line3+ address from client master — NEVER seller profile
-  const clientsArr = Array.isArray(clientsList) ? clientsList : [];
-  const findClient = () => {
-    const id = String(po.clientId || po.shipToClientId || '').trim();
-    const name = String(po.shipToName || po.clientName || po.billToName || '').trim().toLowerCase();
-    if (id) {
-      const byId = clientsArr.find(c => String(c.id || '') === id || String(c.clientId || '') === id);
-      if (byId) return byId;
-    }
-    if (name) {
-      return clientsArr.find(c => String(c.name || c.companyName || '').trim().toLowerCase() === name) || null;
-    }
-    return null;
-  };
-  const linkedClient = findClient();
-  const shipNameRaw = po.shipToName || po.clientName || po.billToName
-    || (linkedClient && (linkedClient.name || linkedClient.companyName)) || '';
+  // Ship-To: client name, site label, client/WO address — NEVER company profile address
+  const shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
-  if (!shipAddrRaw && linkedClient) {
-    shipAddrRaw = [
-      linkedClient.address || linkedClient.billingAddress || linkedClient.addr || '',
-      linkedClient.city || '',
-      linkedClient.state || '',
-      linkedClient.pincode || linkedClient.pin || linkedClient.postalCode || '',
-    ].filter(Boolean).join(', ');
-  }
   if (!shipAddrRaw) {
     shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
       .filter(Boolean).join(', ');
   }
-  // Never use profile.address as Ship To
+  // Do not fall back to seller/profile address
+  const shipName = esc(shipNameRaw);
+  const shipSite = esc(shipSiteRaw || '—');
   const shipAddr = esc(shipAddrRaw);
   const shipState = esc(po.shipToState || po.deliveryState || '');
   const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
-  const terms = esc(po.terms || profile?.defaultTerms ||
+  const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
     '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
     .replace(/\n/g, '<br/>');
   const notes = esc(po.deliveryNotes || po.instructions || '');
@@ -345,37 +324,74 @@ function printPO(po, profile, fingerprint, clientsList) {
 </body></html>`;
 
   // Print in-tab only (hidden iframe). No blank browser tab.
-  // document.title inside the iframe becomes the suggested PDF file name.
+  // document.title becomes the suggested PDF file name.
   try {
     let iframe = document.getElementById('sd-po-print-frame');
     if (!iframe) {
       iframe = document.createElement('iframe');
       iframe.id = 'sd-po-print-frame';
-      iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
+      // Non-zero size: some browsers ignore print() on 0×0 iframes
+      iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;';
       document.body.appendChild(iframe);
     }
     iframe.setAttribute('title', poTitle);
-    const win = iframe.contentWindow;
-    const doc = iframe.contentDocument || win.document;
-    doc.open();
-    doc.write(html);
-    doc.close();
-    try {
-      doc.title = poTitle;
-      if (win.document) win.document.title = poTitle;
-    } catch (_) {}
     const prevTitle = document.title;
     try { document.title = poTitle; } catch (_) {}
-    setTimeout(() => {
+
+    const runPrint = () => {
       try {
+        const win = iframe.contentWindow;
+        if (!win) throw new Error('iframe window unavailable');
+        try {
+          const idoc = iframe.contentDocument || win.document;
+          if (idoc) idoc.title = poTitle;
+        } catch (_) {}
         win.focus();
         win.print();
       } catch (e) {
-        console.error(e);
+        console.error('printPO print()', e);
+        // Fallback: open blob in same-tab print-friendly window
+        try {
+          const blob = new Blob([html], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          const w = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700');
+          if (w) {
+            w.onload = () => { try { w.document.title = poTitle; w.focus(); w.print(); } catch (_) {} };
+          } else {
+            alert('Print blocked. Allow pop-ups for this site, then try Print / PDF again.');
+          }
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (e2) {
+          console.error(e2);
+          alert('Failed to print PO. Check browser console.');
+        }
       } finally {
         try { document.title = prevTitle; } catch (_) {}
       }
-    }, sigSrc ? 450 : 180);
+    };
+
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument || (win && win.document);
+    if (!doc) throw new Error('iframe document unavailable');
+    doc.open();
+    doc.write(html);
+    doc.close();
+    try { doc.title = poTitle; } catch (_) {}
+
+    // Wait for images (signature) then print
+    const imgs = Array.from(doc.images || []);
+    const delay = sigSrc || imgs.length ? 500 : 150;
+    if (imgs.length) {
+      let left = imgs.length;
+      const done = () => { left -= 1; if (left <= 0) setTimeout(runPrint, 80); };
+      imgs.forEach(img => {
+        if (img.complete) done();
+        else { img.onload = done; img.onerror = done; }
+      });
+      setTimeout(runPrint, delay + 800); // safety
+    } else {
+      setTimeout(runPrint, delay);
+    }
   } catch (e) {
     console.error('printPO failed', e);
     alert('Failed to generate PO print. Check browser console.');
@@ -422,7 +438,6 @@ export default function PurchaseOrdersView() {
       ]);
       setList(Array.isArray(pos) ? pos : (pos?.items || []));
       setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
-      setClients(clients || []);
       setProfile(prof);
       setWorkOrders(wos || []);
       setPurchases(purs || []);
@@ -886,7 +901,7 @@ export default function PurchaseOrdersView() {
                     { label: 'Create Bill', onClick: handleCreateBill },
                     { label: 'Edit', onClick: () => setForm({ ...po }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                    { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint, clients) },
+                    { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
                     { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
                       { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
                       { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },
