@@ -396,9 +396,7 @@ function TallyLayout({ ctx }) {
       )}
 
       {ctx.showHsnSummary && <HsnSummaryTable ctx={ctx} />}
-      {!ctx.hideMoney && ctx.showTaxInWords && ctx.totalTax > 0 && (
-        <div {...blockProps} style={{ ...cell, borderTop: 'none' }}>Tax Amount (in words) : <strong>{ctx.words(ctx.totalTax)}</strong></div>
-      )}
+      {/* Tax Amount (in words) removed — grand total words only */}
 
       {/* Footer kept in one pdf page-boundary so signature is not split across pages */}
       <div

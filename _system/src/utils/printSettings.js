@@ -313,15 +313,18 @@ export function getPrintSettings() {
 export function savePrintSettings(settings) {
   try {
     localStorage.setItem('gst_printSettings', JSON.stringify(settings));
-  try {
-    fetch('/api/meta/printSettings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: settings }),
-    }).catch(function () {});
-  } catch (e) { /* ignore */ }
+    // Persist to server meta (SQLite + meta.json) so settings survive port/profile changes
+    try {
+      fetch('/api/meta/printSettings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: settings }),
+      }).catch(function () {});
+    } catch (e) { /* ignore network */ }
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 // ============================================================================

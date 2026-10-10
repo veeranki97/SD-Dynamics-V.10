@@ -68,7 +68,8 @@ function navigateCreatePoFromWo(wo) {
       costCenterId: cc,
       taxRate: wo.taxRate ?? wo.gstPercent ?? 18,
       title: wo.title || '',
-      notes: wo.notes || wo.title || '',
+      subject: wo.title || '',
+      notes: wo.notes || '',
       isSubcontract: true,
       items,
     }));

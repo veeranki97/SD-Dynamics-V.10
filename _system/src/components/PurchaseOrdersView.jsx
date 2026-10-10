@@ -71,7 +71,7 @@ async function sha256Hex(text) {
   }
 }
 
-function printPO(po, profile, fingerprint) {
+function printPO(po, profile, fingerprint, clientsList) {
   let sigSrc = '';
   try {
     const ps = (typeof getPrintSettings === 'function' ? getPrintSettings() : {}) || {};
@@ -90,21 +90,42 @@ function printPO(po, profile, fingerprint) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: client name, site label, client/WO address — NEVER company profile address
-  const shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
+  // Ship-To: Line1 name, Line2 site, Line3+ address from client master — NEVER seller profile
+  const clientsArr = Array.isArray(clientsList) ? clientsList : [];
+  const findClient = () => {
+    const id = String(po.clientId || po.shipToClientId || '').trim();
+    const name = String(po.shipToName || po.clientName || po.billToName || '').trim().toLowerCase();
+    if (id) {
+      const byId = clientsArr.find(c => String(c.id || '') === id || String(c.clientId || '') === id);
+      if (byId) return byId;
+    }
+    if (name) {
+      return clientsArr.find(c => String(c.name || c.companyName || '').trim().toLowerCase() === name) || null;
+    }
+    return null;
+  };
+  const linkedClient = findClient();
+  const shipNameRaw = po.shipToName || po.clientName || po.billToName
+    || (linkedClient && (linkedClient.name || linkedClient.companyName)) || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
+  if (!shipAddrRaw && linkedClient) {
+    shipAddrRaw = [
+      linkedClient.address || linkedClient.billingAddress || linkedClient.addr || '',
+      linkedClient.city || '',
+      linkedClient.state || '',
+      linkedClient.pincode || linkedClient.pin || linkedClient.postalCode || '',
+    ].filter(Boolean).join(', ');
+  }
   if (!shipAddrRaw) {
     shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
       .filter(Boolean).join(', ');
   }
-  // Do not fall back to seller/profile address
-  const shipName = esc(shipNameRaw);
-  const shipSite = esc(shipSiteRaw || '—');
+  // Never use profile.address as Ship To
   const shipAddr = esc(shipAddrRaw);
   const shipState = esc(po.shipToState || po.deliveryState || '');
   const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
-  const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
+  const terms = esc(po.terms || profile?.defaultTerms ||
     '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
     .replace(/\n/g, '<br/>');
   const notes = esc(po.deliveryNotes || po.instructions || '');
@@ -401,6 +422,7 @@ export default function PurchaseOrdersView() {
       ]);
       setList(Array.isArray(pos) ? pos : (pos?.items || []));
       setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
+      setClients(clients || []);
       setProfile(prof);
       setWorkOrders(wos || []);
       setPurchases(purs || []);
@@ -864,7 +886,7 @@ export default function PurchaseOrdersView() {
                     { label: 'Create Bill', onClick: handleCreateBill },
                     { label: 'Edit', onClick: () => setForm({ ...po }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                    { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint) },
+                    { label: 'Print / PDF', onClick: () => printPO(po, profile || {}, po.fingerprint, clients) },
                     { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
                       { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
                       { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },

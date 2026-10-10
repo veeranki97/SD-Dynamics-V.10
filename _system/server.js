@@ -1238,6 +1238,29 @@ app.delete('/api/profiles/:id', (req, res) => {
 // ========================
 const META_PATH = path.join(DATA_DIR, 'meta.json');
 
+// Dedicated printSettings routes (persist across ports via meta + SQLite)
+app.get('/api/meta/printSettings', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    res.json({ value: meta.printSettings ?? null });
+  } catch (e) {
+    errRes(res, 500, 'server-error', e);
+  }
+});
+app.post('/api/meta/printSettings', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const value = (req.body && Object.prototype.hasOwnProperty.call(req.body, 'value'))
+      ? req.body.value
+      : (req.body || null);
+    meta.printSettings = value;
+    writeJSON(META_PATH, meta);
+    res.json({ value: meta.printSettings });
+  } catch (e) {
+    errRes(res, 500, 'server-error', e);
+  }
+});
+
 // Must be registered BEFORE /api/meta/:key or Express treats "resetCounters" as a key.
 app.post('/api/meta/resetCounters', (req, res) => {
   try {

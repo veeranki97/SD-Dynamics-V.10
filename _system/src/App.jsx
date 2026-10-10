@@ -131,6 +131,12 @@ function App() {
   const updateBannerVisible = updateInfo?.updateAvailable
     && localStorage.getItem('freegstbill_dismissedUpdate') !== updateInfo.latest;
 
+  // Hydrate print settings from server meta (survives port changes)
+  useEffect(() => {
+    hydratePrintSettingsFromServer().catch(() => {});
+    try { loadMasterDataFromServer && loadMasterDataFromServer(); } catch (e) { /* optional */ }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
