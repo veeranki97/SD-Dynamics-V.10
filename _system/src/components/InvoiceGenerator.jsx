@@ -4302,7 +4302,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 </button>
               )}
             </div>
-<div className="form-group" style={{ position: 'relative', marginBottom: 0, gridColumn: 'span 12' }}>
+<div className="form-group" style={{ position: 'relative', marginBottom: 0 }}>
                 <label className="form-label">Company / Client Name</label>
                 <div style={{ display: 'flex', gap: '0.4rem' }}>
                   <input type="text" className="form-input" style={{ flex: 1 }} value={client.name} ref={clientNameRef}
