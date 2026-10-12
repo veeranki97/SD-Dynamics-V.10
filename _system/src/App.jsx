@@ -146,7 +146,7 @@ function PinLockGate({ onUnlock, autoLockMinutes, autoLockEnabled }) {
           {busy ? 'Checking…' : 'Unlock'}
         </button>
         <p style={{ margin: '1rem 0 0', fontSize: '0.72rem', color: 'var(--text-muted, #64748b)', lineHeight: 1.4 }}>
-          Forgot PIN? Place a file named <strong>RESET-PIN</strong> next to the app launcher, then reopen.
+          Forgot PIN? Put an empty file named <strong>RESET-PIN</strong> next to the launcher (same folder as the .hta, not inside data/), open the app once — data is kept, only the PIN is cleared.
         </p>
       </div>
     </div>
@@ -160,11 +160,25 @@ function App() {
     try { return !getPrintSettings().onboardingComplete; } catch { return false; }
   });
 
-  // App lock (screen PIN) — status from meta via server (survives port change)
+  // App lock (screen PIN) — hash lives in meta (survives port).
+  // Unlock is kept in sessionStorage for this browser tab session so a normal
+  // page refresh does NOT re-prompt. Closing the tab / new window needs PIN again.
+  // "Lock now" and idle timeout clear the session unlock.
+  const PIN_SESSION_KEY = 'sd_app_unlocked';
   const [appLockEnabled, setAppLockEnabled] = useState(false);
-  const [appUnlocked, setAppUnlocked] = useState(false);
+  const [appUnlocked, setAppUnlocked] = useState(() => {
+    try { return sessionStorage.getItem(PIN_SESSION_KEY) === '1'; } catch { return false; }
+  });
   const [appLockPrefs, setAppLockPrefs] = useState({ autoLockEnabled: true, autoLockMinutes: 15 });
   const lastActivityRef = useRef(Date.now());
+
+  const setUnlocked = (v) => {
+    setAppUnlocked(!!v);
+    try {
+      if (v) sessionStorage.setItem(PIN_SESSION_KEY, '1');
+      else sessionStorage.removeItem(PIN_SESSION_KEY);
+    } catch { /* private mode */ }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -179,13 +193,17 @@ function App() {
         });
         if (j.enabled) {
           setAppLockEnabled(true);
-          setAppUnlocked(false);
+          // Keep session unlock across refresh; only force lock if never unlocked this tab
+          let sessionOk = false;
+          try { sessionOk = sessionStorage.getItem(PIN_SESSION_KEY) === '1'; } catch {}
+          if (!sessionOk) setUnlocked(false);
+          else setAppUnlocked(true);
         } else {
           setAppLockEnabled(false);
-          setAppUnlocked(true);
+          setUnlocked(true); // lock off → always open
         }
       } catch {
-        if (!cancelled) { setAppLockEnabled(false); setAppUnlocked(true); }
+        if (!cancelled) { setAppLockEnabled(false); setUnlocked(true); }
       }
     })();
     return () => { cancelled = true; };
@@ -200,7 +218,7 @@ function App() {
     const t = setInterval(() => {
       const mins = Number(appLockPrefs.autoLockMinutes) || 15;
       if (Date.now() - lastActivityRef.current > mins * 60 * 1000) {
-        setAppUnlocked(false);
+        setUnlocked(false);
       }
     }, 15000);
     return () => {
@@ -211,11 +229,11 @@ function App() {
 
   // Listen for Settings "Lock now"
   useEffect(() => {
-    const onLock = () => { if (appLockEnabled) setAppUnlocked(false); };
+    const onLock = () => { if (appLockEnabled) setUnlocked(false); };
     const onPrefs = (e) => {
       if (e?.detail) setAppLockPrefs(p => ({ ...p, ...e.detail }));
-      if (e?.detail?.enabled === false) { setAppLockEnabled(false); setAppUnlocked(true); }
-      if (e?.detail?.enabled === true) { setAppLockEnabled(true); setAppUnlocked(true); }
+      if (e?.detail?.enabled === false) { setAppLockEnabled(false); setUnlocked(true); }
+      if (e?.detail?.enabled === true) { setAppLockEnabled(true); setUnlocked(true); }
     };
     window.addEventListener('sd-app-lock-now', onLock);
     window.addEventListener('sd-app-lock-prefs', onPrefs);
@@ -1029,7 +1047,7 @@ function App() {
   if (appLockEnabled && !appUnlocked) {
     return (
       <PinLockGate
-        onUnlock={() => { setAppUnlocked(true); lastActivityRef.current = Date.now(); }}
+        onUnlock={() => { setUnlocked(true); lastActivityRef.current = Date.now(); }}
         autoLockMinutes={appLockPrefs.autoLockMinutes}
         autoLockEnabled={appLockPrefs.autoLockEnabled}
       />

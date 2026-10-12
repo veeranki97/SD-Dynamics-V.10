@@ -155,7 +155,7 @@ function AppLockSettingsPanel() {
       <div className="notice notice-info" style={{ marginTop: 4 }}>
         <span className="notice-icon">ℹ</span>
         <div style={{ fontSize: '0.8rem' }}>
-          <p style={{ margin: '0 0 0.35rem' }}><strong>Forgot PIN?</strong> Create an empty file named <code>RESET-PIN</code> next to the app launcher (not inside <code>data/</code>), then open the app once. The PIN is cleared and the file is deleted.</p>
+          <p style={{ margin: '0 0 0.35rem' }}><strong>Forgot PIN?</strong> This does <em>not</em> delete invoices or data. Create an empty file named <code>RESET-PIN</code> in the same folder as <code>SD Dynamics - WINDOWS.hta</code> (or next to the <code>_system</code> folder), then open the app once. The PIN is cleared; the file is deleted automatically.</p>
           <p style={{ margin: 0 }}>PIN hash is stored in <code>meta</code> only — never in backup/export JSON.</p>
         </div>
       </div>
