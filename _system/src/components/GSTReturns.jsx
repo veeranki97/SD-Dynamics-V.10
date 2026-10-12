@@ -503,8 +503,6 @@ function StepList({ steps, title }) {
   const [checked, setChecked] = useState({});
   return (
     <div className="glass-panel mb-4">
-      <div id="month-close" style={{ padding: '0 1rem' }}><MonthCloseWizard /></div>
-
       <div className="table-header"><h3>{title}</h3></div>
       <div style={{ padding: '0.5rem 0' }}>
         {steps.map((step, i) => (
@@ -2583,6 +2581,10 @@ export default function GSTReturns() {
       {/* ===================== FILING GUIDE TAB ===================== */}
       {activeTab === 'guide' && (
         <>
+          {/* Single month-close entry (not inside each StepList) */}
+          <div id="month-close" style={{ marginBottom: '0.75rem' }}>
+            <MonthCloseWizard />
+          </div>
           {/* Quick Start */}
           <div className="glass-panel" style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem', borderLeft: '3px solid var(--primary)' }}>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>

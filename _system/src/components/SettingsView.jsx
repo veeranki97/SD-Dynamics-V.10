@@ -1265,10 +1265,6 @@ export default function SettingsView({ onSaved }) {
             Loading company details… fields unlock when ready (prevents overwrite on slow PCs).
           </p>
         )}
-        
-          <p className="month-close-link" style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '0.5rem 0 1rem' }}>
-            Month close (Export → Review → Lock) lives under <button type="button" className="btn btn-sm btn-secondary" onClick={() => { sessionStorage.setItem('gst_currentView','filing'); window.dispatchEvent(new CustomEvent('sd-navigate',{ detail: 'filing' })); }}>GST Returns</button>
-          </p>
 <h3 className="section-title">Company Details</h3>
         {(() => {
           const cc = getCountryConfig(profile.country);

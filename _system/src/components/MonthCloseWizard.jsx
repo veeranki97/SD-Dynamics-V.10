@@ -111,8 +111,9 @@ export default function MonthCloseWizard() {
           className="btn btn-secondary btn-sm"
           onClick={() => {
             sessionStorage.setItem('gst_currentView', 'gst-returns');
-            window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'gst-returns' }));
-            toast('Open GST Returns → export GSTR-1 / GSTR-3B for this month', 'info');
+            window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'filing' }));
+            try { sessionStorage.setItem('gst_filing_tab', 'gstr1'); } catch (_) {}
+            toast('Switched to GST Returns — use Export JSON / CSV on GSTR-1 or GSTR-3B', 'info');
           }}
         >
           <FileText size={14} /> GSTR export
