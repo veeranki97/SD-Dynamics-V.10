@@ -3,6 +3,7 @@ import express from 'express';
 // middleware below is intentionally custom + strict (localhost only)
 // where `cors()` echoed `*` for every origin.
 import fs from 'fs';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 // v1.10.31 — Data-F3.1: share computeInvoiceTotals with the client so
@@ -1278,6 +1279,142 @@ app.post('/api/meta/resetCounters', (req, res) => {
   }
 });
 
+
+// ========================
+// App lock (screen PIN) — hash only in meta; never export raw PIN or hash in backups
+// ========================
+function appLockResetPinPaths() {
+  // RESET-PIN next to launcher (parent of _system) or next to server.js
+  return [
+    path.join(__dirname, '..', 'RESET-PIN'),
+    path.join(__dirname, 'RESET-PIN'),
+  ];
+}
+function hashPin(pin, salt) {
+  return crypto.createHash('sha256').update(String(salt) + String(pin), 'utf8').digest('hex');
+}
+function scrubAppLockForExport(meta) {
+  if (!meta || typeof meta !== 'object') return meta;
+  const out = { ...meta };
+  if (out.appLock && typeof out.appLock === 'object') {
+    const { pinHash, pinSalt, ...rest } = out.appLock;
+    out.appLock = { ...rest, pinConfigured: !!(pinHash && pinSalt) };
+  }
+  return out;
+}
+function tryConsumeResetPinFile(meta) {
+  for (const p of appLockResetPinPaths()) {
+    try {
+      if (fs.existsSync(p)) {
+        if (meta.appLock) {
+          delete meta.appLock.pinHash;
+          delete meta.appLock.pinSalt;
+          meta.appLock.enabled = false;
+        }
+        writeJSON(META_PATH, meta);
+        try { fs.unlinkSync(p); } catch { /* ignore */ }
+        return true;
+      }
+    } catch { /* ignore */ }
+  }
+  return false;
+}
+
+app.get('/api/app-lock/status', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const reset = tryConsumeResetPinFile(meta);
+    const lock = meta.appLock || {};
+    const configured = !!(lock.pinHash && lock.pinSalt);
+    res.json({
+      enabled: !!(lock.enabled && configured),
+      configured,
+      autoLockEnabled: lock.autoLockEnabled !== false,
+      autoLockMinutes: Number(lock.autoLockMinutes) || 15,
+      resetApplied: !!reset,
+      // Screen lock only — database is not encrypted
+      note: 'PIN is a screen lock only. Data files are not encrypted.',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/app-lock/set', (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '').trim();
+    if (!/^\d{6}$|^\d{8}$/.test(pin)) {
+      return res.status(400).json({ error: 'PIN must be 6 or 8 digits' });
+    }
+    const meta = readJSON(META_PATH, {}) || {};
+    const salt = crypto.randomBytes(16).toString('hex');
+    const pinHash = hashPin(pin, salt);
+    meta.appLock = {
+      enabled: true,
+      pinHash,
+      pinSalt: salt,
+      autoLockEnabled: req.body?.autoLockEnabled !== false,
+      autoLockMinutes: Math.min(120, Math.max(1, Number(req.body?.autoLockMinutes) || 15)),
+      updatedAt: new Date().toISOString(),
+    };
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, enabled: true, autoLockEnabled: meta.appLock.autoLockEnabled, autoLockMinutes: meta.appLock.autoLockMinutes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/app-lock/verify', (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '').trim();
+    const meta = readJSON(META_PATH, {}) || {};
+    const lock = meta.appLock || {};
+    if (!lock.pinHash || !lock.pinSalt) {
+      return res.json({ ok: true, unlocked: true, reason: 'not-configured' });
+    }
+    const tryHash = hashPin(pin, lock.pinSalt);
+    if (tryHash !== lock.pinHash) {
+      return res.status(401).json({ ok: false, error: 'Incorrect PIN' });
+    }
+    res.json({ ok: true, unlocked: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/app-lock/disable', (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '').trim();
+    const meta = readJSON(META_PATH, {}) || {};
+    const lock = meta.appLock || {};
+    if (lock.pinHash && lock.pinSalt) {
+      if (hashPin(pin, lock.pinSalt) !== lock.pinHash) {
+        return res.status(401).json({ ok: false, error: 'Incorrect PIN' });
+      }
+    }
+    meta.appLock = { enabled: false, autoLockEnabled: lock.autoLockEnabled !== false, autoLockMinutes: lock.autoLockMinutes || 15 };
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, enabled: false });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/app-lock/prefs', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const lock = meta.appLock || {};
+    if (typeof req.body?.autoLockEnabled === 'boolean') lock.autoLockEnabled = req.body.autoLockEnabled;
+    if (req.body?.autoLockMinutes != null) lock.autoLockMinutes = Math.min(120, Math.max(1, Number(req.body.autoLockMinutes) || 15));
+    meta.appLock = lock;
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, autoLockEnabled: lock.autoLockEnabled !== false, autoLockMinutes: lock.autoLockMinutes || 15 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
   res.json({ value: meta[req.params.key] ?? null });
@@ -1319,7 +1456,7 @@ app.get('/api/export', (req, res) => {
     receipts: readAllFromDir('receipts'),
     profiles: readAllFromDir('profiles'),
     purchases: readAllFromDir('purchases'),
-    meta: readJSON(META_PATH, {}),
+    meta: scrubAppLockForExport(readJSON(META_PATH, {}) || {}),
     exportedAt: new Date().toISOString(),
   };
   res.json(data);
@@ -1787,6 +1924,15 @@ function runDailyBackup() {
       if (entry.isDirectory()) copyDirRecursive(src, dst);
       else fs.copyFileSync(src, dst);
     }
+    // Never put PIN hash/salt in backups
+    try {
+      const metaBak = path.join(target, 'meta.json');
+      if (fs.existsSync(metaBak)) {
+        const m = JSON.parse(fs.readFileSync(metaBak, 'utf8'));
+        const scrubbed = scrubAppLockForExport(m);
+        fs.writeFileSync(metaBak, JSON.stringify(scrubbed, null, 2), 'utf8');
+      }
+    } catch (e) { console.warn('[backup] appLock scrub:', e.message); }
     console.log(`[backup] Daily snapshot saved: ${target}`);
     const all = fs.readdirSync(BACKUPS_DIR).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
     while (all.length > 30) {

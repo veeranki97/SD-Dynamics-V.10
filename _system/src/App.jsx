@@ -75,11 +75,155 @@ function ViewLoading() {
   );
 }
 
+
+/** Full-screen PIN gate — screen lock only (data is not encrypted). */
+function PinLockGate({ onUnlock, autoLockMinutes, autoLockEnabled }) {
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (value) => {
+    const p = (value != null ? value : pin).replace(/\D/g, '');
+    if (p.length < 6) { setErr('Enter your PIN'); return; }
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/app-lock/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: p }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setErr('Incorrect PIN');
+        setPin('');
+        setBusy(false);
+        return;
+      }
+      onUnlock();
+    } catch {
+      setErr('Could not verify PIN — is the server running?');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 99999, background: 'var(--bg, #0f172a)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16,
+      color: 'var(--text, #e2e8f0)',
+    }}>
+      <div style={{
+        background: 'var(--surface, #1e293b)', border: '1px solid var(--border, #334155)',
+        borderRadius: 12, padding: '2rem 2.25rem', width: 'min(360px, 92vw)', textAlign: 'center',
+      }}>
+        <h2 style={{ margin: '0 0 0.35rem', fontSize: '1.25rem' }}>App locked</h2>
+        <p style={{ margin: '0 0 1.25rem', fontSize: '0.8rem', color: 'var(--text-muted, #94a3b8)' }}>
+          Screen lock only — your data files are not encrypted.
+        </p>
+        <input
+          type="password"
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={8}
+          value={pin}
+          onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 8)); setErr(''); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          placeholder="6 or 8 digit PIN"
+          style={{
+            width: '100%', padding: '0.65rem 0.75rem', fontSize: '1.1rem', letterSpacing: '0.2em',
+            textAlign: 'center', borderRadius: 8, border: '1px solid var(--border, #475569)',
+            background: 'var(--bg, #0f172a)', color: 'inherit', boxSizing: 'border-box',
+          }}
+          autoFocus
+        />
+        {err && <p style={{ color: '#f87171', fontSize: '0.85rem', margin: '0.6rem 0 0' }}>{err}</p>}
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ width: '100%', marginTop: 14 }}
+          disabled={busy || pin.length < 6}
+          onClick={() => submit()}
+        >
+          {busy ? 'Checking…' : 'Unlock'}
+        </button>
+        <p style={{ margin: '1rem 0 0', fontSize: '0.72rem', color: 'var(--text-muted, #64748b)', lineHeight: 1.4 }}>
+          Forgot PIN? Place a file named <strong>RESET-PIN</strong> next to the app launcher, then reopen.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
 function App() {
   // v1.9.3 — Setup Wizard shown on first-run (before onboardingComplete = true)
   const [showWizard, setShowWizard] = useState(() => {
     try { return !getPrintSettings().onboardingComplete; } catch { return false; }
   });
+
+  // App lock (screen PIN) — status from meta via server (survives port change)
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
+  const [appUnlocked, setAppUnlocked] = useState(false);
+  const [appLockPrefs, setAppLockPrefs] = useState({ autoLockEnabled: true, autoLockMinutes: 15 });
+  const lastActivityRef = useRef(Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/app-lock/status');
+        const j = await r.json();
+        if (cancelled) return;
+        setAppLockPrefs({
+          autoLockEnabled: j.autoLockEnabled !== false,
+          autoLockMinutes: Number(j.autoLockMinutes) || 15,
+        });
+        if (j.enabled) {
+          setAppLockEnabled(true);
+          setAppUnlocked(false);
+        } else {
+          setAppLockEnabled(false);
+          setAppUnlocked(true);
+        }
+      } catch {
+        if (!cancelled) { setAppLockEnabled(false); setAppUnlocked(true); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Idle auto-lock
+  useEffect(() => {
+    if (!appLockEnabled || !appUnlocked || !appLockPrefs.autoLockEnabled) return;
+    const mark = () => { lastActivityRef.current = Date.now(); };
+    const evs = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    evs.forEach(e => window.addEventListener(e, mark, { passive: true }));
+    const t = setInterval(() => {
+      const mins = Number(appLockPrefs.autoLockMinutes) || 15;
+      if (Date.now() - lastActivityRef.current > mins * 60 * 1000) {
+        setAppUnlocked(false);
+      }
+    }, 15000);
+    return () => {
+      evs.forEach(e => window.removeEventListener(e, mark));
+      clearInterval(t);
+    };
+  }, [appLockEnabled, appUnlocked, appLockPrefs.autoLockEnabled, appLockPrefs.autoLockMinutes]);
+
+  // Listen for Settings "Lock now"
+  useEffect(() => {
+    const onLock = () => { if (appLockEnabled) setAppUnlocked(false); };
+    const onPrefs = (e) => {
+      if (e?.detail) setAppLockPrefs(p => ({ ...p, ...e.detail }));
+      if (e?.detail?.enabled === false) { setAppLockEnabled(false); setAppUnlocked(true); }
+      if (e?.detail?.enabled === true) { setAppLockEnabled(true); setAppUnlocked(true); }
+    };
+    window.addEventListener('sd-app-lock-now', onLock);
+    window.addEventListener('sd-app-lock-prefs', onPrefs);
+    return () => {
+      window.removeEventListener('sd-app-lock-now', onLock);
+      window.removeEventListener('sd-app-lock-prefs', onPrefs);
+    };
+  }, [appLockEnabled]);
   const [currentView, setCurrentView] = useState(() => {
     // PWA manifest "shortcuts" deep-link in via ?view=X (e.g. right-clicking
     // the pinned taskbar icon → "New Invoice" opens /?view=new). Honour that
@@ -881,6 +1025,16 @@ function App() {
       return !showWizard && ps.onboardingComplete === true && ps.onboardingSkipped === true;
     } catch { return false; }
   })();
+
+  if (appLockEnabled && !appUnlocked) {
+    return (
+      <PinLockGate
+        onUnlock={() => { setAppUnlocked(true); lastActivityRef.current = Date.now(); }}
+        autoLockMinutes={appLockPrefs.autoLockMinutes}
+        autoLockEnabled={appLockPrefs.autoLockEnabled}
+      />
+    );
+  }
 
   return (
     <div className={`app-layout${sidebarCollapsed && !sidebarHovered ? ' app-layout-sidebar-collapsed' : ''}`}>

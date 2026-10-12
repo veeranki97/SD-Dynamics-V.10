@@ -247,6 +247,27 @@ export function parseMoney(v) {
 }
 export const moneyRound = r2;
 
+
+/**
+ * Integer-paise CGST/SGST (or CGST/UTGST) split so halves always sum to tax.
+ * - CGST paise = Math.round(totalTaxPaise / 2)  // half-up
+ * - SGST/UTGST paise = remainder (same when even; 1 less when odd)
+ * Leftover odd paisa goes to CGST only. Never use float / 2 for GSTR.
+ */
+export function splitIntraStateTax(taxAmount) {
+  const totalPaise = Math.round((Number(taxAmount) || 0) * 100);
+  if (totalPaise <= 0) return { cgst: 0, sgst: 0, cgstPaise: 0, sgstPaise: 0, totalPaise: 0 };
+  const cgstPaise = Math.round(totalPaise / 2); // half-up on .5
+  const sgstPaise = totalPaise - cgstPaise;
+  return {
+    cgst: cgstPaise / 100,
+    sgst: sgstPaise / 100,
+    cgstPaise,
+    sgstPaise,
+    totalPaise,
+  };
+}
+
 export function computeInvoiceTotals(opts) {
   // v1.10.33 — Destructure defaults only fire on `undefined`, not `null`.
   // Callers that pass `profile: null` (e.g. InvoiceGenerator mounted
@@ -345,11 +366,12 @@ export function computeInvoiceTotals(opts) {
     businessCode === posCode &&
     isUnionTerritoryWithoutLegislature(businessCode);
 
-  const half = r2(taxTotal / 2);
-  const cgst = isIndia && !isInterstate ? half : 0;
-  const sgst = isIndia && !isInterstate && !isIntraUT ? half : 0;
-  const utgst = isIndia && isIntraUT ? half : 0;
-  const igst = isIndia ? (isInterstate ? taxTotal : 0) : taxTotal;
+  // Integer-paise split — CGST + SGST/UTGST equals taxTotal exactly (odd paisa → CGST).
+  const intraSplit = splitIntraStateTax(taxTotal);
+  const cgst = isIndia && !isInterstate ? intraSplit.cgst : 0;
+  const sgst = isIndia && !isInterstate && !isIntraUT ? intraSplit.sgst : 0;
+  const utgst = isIndia && isIntraUT ? intraSplit.sgst : 0;
+  const igst = isIndia ? (isInterstate ? r2(taxTotal) : 0) : r2(taxTotal);
 
   // RCM handling. Under Section 9(3)/9(4), the SUPPLIER doesn't collect
   // tax — the buyer remits it directly. Invoice total should be

@@ -34,8 +34,135 @@ const JUMP_NAV_SECTIONS = [
   ['section-backups',  'Backups'],
   ['section-cloud',    'Google Drive'],
   ['section-data',     'Import/Export'],
+  ['section-applock',  'App lock'],
   ['section-updates',  'Updates'],
 ];
+
+
+function AppLockSettingsPanel() {
+  const [status, setStatus] = useState({ enabled: false, configured: false, autoLockEnabled: true, autoLockMinutes: 15 });
+  const [pin, setPin] = useState('');
+  const [pin2, setPin2] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const r = await fetch('/api/app-lock/status');
+      const j = await r.json();
+      setStatus(j);
+    } catch { /* ignore */ }
+  };
+  useEffect(() => { refresh(); }, []);
+
+  const setPinLock = async () => {
+    if (!/^\d{6}$|^\d{8}$/.test(pin)) {
+      toast('PIN must be 6 or 8 digits', 'warning');
+      return;
+    }
+    if (pin !== pin2) {
+      toast('PINs do not match', 'warning');
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/app-lock/set', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, autoLockEnabled: status.autoLockEnabled !== false, autoLockMinutes: status.autoLockMinutes || 15 }),
+      });
+      const j = await r.json();
+      if (!r.ok) { toast(j.error || 'Could not set PIN', 'error'); setBusy(false); return; }
+      toast('App lock enabled', 'success');
+      setPin(''); setPin2('');
+      window.dispatchEvent(new CustomEvent('sd-app-lock-prefs', { detail: { enabled: true, autoLockEnabled: j.autoLockEnabled, autoLockMinutes: j.autoLockMinutes } }));
+      await refresh();
+    } catch { toast('Could not set PIN', 'error'); }
+    setBusy(false);
+  };
+
+  const disable = async () => {
+    if (!pin) { toast('Enter current PIN to disable', 'warning'); return; }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/app-lock/disable', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      const j = await r.json();
+      if (!r.ok) { toast(j.error || 'Incorrect PIN', 'error'); setBusy(false); return; }
+      toast('App lock turned off', 'success');
+      setPin(''); setPin2('');
+      window.dispatchEvent(new CustomEvent('sd-app-lock-prefs', { detail: { enabled: false } }));
+      await refresh();
+    } catch { toast('Could not disable', 'error'); }
+    setBusy(false);
+  };
+
+  const savePrefs = async (patch) => {
+    const next = { ...status, ...patch };
+    setStatus(next);
+    try {
+      await fetch('/api/app-lock/prefs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoLockEnabled: next.autoLockEnabled, autoLockMinutes: next.autoLockMinutes }),
+      });
+      window.dispatchEvent(new CustomEvent('sd-app-lock-prefs', { detail: { autoLockEnabled: next.autoLockEnabled, autoLockMinutes: next.autoLockMinutes } }));
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: '0.75rem', maxWidth: 520 }}>
+      <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0 }}>
+        Status: {status.enabled ? <strong style={{ color: 'var(--success, #15803d)' }}>On</strong> : <strong>Off</strong>}
+        {status.configured ? ' (PIN saved in meta — survives port changes)' : ''}
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">New PIN (6 or 8 digits)</label>
+          <input type="password" inputMode="numeric" className="form-input" maxLength={8} value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} autoComplete="new-password" />
+        </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Confirm PIN</label>
+          <input type="password" inputMode="numeric" className="form-input" maxLength={8} value={pin2}
+            onChange={e => setPin2(e.target.value.replace(/\D/g, '').slice(0, 8))} autoComplete="new-password" />
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={setPinLock}>
+          {status.enabled ? 'Change PIN' : 'Enable lock'}
+        </button>
+        {status.enabled && (
+          <>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={disable}>Turn off</button>
+            <button type="button" className="btn btn-secondary" onClick={() => window.dispatchEvent(new Event('sd-app-lock-now'))}>
+              Lock now
+            </button>
+          </>
+        )}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer' }}>
+        <input type="checkbox" checked={status.autoLockEnabled !== false}
+          onChange={e => savePrefs({ autoLockEnabled: e.target.checked })} />
+        Auto-lock after idle (default 15 minutes)
+      </label>
+      {status.autoLockEnabled !== false && (
+        <div className="form-group" style={{ marginBottom: 0, maxWidth: 180 }}>
+          <label className="form-label">Idle minutes</label>
+          <input type="number" className="form-input" min={1} max={120} value={status.autoLockMinutes || 15}
+            onChange={e => savePrefs({ autoLockMinutes: Number(e.target.value) || 15 })} />
+        </div>
+      )}
+      <div className="notice notice-info" style={{ marginTop: 4 }}>
+        <span className="notice-icon">ℹ</span>
+        <div style={{ fontSize: '0.8rem' }}>
+          <p style={{ margin: '0 0 0.35rem' }}><strong>Forgot PIN?</strong> Create an empty file named <code>RESET-PIN</code> next to the app launcher (not inside <code>data/</code>), then open the app once. The PIN is cleared and the file is deleted.</p>
+          <p style={{ margin: 0 }}>PIN hash is stored in <code>meta</code> only — never in backup/export JSON.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 export default function SettingsView({ onSaved }) {
   const [profile, setProfile] = useState({
@@ -1808,6 +1935,17 @@ export default function SettingsView({ onSaved }) {
            immediately after the Company Details form. Placeholder here
            kept as a comment so a code search for "Multi-Business
            Profiles" still lands somewhere sensible. */}
+
+
+      {/* ---- App lock (screen PIN) ---- */}
+      <div id="section-applock" className="glass-panel p-6 mb-6" style={{ order: 10.5 }}>
+        <h3 className="section-title">App lock</h3>
+        <p className="page-subtitle mb-3">
+          Optional screen PIN when the app opens or after idle time.
+          <strong> This is a screen lock only — the database is not encrypted.</strong>
+        </p>
+        <AppLockSettingsPanel />
+      </div>
 
       {/* ---- App Updates ---- */}
       <div id="section-updates" className="glass-panel p-6 mb-6" style={{ order: 11 }}>

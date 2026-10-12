@@ -1116,7 +1116,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     getAllProfiles().then(p => { setAllProfiles(p); if (!activeProfile && p.length > 0) setActiveProfile(profileProp); }).catch(() => {});
     getTermsTemplates().then(templates => {
       setTermsTemplates(templates);
-      if (templates.length > 0 && !selectedTermsId && !draftInitialized.current) {
+      // Only seed template[0] on a brand-new blank invoice.
+      // Opened bills, restored drafts, and any invoice that already has terms keep their own customTerms.
+      const hasDraftTerms = !!(draft?.customTerms || draft?.selectedTermsId);
+      const isBlankNew = !editingBill && !draftInitialized.current && !hasDraftTerms && !selectedTermsId;
+      if (templates.length > 0 && isBlankNew) {
         setSelectedTermsId(templates[0].id);
         setCustomTerms(templates[0].content);
       }
