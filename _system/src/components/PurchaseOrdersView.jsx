@@ -71,7 +71,7 @@ async function sha256Hex(text) {
   }
 }
 
-function printPO(po, profile, fingerprint) {
+function printPO(po, profile, fingerprint, clientsList) {
   let sigSrc = '';
   try {
     const ps = (typeof getPrintSettings === 'function' ? getPrintSettings() : {}) || {};
@@ -90,23 +90,44 @@ function printPO(po, profile, fingerprint) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: client name, site label, client/WO address — NEVER company profile address
-  const shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
+  // Ship-To: Line1 client name, Line2 site, Line3+ street/city/state/PIN from client master.
+  // NEVER seller/profile address.
+  let shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
   if (!shipAddrRaw) {
     shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
       .filter(Boolean).join(', ');
   }
+  // Resolve full address from client master when PO only has a site label
+  try {
+    const list = Array.isArray(clientsList) ? clientsList : [];
+    const key = String(po.clientId || po.clientName || shipNameRaw || '').toLowerCase().trim();
+    const match = list.find(c =>
+      String(c.id || '').toLowerCase() === key
+      || String(c.name || c.businessName || '').toLowerCase() === key
+      || String(c.name || c.businessName || '').toLowerCase() === String(shipNameRaw).toLowerCase().trim()
+    );
+    if (match) {
+      const full = [match.address || match.billingAddress || '', match.city || '', match.state || '', match.pincode || match.pin || '']
+        .filter(Boolean).join(', ');
+      if (full && (!shipAddrRaw || shipAddrRaw.length < 8)) shipAddrRaw = full;
+      if (!shipNameRaw) shipNameRaw = match.name || match.businessName || '';
+    }
+  } catch (_) { /* */ }
   // Do not fall back to seller/profile address
   const shipName = esc(shipNameRaw);
   const shipSite = esc(shipSiteRaw || '—');
   const shipAddr = esc(shipAddrRaw);
   const shipState = esc(po.shipToState || po.deliveryState || '');
-  const subject = esc(po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '');
-  const terms = esc(po.terms || po.notes || profile?.defaultTerms ||
-    '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.')
-    .replace(/\n/g, '<br/>');
+  // Subject = work title only. Terms = PO terms only (never work title / notes that equal title).
+  const subjectRaw = po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '';
+  const subject = esc(subjectRaw);
+  let termsRaw = (po.terms && String(po.terms).trim() && String(po.terms).trim() !== String(subjectRaw).trim())
+    ? po.terms
+    : (profile?.defaultTerms ||
+      '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.');
+  const terms = esc(termsRaw).replace(/\n/g, '<br/>');
   const notes = esc(po.deliveryNotes || po.instructions || '');
   const poTitle = String(po.poNumber || 'PO').replace(/[\\/:*?"<>|]/g, '-');
   const rows = (po.items || []).map((it, i) => {
@@ -143,13 +164,16 @@ function printPO(po, profile, fingerprint) {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-    height: 277mm;
+    /* A4 content box: pin signature with spacer — do NOT stretch item rows */
+    min-height: 277mm;
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
   }
   .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  table.items { flex: 1 1 auto; }
+  table.items { flex: 0 0 auto; width: 100%; }
+  .po-spacer { flex: 1 1 auto; min-height: 12px; }
   .top {
     display: flex;
     justify-content: space-between;
@@ -300,6 +324,7 @@ function printPO(po, profile, fingerprint) {
         ${rows || '<tr><td colspan="7" class="c">No items</td></tr>'}
       </tbody>
     </table>
+    <div class="po-spacer"></div>
     <div class="bottom">
       <div class="notes">
         ${notes ? `<b>Notes / Instructions</b>${notes.replace(/\n/g, '<br/>')}<br/><br/>` : ''}
@@ -338,7 +363,13 @@ function printPO(po, profile, fingerprint) {
     const prevTitle = document.title;
     try { document.title = poTitle; } catch (_) {}
 
+    let printed = false;
+    const restoreTitle = () => {
+      try { document.title = prevTitle; } catch (_) {}
+    };
     const runPrint = () => {
+      if (printed) return;
+      printed = true;
       try {
         const win = iframe.contentWindow;
         if (!win) throw new Error('iframe window unavailable');
@@ -346,17 +377,30 @@ function printPO(po, profile, fingerprint) {
           const idoc = iframe.contentDocument || win.document;
           if (idoc) idoc.title = poTitle;
         } catch (_) {}
+        // Keep top-level document.title until afterprint so Save as PDF uses PO number
+        try { win.onafterprint = () => { restoreTitle(); }; } catch (_) {}
+        try { window.addEventListener('afterprint', restoreTitle, { once: true }); } catch (_) {}
         win.focus();
         win.print();
+        setTimeout(restoreTitle, 60000); // fallback if afterprint never fires
+        try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
       } catch (e) {
         console.error('printPO print()', e);
-        // Fallback: open blob in same-tab print-friendly window
+        restoreTitle();
+        // Fallback: blob print — still no permanent blank tab
         try {
           const blob = new Blob([html], { type: 'text/html' });
           const url = URL.createObjectURL(blob);
           const w = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700');
           if (w) {
-            w.onload = () => { try { w.document.title = poTitle; w.focus(); w.print(); } catch (_) {} };
+            w.onload = () => {
+              try {
+                w.document.title = poTitle;
+                try { w.onafterprint = () => { try { w.close(); } catch (_) {} }; } catch (_) {}
+                w.focus();
+                w.print();
+              } catch (_) {}
+            };
           } else {
             alert('Print blocked. Allow pop-ups for this site, then try Print / PDF again.');
           }
@@ -365,8 +409,6 @@ function printPO(po, profile, fingerprint) {
           console.error(e2);
           alert('Failed to print PO. Check browser console.');
         }
-      } finally {
-        try { document.title = prevTitle; } catch (_) {}
       }
     };
 
@@ -901,7 +943,7 @@ export default function PurchaseOrdersView() {
                     { label: 'Create Bill', onClick: handleCreateBill },
                     { label: 'Edit', onClick: () => setForm({ ...po }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                    { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
+                    { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint, clients); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
                     { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
                       { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
                       { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },

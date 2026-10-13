@@ -78,7 +78,7 @@ ${mode !== 'day' ? `<div class="close"><div class="lbl">Closing Balance</div><di
 </div>
 <table><thead><tr>${headCols}</tr></thead><tbody>${body || '<tr><td colspan="6" style="padding:16px;text-align:center;color:#94a3b8">No entries</td></tr>'}</tbody></table>
 <div class="foot">This is a computer-generated document from ${esc(company)}. No signature is required.</div>
-<script>setTimeout(function(){window.print()},250)</script>
+<script>try{document.title=document.title||'Cash-Book'}catch(e){} setTimeout(function(){window.print()},250)</script>
 </body></html>`);
   w.document.close();
 }

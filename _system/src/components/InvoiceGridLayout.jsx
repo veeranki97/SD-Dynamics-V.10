@@ -568,8 +568,8 @@ function BoxedLayout({ ctx }) {
                 <tr key={k}><td style={{ ...cell, ...right }}>{k}</td><td style={{ ...cell, borderRight: 'none', ...right }}>{v < 0 ? `-${num(-v)}` : num(v)}</td></tr>
               ))}
               <tr style={{ fontWeight: 800 }}>
-                <td style={{ ...cell, ...right, fontWeight: 700 }}>{ctx.invoiceType === 'credit-note' ? 'Credit Amount' : 'Grand Total'}</td>
-                <td style={{ ...cell, ...right, fontWeight: 700 }}>{fmt(totals.total)}</td>
+                <td style={{ ...cell, ...right, fontWeight: 700, border: B }}>{ctx.invoiceType === 'credit-note' ? 'Credit Amount' : 'Grand Total'}</td>
+                <td style={{ ...cell, ...right, fontWeight: 700, border: B }}>{fmt(totals.total)}</td>
               </tr>
               {totals.tdsAmount > 0 && (
                 <tr style={small}><td style={{ ...cell, ...right }}>Less: TDS / Net Receivable</td><td style={{ ...cell, borderRight: 'none', ...right }}>{fmt(totals.netReceivable)}</td></tr>

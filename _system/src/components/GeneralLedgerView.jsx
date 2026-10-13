@@ -157,25 +157,69 @@ export default function GeneralLedgerView() {
   <script>setTimeout(function(){ window.print(); }, 250);</script>
 </body></html>`);
     } else {
+      const sumDr = filtered.reduce((s, r) => s + (Number(r.debit) || 0), 0);
+      const sumCr = filtered.reduce((s, r) => s + (Number(r.credit) || 0), 0);
       const bodyRows = filtered.map(r => `<tr>
-        <td style="border:1px solid #333;padding:4px">${esc(r.date)}</td>
-        <td style="border:1px solid #333;padding:4px">${esc(r.account)}</td>
-        <td style="border:1px solid #333;padding:4px">${esc(r.party)}</td>
-        <td style="border:1px solid #333;padding:4px">${esc(r.narration)}</td>
-        <td style="border:1px solid #333;padding:4px">${esc(r.refId)}</td>
-        <td style="border:1px solid #333;padding:4px;text-align:right">${r.debit || ''}</td>
-        <td style="border:1px solid #333;padding:4px;text-align:right">${r.credit || ''}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;white-space:nowrap">${esc(r.date)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb">${esc(r.account)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb">${esc(r.party)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb">${esc(r.narration)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb">${esc(r.refId)}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.debit ? '₹' + inr(Number(r.debit)) : '—'}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #e5e7eb;text-align:right">${r.credit ? '₹' + inr(Number(r.credit)) : '—'}</td>
       </tr>`).join('');
-      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>General Ledger</title>
-<style>@page{size:A4;margin:12mm} body{font-family:Arial,sans-serif;font-size:11px}
-table{border-collapse:collapse;width:100%} td,th{border:1px solid #333;padding:4px}
-.hdr{text-align:center;margin-bottom:12px;border-bottom:2px solid #1e3a5f;padding-bottom:8px}
-.hdr h1{margin:0;font-size:18px;color:#1e3a5f}</style></head><body>
-<div class="hdr"><h1>${company}</h1><div>General Ledger</div></div>
-<table><thead><tr><th>Date</th><th>Account</th><th>Party</th><th>Narration</th><th>Ref</th><th>Debit</th><th>Credit</th></tr></thead>
-<tbody>${bodyRows}</tbody></table>
-<script>setTimeout(function(){window.print()},200)</script></body></html>`);
+      const genDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>General-Ledger</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, Helvetica, sans-serif; color: #0f172a; font-size: 11px; margin: 0; }
+  .hdr { text-align: center; border-bottom: 2.5px solid #1e3a5f; padding-bottom: 12px; margin-bottom: 14px; }
+  .hdr h1 { margin: 0; font-size: 18px; color: #1e3a5f; letter-spacing: 0.04em; }
+  .hdr .sub { margin: 5px 0 0; font-size: 10px; color: #64748b; line-height: 1.4; }
+  .hdr .title { margin-top: 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; color: #334155; }
+  .meta { margin-bottom: 12px; font-size: 10px; color: #64748b; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { background: #f1f5f9; text-align: left; padding: 8px; border-bottom: 2px solid #94a3b8; font-size: 9px; text-transform: uppercase; color: #475569; letter-spacing: 0.04em; }
+  thead th.r { text-align: right; }
+  tfoot td { font-weight: 700; padding: 8px; border-top: 2px solid #94a3b8; background: #f8fafc; }
+  .foot { margin-top: 20px; font-size: 9px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+</style></head><body>
+  <div class="hdr">
+    <h1>${company.toUpperCase()}</h1>
+    <div class="sub">${addr}${gstin ? (addr ? ' · ' : '') + 'GSTIN: ' + gstin : ''}${(phone || email) ? '<br/>' + [phone, email].filter(Boolean).join(' · ') : ''}</div>
+    <div class="title">GENERAL LEDGER</div>
+  </div>
+  <div class="meta">Generated on: ${genDate}</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:11%">Date</th>
+        <th>Account</th>
+        <th>Party</th>
+        <th>Narration</th>
+        <th>Ref</th>
+        <th class="r" style="width:12%">Debit (₹)</th>
+        <th class="r" style="width:12%">Credit (₹)</th>
+      </tr>
+    </thead>
+    <tbody>${bodyRows || '<tr><td colspan="7" style="padding:16px;text-align:center;color:#94a3b8">No entries</td></tr>'}</tbody>
+    <tfoot>
+      <tr>
+        <td colspan="5" style="text-align:right">Totals</td>
+        <td style="text-align:right">₹${inr(sumDr)}</td>
+        <td style="text-align:right">₹${inr(sumCr)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="foot">This is a computer-generated document from ${company}. No signature is required.</div>
+  <script>
+    try { document.title = 'General-Ledger'; } catch(e) {}
+    setTimeout(function(){ window.print(); }, 250);
+  </script>
+</body></html>`);
     }
+    try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
     w.document.close();
   };
 

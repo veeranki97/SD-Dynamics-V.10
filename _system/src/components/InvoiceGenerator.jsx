@@ -2328,7 +2328,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       if (!iframe) {
         iframe = document.createElement('iframe');
         iframe.id = 'sd-inv-print-frame';
-        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none';
+        iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
         document.body.appendChild(iframe);
       }
       iframe.setAttribute('title', invNo);
@@ -2340,9 +2340,19 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       try { doc.title = invNo; } catch (_) {}
       const prev = document.title;
       try { document.title = invNo; } catch (_) {}
+      const restoreTitle = () => { try { document.title = prev; } catch (_) {} };
+      try { win.onafterprint = () => restoreTitle(); } catch (_) {}
+      try { window.addEventListener('afterprint', restoreTitle, { once: true }); } catch (_) {}
       setTimeout(() => {
-        try { win.focus(); win.print(); } catch (e) { console.error(e); }
-        finally { try { document.title = prev; } catch (_) {} }
+        try {
+          win.focus();
+          win.print();
+          try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
+        } catch (e) {
+          console.error(e);
+          restoreTitle();
+        }
+        setTimeout(restoreTitle, 60000);
       }, 300);
       return true;
     } catch (e) {
@@ -3265,18 +3275,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   };
 
   const generatePDF = async () => {
-    // A4 grid layouts: browser print (vector) avoids html2canvas crop at footer
-    try {
-      const style = String(invoiceOptions?.pdfStyle || invoiceOptions?.style || '').toLowerCase();
-      const paper = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
-      if (paper.kind !== 'thermal' && /boxed|tally|saidurga|classic/.test(style)) {
-        if (printInvoiceViaIframe()) {
-          toast('Print dialog opened — choose Save as PDF for a full-page file', 'success');
-          return;
-        }
-      }
-    } catch (_) { /* fall through to canvas PDF */ }
-
+    // Save & Download always writes a real file named {invoiceNumber}.pdf (not only print dialog).
+    // Print button still uses printInvoiceViaIframe / executePrint for vector print.
     if (!printRef.current) return;
     // v1.10.58 (#47) — same gate as Save: printing persists the bill and
     // reserves an invoice number, so a blank one must not get through here
@@ -3289,7 +3289,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       // Wrapped around buildPDF only (the rest of the flow can happen with
       // preview back to collapsed state).
       const pdf = await withPreviewOnScreen(() => buildPDF());
-      const fileName = `${typeConfig.prefix}_${details.invoiceNumber.replace(/\//g, '-')}.pdf`;
+      const fileName = `${String(details.invoiceNumber || typeConfig.prefix || 'invoice').replace(/[/\\:*?"<>|]+/g, '-')}.pdf`;
       pdf.save(fileName);
 
       // v1.9.0 — bump print history + save. Both the local bill record and
