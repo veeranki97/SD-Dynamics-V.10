@@ -1221,10 +1221,10 @@ const openPaymentModal = (bill) => {
             scale: capScale,
             backgroundColor: '#ffffff', useCORS: false, logging: false,
           });
-          const img = canvas.toDataURL('image/jpeg', 0.92);
+          const img = canvas.toDataURL('image/png');
           const w = 210, h = (canvas.height * 210) / canvas.width;
           if (ok > 0) doc.addPage();
-          doc.addImage(img, 'JPEG', 0, 0, w, Math.min(h, 297), undefined, 'FAST');
+          doc.addImage(img, 'PNG', 0, 0, w, Math.min(h, 297), undefined, 'FAST');
           ok++;
         } catch (e) { /* skip broken bill silently */ }
         // Yield to the event loop between invoices so the browser can
@@ -1302,9 +1302,9 @@ const openPaymentModal = (bill) => {
         scale: Math.min(capScale || 3, 4), backgroundColor: '#ffffff', useCORS: false, logging: false, imageTimeout: 0,
       });
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-      const img = canvas.toDataURL('image/jpeg', 0.92);
+      const img = canvas.toDataURL('image/png');
       const h = (canvas.height * 210) / canvas.width;
-      doc.addImage(img, 'JPEG', 0, 0, 210, Math.min(h, 297), undefined, 'FAST');
+      doc.addImage(img, 'PNG', 0, 0, 210, Math.min(h, 297), undefined, 'FAST');
       return doc.output('blob');
     } finally {
       root.unmount();
