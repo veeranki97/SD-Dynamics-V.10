@@ -90,36 +90,44 @@ function printPO(po, profile, fingerprint, clientsList) {
   const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
   const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
   const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: Line1 client name, Line2 site, Line3+ street/city/state/PIN from client master.
-  // NEVER seller/profile address.
+  // Ship-To: line1 name, line2 site, line3 street, line4 city/state/PIN from client master.
+  // NEVER seller/profile address. Always prefer client street when present (no length gate).
   let shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
-  let shipAddrRaw = po.shipToAddress || po.deliveryAddress || po.clientAddress || '';
-  if (!shipAddrRaw) {
-    shipAddrRaw = [po.address, po.city, po.state || po.clientState, po.pincode || po.pin]
-      .filter(Boolean).join(', ');
-  }
-  // Resolve full address from client master when PO only has a site label
+  let shipStreetRaw = '';
+  let shipCityLineRaw = '';
   try {
     const list = Array.isArray(clientsList) ? clientsList : [];
-    const key = String(po.clientId || po.clientName || shipNameRaw || '').toLowerCase().trim();
-    const match = list.find(c =>
-      String(c.id || '').toLowerCase() === key
-      || String(c.name || c.businessName || '').toLowerCase() === key
-      || String(c.name || c.businessName || '').toLowerCase() === String(shipNameRaw).toLowerCase().trim()
-    );
+    const idKey = String(po.clientId || '').toLowerCase().trim();
+    const nameKey = String(po.clientName || shipNameRaw || '').toLowerCase().trim();
+    let match = null;
+    if (idKey) match = list.find(c => String(c.id || '').toLowerCase() === idKey);
+    if (!match && nameKey) {
+      match = list.find(c => String(c.name || c.businessName || '').toLowerCase() === nameKey);
+    }
     if (match) {
-      const full = [match.address || match.billingAddress || '', match.city || '', match.state || '', match.pincode || match.pin || '']
-        .filter(Boolean).join(', ');
-      if (full && (!shipAddrRaw || shipAddrRaw.length < 8)) shipAddrRaw = full;
       if (!shipNameRaw) shipNameRaw = match.name || match.businessName || '';
+      shipStreetRaw = String(match.address || match.billingAddress || '').trim();
+      shipCityLineRaw = [match.city || '', match.state || '', match.pincode || match.pin || '']
+        .filter(Boolean).join(', ');
     }
   } catch (_) { /* */ }
-  // Do not fall back to seller/profile address
+  // Fallbacks from PO fields only if client master has no street/city (never seller profile)
+  if (!shipStreetRaw) {
+    const fromPo = String(po.shipToAddress || po.deliveryAddress || po.clientAddress || po.address || '').trim();
+    // If PO stored only a city/site word, keep it on city line, not as street
+    if (fromPo && fromPo.toLowerCase() !== String(shipSiteRaw || '').toLowerCase()) {
+      shipStreetRaw = fromPo;
+    }
+  }
+  if (!shipCityLineRaw) {
+    shipCityLineRaw = [po.city || '', po.shipToState || po.deliveryState || po.state || po.clientState || '', po.pincode || po.pin || '']
+      .filter(Boolean).join(', ');
+  }
   const shipName = esc(shipNameRaw);
   const shipSite = esc(shipSiteRaw || '—');
-  const shipAddr = esc(shipAddrRaw);
-  const shipState = esc(po.shipToState || po.deliveryState || '');
+  const shipStreet = esc(shipStreetRaw);
+  const shipCityLine = esc(shipCityLineRaw);
   // Subject = work title only. Terms = PO terms only (never work title / notes that equal title).
   const subjectRaw = po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '';
   const subject = esc(subjectRaw);
@@ -303,8 +311,9 @@ function printPO(po, profile, fingerprint, clientsList) {
       <div class="box">
         <div class="lbl">Delivery Details (Ship To)</div>
         ${shipName ? `<div class="name">${shipName}</div>` : ''}
-        <div class="name" style="font-weight:600">${shipSite || '—'}</div>
-        <div>${shipAddr || ''}${shipState && shipAddr ? '<br/>' : ''}${shipState && !shipAddr.includes(shipState) ? shipState : ''}</div>
+        <div style="font-weight:600">${shipSite || '—'}</div>
+        ${shipStreet ? `<div>${shipStreet}</div>` : ''}
+        ${shipCityLine ? `<div>${shipCityLine}</div>` : ''}
       </div>
     </div>
     ${subject ? `<div class="subject"><b>Subject:</b> ${subject}</div>` : `<div class="subject"><b>Subject:</b> —</div>`}
@@ -356,9 +365,10 @@ function printPO(po, profile, fingerprint, clientsList) {
       iframe = document.createElement('iframe');
       iframe.id = 'sd-po-print-frame';
       // Non-zero size: some browsers ignore print() on 0×0 iframes
-      iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;';
+      iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0;';
       document.body.appendChild(iframe);
     }
+    iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
     iframe.setAttribute('title', poTitle);
     const prevTitle = document.title;
     try { document.title = poTitle; } catch (_) {}
@@ -370,46 +380,32 @@ function printPO(po, profile, fingerprint, clientsList) {
     const runPrint = () => {
       if (printed) return;
       printed = true;
+      const win = iframe.contentWindow;
+      if (!win) {
+        restoreTitle();
+        alert('Print failed — iframe not ready. Try again.');
+        return;
+      }
       try {
-        const win = iframe.contentWindow;
-        if (!win) throw new Error('iframe window unavailable');
-        try {
-          const idoc = iframe.contentDocument || win.document;
-          if (idoc) idoc.title = poTitle;
-        } catch (_) {}
-        // Keep top-level document.title until afterprint so Save as PDF uses PO number
-        try { win.onafterprint = () => { restoreTitle(); }; } catch (_) {}
-        try { window.addEventListener('afterprint', restoreTitle, { once: true }); } catch (_) {}
+        const idoc = iframe.contentDocument || win.document;
+        if (idoc) idoc.title = poTitle;
+      } catch (_) {}
+      // Restore ONLY from iframe afterprint (parent afterprint fires too early and kills the PDF name)
+      try {
+        win.onafterprint = () => { restoreTitle(); };
+      } catch (_) {}
+      try {
         win.focus();
         win.print();
-        setTimeout(restoreTitle, 60000); // fallback if afterprint never fires
         try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
       } catch (e) {
         console.error('printPO print()', e);
         restoreTitle();
-        // Fallback: blob print — still no permanent blank tab
-        try {
-          const blob = new Blob([html], { type: 'text/html' });
-          const url = URL.createObjectURL(blob);
-          const w = window.open(url, '_blank', 'noopener,noreferrer,width=900,height=700');
-          if (w) {
-            w.onload = () => {
-              try {
-                w.document.title = poTitle;
-                try { w.onafterprint = () => { try { w.close(); } catch (_) {} }; } catch (_) {}
-                w.focus();
-                w.print();
-              } catch (_) {}
-            };
-          } else {
-            alert('Print blocked. Allow pop-ups for this site, then try Print / PDF again.');
-          }
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch (e2) {
-          console.error(e2);
-          alert('Failed to print PO. Check browser console.');
-        }
+        alert('Failed to print PO. Check browser console.');
+        return;
       }
+      // Fallback if iframe afterprint never fires
+      setTimeout(restoreTitle, 60000);
     };
 
     const win = iframe.contentWindow;
