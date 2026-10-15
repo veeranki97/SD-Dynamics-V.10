@@ -71,6 +71,8 @@ async function sha256Hex(text) {
   }
 }
 
+const DEFAULT_PO_TERMS = '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.';
+
 function printPO(po, profile, fingerprint, clientsList) {
   let sigSrc = '';
   try {
@@ -133,8 +135,7 @@ function printPO(po, profile, fingerprint, clientsList) {
   const subject = esc(subjectRaw);
   let termsRaw = (po.terms && String(po.terms).trim() && String(po.terms).trim() !== String(subjectRaw).trim())
     ? po.terms
-    : (profile?.defaultTerms ||
-      '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.');
+    : (profile?.defaultTerms || DEFAULT_PO_TERMS);
   const terms = esc(termsRaw).replace(/\n/g, '<br/>');
   const notes = esc(po.deliveryNotes || po.instructions || '');
   const poTitle = String(po.poNumber || 'PO').replace(/[\\/:*?"<>|]/g, '-');
@@ -157,14 +158,16 @@ function printPO(po, profile, fingerprint, clientsList) {
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
 <title>${esc(poTitle)}</title>
 <style>
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 8mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    color: #1e293b;
-    font-size: 10px;
+    font-family: Arial, Helvetica, 'Segoe UI', sans-serif;
+    color: #000;
+    font-size: 10pt;
     line-height: 1.35;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .sheet {
     border: 1px solid #0f172a;
@@ -172,16 +175,38 @@ function printPO(po, profile, fingerprint, clientsList) {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-    /* A4 content box: pin signature with spacer — do NOT stretch item rows */
+    /* Fill A4 content area (~297mm - 2*8mm margin). Spacer grows; table does not. */
     min-height: 277mm;
-    height: auto;
+    height: 277mm;
     display: flex;
     flex-direction: column;
-    overflow: visible;
+    overflow: hidden;
   }
-  .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  table.items { flex: 0 0 auto; width: 100%; }
-  .po-spacer { flex: 1 1 auto; min-height: 12px; }
+  .sheet-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* Tables as flex children stretch in Chrome print — pin height to content */
+  .items-wrap { flex: 0 0 auto; width: 100%; }
+  table.items {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0;
+    height: auto !important;
+    table-layout: fixed;
+  }
+  table.items tbody tr { height: auto !important; }
+  table.items th, table.items td {
+    height: auto !important;
+    vertical-align: top;
+  }
+  .po-spacer { flex: 1 1 auto; min-height: 8px; }
+  .bottom { flex: 0 0 auto; }
+  .sign-row { flex: 0 0 auto; }
+  .fp { flex: 0 0 auto; }
   .top {
     display: flex;
     justify-content: space-between;
@@ -206,16 +231,18 @@ function printPO(po, profile, fingerprint, clientsList) {
     margin-bottom: 4px;
   }
   .top .meta div { margin-top: 1px; font-size: 9px; }
-  .grid2 {
+  /* One outer frame, Supplier | Ship To side by side */
+  .party-box {
     display: grid;
     grid-template-columns: 1fr 1fr;
     border: 1px solid #0f172a;
     margin-bottom: 0;
+    padding: 0;
   }
-  .grid2 .box { padding: 6px 8px; min-height: 60px; }
-  .grid2 .box + .box { border-left: 1px solid #0f172a; }
-  .grid2 .lbl { font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; margin-bottom: 2px; }
-  .grid2 .name { font-size: 10.5px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+  .party-box .sec { padding: 6px 8px; min-height: 52px; }
+  .party-box .sec + .sec { border-left: 1px solid #0f172a; border-top: none; }
+  .party-box .lbl { font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; margin-bottom: 2px; }
+  .party-box .name { font-size: 10.5px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
   .subject {
     border: 1px solid #0f172a;
     border-top: none;
@@ -224,7 +251,6 @@ function printPO(po, profile, fingerprint, clientsList) {
     font-size: 9.5px;
     background: #f8fafc;
   }
-  table.items { width: 100%; border-collapse: collapse; margin-bottom: 8px; flex-grow: 1; }
   table.items th, table.items td {
     border: 1px solid #0f172a;
     padding: 4px 6px;
@@ -302,14 +328,14 @@ function printPO(po, profile, fingerprint, clientsList) {
         <div><b>Status:</b> ${esc(po.status || 'Issued')}</div>
       </div>
     </div>
-    <div class="grid2">
-      <div class="box">
-        <div class="lbl">Supplier Details (To)</div>
+    <div class="party-box">
+      <div class="sec">
+        <div class="lbl">Supplier (Vendor)</div>
         <div class="name">${vendorName || '—'}</div>
         <div>${vendorGst ? 'GSTIN: ' + vendorGst + '<br/>' : ''}${vendorPhone ? 'Phone: ' + vendorPhone + '<br/>' : ''}${vendorAddr || ''}</div>
       </div>
-      <div class="box">
-        <div class="lbl">Delivery Details (Ship To)</div>
+      <div class="sec">
+        <div class="lbl">Ship To (Delivery)</div>
         ${shipName ? `<div class="name">${shipName}</div>` : ''}
         <div style="font-weight:600">${shipSite || '—'}</div>
         ${shipStreet ? `<div>${shipStreet}</div>` : ''}
@@ -317,6 +343,7 @@ function printPO(po, profile, fingerprint, clientsList) {
       </div>
     </div>
     ${subject ? `<div class="subject"><b>Subject:</b> ${subject}</div>` : `<div class="subject"><b>Subject:</b> —</div>`}
+    <div class="items-wrap">
     <table class="items">
       <thead>
         <tr>
@@ -333,7 +360,8 @@ function printPO(po, profile, fingerprint, clientsList) {
         ${rows || '<tr><td colspan="7" class="c">No items</td></tr>'}
       </tbody>
     </table>
-    <div class="po-spacer"></div>
+    </div>
+    <div class="po-spacer" aria-hidden="true"></div>
     <div class="bottom">
       <div class="notes">
         ${notes ? `<b>Notes / Instructions</b>${notes.replace(/\n/g, '<br/>')}<br/><br/>` : ''}
@@ -365,7 +393,7 @@ function printPO(po, profile, fingerprint, clientsList) {
       iframe = document.createElement('iframe');
       iframe.id = 'sd-po-print-frame';
       // Non-zero size: some browsers ignore print() on 0×0 iframes
-      iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0;';
+      iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0.01;z-index:-1;pointer-events:none;border:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;';
       document.body.appendChild(iframe);
     }
     iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
@@ -548,7 +576,9 @@ export default function PurchaseOrdersView() {
         date: new Date().toISOString().split('T')[0],
         status: 'draft',
         taxRate: p.taxRate != null ? Number(p.taxRate) : 18,
-        notes: p.notes || (p.clientName ? `Subcontract for client: ${p.clientName}` : '') || (p.title || ''),
+        notes: p.notes || (p.clientName ? `Subcontract for client: ${p.clientName}` : '') || '',
+        subject: p.subject || p.title || '',
+        terms: p.terms || DEFAULT_PO_TERMS,
         items: mappedWithCc,
         createdAt: new Date().toISOString(),
       });
@@ -570,6 +600,8 @@ export default function PurchaseOrdersView() {
       status: 'draft',
       taxRate: 18,
       notes: '',
+      terms: DEFAULT_PO_TERMS,
+      subject: '',
       items: [emptyWOItem()],
       createdAt: new Date().toISOString(),
     });
@@ -844,9 +876,24 @@ export default function PurchaseOrdersView() {
             </div>
           )}
           <div className="form-group" style={{ marginTop: 12 }}>
+            <label className="form-label">Subject / Title of work</label>
+            <input className="form-input" value={form.subject || form.title || ''}
+              onChange={e => setForm({ ...form, subject: e.target.value, title: e.target.value })}
+              placeholder="Shown on PO print as Subject" />
+          </div>
+          <div className="form-group" style={{ marginTop: 12 }}>
             <label className="form-label">Notes</label>
             <textarea className="form-input" rows={2} value={form.notes || ''}
               onChange={e => setForm({ ...form, notes: e.target.value })} />
+          </div>
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label className="form-label">Terms &amp; Conditions</label>
+            <textarea className="form-input" rows={4} value={form.terms != null ? form.terms : DEFAULT_PO_TERMS}
+              onChange={e => setForm({ ...form, terms: e.target.value })}
+              placeholder="Printed on the PO under Terms & Conditions" />
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+              Saved with this PO. Leave blank only if you want profile default terms on print.
+            </div>
           </div>
         </div>
       </div>
@@ -937,7 +984,7 @@ export default function PurchaseOrdersView() {
                 <td>
                   <ActionMenu items={[
                     { label: 'Create Bill', onClick: handleCreateBill },
-                    { label: 'Edit', onClick: () => setForm({ ...po }) },
+                    { label: 'Edit', onClick: () => setForm({ ...po, terms: po.terms || DEFAULT_PO_TERMS, subject: po.subject || po.title || '' }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
                     { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint, clients); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
                     { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
