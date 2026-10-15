@@ -88,12 +88,36 @@ function printPO(po, profile, fingerprint, clientsList) {
   const cGst = esc(profile?.gstin || '');
   const cPhone = esc(profile?.phone || profile?.mobile || '');
   const cEmail = esc(profile?.email || '');
-  const vendorName = esc(po.vendorName || po.vendor || '');
-  const vendorGst = esc(po.vendorGstin || po.vendorGSTIN || '');
-  const vendorAddr = esc(po.vendorAddress || po.vendorAddr || '');
-  const vendorPhone = esc(po.vendorPhone || '');
-  // Ship-To: line1 name, line2 site, line3 street, line4 city/state/PIN from client master.
-  // NEVER seller/profile address. Always prefer client street when present (no length gate).
+
+  // --- Vendor (supplier): enrich from master list if PO fields thin ---
+  let vendorNameRaw = po.vendorName || po.vendor || '';
+  let vendorGstRaw = po.vendorGstin || po.vendorGSTIN || '';
+  let vendorAddrRaw = po.vendorAddress || po.vendorAddr || '';
+  let vendorPhoneRaw = po.vendorPhone || '';
+  try {
+    const list = Array.isArray(clientsList) ? clientsList : [];
+    const vKey = String(po.vendorId || vendorNameRaw || '').toLowerCase().trim();
+    const vMatch = list.find(c =>
+      String(c.id || '').toLowerCase() === vKey
+      || String(c.name || c.businessName || '').toLowerCase() === vKey
+    );
+    if (vMatch) {
+      if (!vendorNameRaw) vendorNameRaw = vMatch.name || vMatch.businessName || '';
+      if (!vendorGstRaw) vendorGstRaw = vMatch.gstin || vMatch.GSTIN || '';
+      if (!vendorPhoneRaw) vendorPhoneRaw = vMatch.phone || vMatch.mobile || '';
+      if (!vendorAddrRaw) {
+        vendorAddrRaw = [vMatch.address || vMatch.billingAddress || '', vMatch.city || '', vMatch.state || '', vMatch.pincode || vMatch.pin || '']
+          .filter(Boolean).join(', ');
+      }
+    }
+  } catch (_) { /* */ }
+  const vendorName = esc(vendorNameRaw);
+  const vendorGst = esc(vendorGstRaw);
+  const vendorAddr = esc(vendorAddrRaw);
+  const vendorPhone = esc(vendorPhoneRaw);
+
+  // --- Ship To: client site delivery (NOT seller address). No separate Bill-To on PO —
+  // the company header is the buyer. Match professional Indian PO layout (Supplier | Ship To).
   let shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipStreetRaw = '';
@@ -114,10 +138,8 @@ function printPO(po, profile, fingerprint, clientsList) {
         .filter(Boolean).join(', ');
     }
   } catch (_) { /* */ }
-  // Fallbacks from PO fields only if client master has no street/city (never seller profile)
   if (!shipStreetRaw) {
     const fromPo = String(po.shipToAddress || po.deliveryAddress || po.clientAddress || po.address || '').trim();
-    // If PO stored only a city/site word, keep it on city line, not as street
     if (fromPo && fromPo.toLowerCase() !== String(shipSiteRaw || '').toLowerCase()) {
       shipStreetRaw = fromPo;
     }
@@ -127,10 +149,10 @@ function printPO(po, profile, fingerprint, clientsList) {
       .filter(Boolean).join(', ');
   }
   const shipName = esc(shipNameRaw);
-  const shipSite = esc(shipSiteRaw || '—');
+  const shipSite = esc(shipSiteRaw || '');
   const shipStreet = esc(shipStreetRaw);
   const shipCityLine = esc(shipCityLineRaw);
-  // Subject = work title only. Terms = PO terms only (never work title / notes that equal title).
+
   const subjectRaw = po.subject || po.title || (po.items && po.items[0] && po.items[0].description) || '';
   const subject = esc(subjectRaw);
   let termsRaw = (po.terms && String(po.terms).trim() && String(po.terms).trim() !== String(subjectRaw).trim())
@@ -139,185 +161,174 @@ function printPO(po, profile, fingerprint, clientsList) {
   const terms = esc(termsRaw).replace(/\n/g, '<br/>');
   const notes = esc(po.deliveryNotes || po.instructions || '');
   const poTitle = String(po.poNumber || 'PO').replace(/[\\/:*?"<>|]/g, '-');
+
   const rows = (po.items || []).map((it, i) => {
-    const amt = calcItemAmount(it);
+    const amt = calcItemAmount ? calcItemAmount(it) : (Number(it.qty || it.quantity || 0) * Number(it.rate || 0));
     return `<tr>
       <td class="c">${i + 1}</td>
-      <td>${esc(it.description)}</td>
-      <td class="c">${esc(it.hsn)}</td>
-      <td class="c">${esc(it.unit || 'EA')}</td>
-      <td class="r">${Number(it.qty || 0)}</td>
+      <td>${esc(it.description || it.name || '')}</td>
+      <td class="c">${esc(it.hsn || it.sac || '')}</td>
+      <td class="c">${esc(it.unit || '')}</td>
+      <td class="c">${esc(it.qty ?? it.quantity ?? '')}</td>
       <td class="r">${inr(it.rate)}</td>
       <td class="r">${inr(amt)}</td>
     </tr>`;
   }).join('');
-  const taxLines = t.isInterstate
-    ? `<div class="tot-row"><span>IGST (${Number(po.taxRate || 0).toFixed(2)}%)</span><span>₹${inr(t.igst)}</span></div>`
-    : `<div class="tot-row"><span>CGST (${(Number(po.taxRate || 0) / 2).toFixed(2)}%)</span><span>₹${inr(t.cgst)}</span></div>
-       <div class="tot-row"><span>SGST (${(Number(po.taxRate || 0) / 2).toFixed(2)}%)</span><span>₹${inr(t.sgst)}</span></div>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<title>${esc(poTitle)}</title>
+
+  const rate = Number(po.taxRate) || 0;
+  let taxLines = '';
+  if (t.igst > 0) taxLines += `<tr><td class="lab">IGST (${rate}%)</td><td class="r">₹${inr(t.igst)}</td></tr>`;
+  else if (t.cgst > 0 || t.sgst > 0) {
+    taxLines += `<tr><td class="lab">CGST (${rate / 2}%)</td><td class="r">₹${inr(t.cgst)}</td></tr>`;
+    taxLines += `<tr><td class="lab">SGST (${rate / 2}%)</td><td class="r">₹${inr(t.sgst)}</td></tr>`;
+  } else {
+    taxLines = `<tr><td class="lab">GST (${rate}%)</td><td class="r">₹${inr(t.gst || 0)}</td></tr>`;
+  }
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${poTitle}</title>
 <style>
-  @page { size: A4 portrait; margin: 8mm; }
+  @page { size: A4 portrait; margin: 10mm; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body {
-    font-family: Arial, Helvetica, 'Segoe UI', sans-serif;
-    color: #000;
-    font-size: 10pt;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #0f172a;
+    font-size: 10px;
     line-height: 1.35;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+  /* Single outer frame — continuous borders like SD invoice / professional PO */
   .sheet {
-    border: 1px solid #0f172a;
-    padding: 8px 10px;
+    border: 1.5pt solid #000;
     width: 100%;
     max-width: 100%;
-    box-sizing: border-box;
-    /* Fill A4 content area (~297mm - 2*8mm margin). Spacer grows; table does not. */
-    min-height: 277mm;
-    height: 277mm;
-    display: flex;
-    flex-direction: column;
+    display: block;
     overflow: hidden;
   }
-  .sheet-body {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
+  /* Word-style: content height only — no giant gap before signature */
+  .party .sec { padding: 8px 10px; min-height: 78px; }
+  .subject { padding: 7px 10px; }
+  .sign-block { padding: 14px 12px 10px; }
+  .hdr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1.5px solid #0f172a;
+    align-items: start;
   }
-  /* Tables as flex children stretch in Chrome print — pin height to content */
-  .items-wrap { flex: 0 0 auto; width: 100%; }
+  .hdr h1 { margin: 0 0 2px; font-size: 16px; font-weight: 800; letter-spacing: 0.03em; }
+  .hdr .muted { font-size: 8.5px; color: #334155; line-height: 1.4; }
+  .hdr .meta { text-align: right; font-size: 9px; }
+  .hdr .doc {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    border: 1.5px solid #0f172a;
+    padding: 4px 10px;
+    margin-bottom: 4px;
+  }
+  .party {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1.5px solid #0f172a;
+  }
+  .party .sec { padding: 8px 10px; min-height: 78px; }
+  .party .sec + .sec { border-left: 1.5px solid #0f172a; }
+  .party .lbl {
+    font-size: 8pt; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: #333; margin-bottom: 4px;
+    border-bottom: 0.75pt solid #999; padding-bottom: 2px;
+  }
+  .party .name { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
+  .party .det { font-size: 9px; color: #1e293b; line-height: 1.4; }
+  .subject {
+    padding: 7px 10px;
+    border-bottom: 1.5pt solid #000;
+    font-size: 9.5pt;
+    background: #f3f4f6;
+  }
   table.items {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 0;
-    height: auto !important;
     table-layout: fixed;
   }
-  table.items tbody tr { height: auto !important; }
-  table.items th, table.items td {
-    height: auto !important;
-    vertical-align: top;
-  }
-  .po-spacer { flex: 1 1 auto; min-height: 8px; }
-  .bottom { flex: 0 0 auto; }
-  .sign-row { flex: 0 0 auto; }
-  .fp { flex: 0 0 auto; }
-  .top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    border-bottom: 1px solid #0f172a;
-    padding-bottom: 8px;
-    margin-bottom: 8px;
-  }
-  .top .co h1 { margin: 0 0 2px 0; font-size: 15px; font-weight: 800; letter-spacing: 0.04em; color: #0f172a; }
-  .top .co .muted { color: #475569; font-size: 9px; line-height: 1.35; }
-  .top .meta { text-align: right; }
-  .top .meta .doc {
-    font-size: 13px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: #1e3a8a;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    padding: 3px 8px;
-    border-radius: 3px;
-    display: inline-block;
-    margin-bottom: 4px;
-  }
-  .top .meta div { margin-top: 1px; font-size: 9px; }
-  /* One outer frame, Supplier | Ship To side by side */
-  .party-box {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    border: 1px solid #0f172a;
-    margin-bottom: 0;
-    padding: 0;
-  }
-  .party-box .sec { padding: 6px 8px; min-height: 52px; }
-  .party-box .sec + .sec { border-left: 1px solid #0f172a; border-top: none; }
-  .party-box .lbl { font-size: 8px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 700; margin-bottom: 2px; }
-  .party-box .name { font-size: 10.5px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
-  .subject {
-    border: 1px solid #0f172a;
-    border-top: none;
-    padding: 5px 8px;
-    margin-bottom: 8px;
-    font-size: 9.5px;
-    background: #f8fafc;
-  }
   table.items th, table.items td {
     border: 1px solid #0f172a;
-    padding: 4px 6px;
+    padding: 4px 5px;
     vertical-align: top;
+    font-size: 9px;
   }
   table.items th {
-    border: 1px solid #0f172a;
     background: #f1f5f9;
-    font-size: 8.5px;
+    font-size: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
     font-weight: 700;
-    color: #1e293b;
+    letter-spacing: 0.02em;
   }
+  table.items th:first-child, table.items td:first-child { border-left: none; }
+  table.items th:last-child, table.items td:last-child { border-right: none; }
+  table.items thead tr:first-child th { border-top: none; }
   td.c { text-align: center; }
-  td.r { text-align: right; }
-  .bottom {
+  td.r { text-align: right; white-space: nowrap; }
+  .foot {
     display: grid;
-    grid-template-columns: 1.2fr 0.8fr;
-    gap: 0;
-    border: 1px solid #0f172a;
+    grid-template-columns: 1.25fr 0.75fr;
+    border-top: 1.5px solid #0f172a;
   }
-  .notes {
-    padding: 6px 8px;
-    border-right: 1px solid #0f172a;
-    font-size: 8.5px;
-    line-height: 1.35;
+  .foot .notes {
+    padding: 8px 10px;
+    border-right: 1.5pt solid #000;
+    font-size: 8.5pt;
+    line-height: 1.45;
   }
-  .notes b { display: block; margin-bottom: 2px; font-size: 9px; color: #0f172a; }
-  .totals { padding: 6px 8px; background: #fafafa; }
-  .tot-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 9.5px; }
-  .tot-row.grand {
-    border-top: 1px solid #0f172a;
-    margin-top: 4px;
-    padding-top: 4px;
+  .foot .notes b { display: block; margin: 0 0 2px; font-size: 9px; }
+  .foot .totals { padding: 0; }
+  .foot .totals table { width: 100%; border-collapse: collapse; }
+  .foot .totals td {
+    padding: 3px 8px;
+    font-size: 9.5px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .foot .totals td.lab { color: #475569; }
+  .foot .totals td.r { text-align: right; font-weight: 600; }
+  .foot .totals tr.grand td {
+    border-bottom: none;
+    border-top: 1.5px solid #0f172a;
     font-size: 11px;
     font-weight: 800;
-    color: #0f172a;
+    padding: 5px 8px;
+    background: #f8fafc;
   }
-  .sign-row {
+  .sign-block {
     display: flex;
     justify-content: flex-end;
-    margin-top: 8px;
+    padding: 12px 12px 10px;
+    border-top: 0.75pt solid #999;
   }
-  .sign { text-align: right; }
-  .sign img { max-height: 40px; max-width: 120px; object-fit: contain; display: block; margin: 0 0 2px auto; }
+  .sign { text-align: right; font-size: 9px; }
+  .sign img { max-height: 42px; max-width: 130px; object-fit: contain; display: block; margin: 0 0 2px auto; }
   .sign .line {
-    margin-top: 3px;
+    margin-top: 4px;
     border-top: 1.2px solid #0f172a;
     display: inline-block;
-    min-width: 130px;
+    min-width: 140px;
     padding-top: 2px;
-    font-size: 8.5px;
     font-weight: 600;
   }
   .fp {
-    margin-top: 6px;
-    font-size: 7px;
+    font-size: 6.5px;
     color: #94a3b8;
     text-align: center;
+    padding: 3px 8px 5px;
     border-top: 1px dashed #cbd5e1;
-    padding-top: 3px;
   }
 </style></head><body>
-  <div class="sheet"><div class="sheet-body">
-    <div class="top">
-      <div class="co">
+  <div class="sheet">
+    <div class="hdr">
+      <div>
         <h1>${company.toUpperCase()}</h1>
         <div class="muted">${cAddr}${cGst ? '<br/>GSTIN: ' + cGst : ''}${(cPhone || cEmail) ? '<br/>' + [cPhone, cEmail].filter(Boolean).join(' · ') : ''}</div>
       </div>
@@ -328,31 +339,31 @@ function printPO(po, profile, fingerprint, clientsList) {
         <div><b>Status:</b> ${esc(po.status || 'Issued')}</div>
       </div>
     </div>
-    <div class="party-box">
+    <div class="party">
       <div class="sec">
-        <div class="lbl">Supplier (Vendor)</div>
+        <div class="lbl">Supplier Details (To)</div>
         <div class="name">${vendorName || '—'}</div>
-        <div>${vendorGst ? 'GSTIN: ' + vendorGst + '<br/>' : ''}${vendorPhone ? 'Phone: ' + vendorPhone + '<br/>' : ''}${vendorAddr || ''}</div>
+        <div class="det">${vendorGst ? 'GSTIN: ' + vendorGst + '<br/>' : ''}${vendorPhone ? 'Phone: ' + vendorPhone + '<br/>' : ''}${vendorAddr || ''}</div>
       </div>
       <div class="sec">
-        <div class="lbl">Ship To (Delivery)</div>
+        <div class="lbl">Delivery Details (Ship To)</div>
         ${shipName ? `<div class="name">${shipName}</div>` : ''}
-        <div style="font-weight:600">${shipSite || '—'}</div>
-        ${shipStreet ? `<div>${shipStreet}</div>` : ''}
-        ${shipCityLine ? `<div>${shipCityLine}</div>` : ''}
+        ${shipSite ? `<div class="det"><b>Site: ${shipSite}</b></div>` : ''}
+        ${shipStreet ? `<div class="det">${shipStreet}</div>` : ''}
+        ${shipCityLine ? `<div class="det">${shipCityLine}</div>` : ''}
+        ${!shipName && !shipSite && !shipStreet && !shipCityLine ? '<div class="det">—</div>' : ''}
       </div>
     </div>
-    ${subject ? `<div class="subject"><b>Subject:</b> ${subject}</div>` : `<div class="subject"><b>Subject:</b> —</div>`}
-    <div class="items-wrap">
+    <div class="subject"><b>Subject:</b> ${subject || '—'}</div>
     <table class="items">
       <thead>
         <tr>
           <th style="width:5%">Sl</th>
           <th>Description / Material</th>
-          <th style="width:10%">HSN/SAC</th>
+          <th style="width:11%">HSN/SAC</th>
           <th style="width:8%">Unit</th>
           <th style="width:8%">Qty</th>
-          <th style="width:12%">Unit Rate</th>
+          <th style="width:13%">Unit Rate</th>
           <th style="width:14%">Amount (₹)</th>
         </tr>
       </thead>
@@ -360,40 +371,37 @@ function printPO(po, profile, fingerprint, clientsList) {
         ${rows || '<tr><td colspan="7" class="c">No items</td></tr>'}
       </tbody>
     </table>
-    </div>
-    <div class="po-spacer" aria-hidden="true"></div>
-    <div class="bottom">
+    <div class="foot">
       <div class="notes">
         ${notes ? `<b>Notes / Instructions</b>${notes.replace(/\n/g, '<br/>')}<br/><br/>` : ''}
-        <b>Terms &amp; Conditions</b><br/>${terms}
+        <b>Terms &amp; Conditions</b>
+        ${terms}
       </div>
       <div class="totals">
-        <div class="tot-row"><span>Subtotal</span><span>₹${inr(t.sub)}</span></div>
-        ${taxLines}
-        <div class="tot-row"><span>Round Off</span><span>₹0.00</span></div>
-        <div class="tot-row grand"><span>Grand Total</span><span>₹${inr(t.total)}</span></div>
+        <table>
+          <tr><td class="lab">Subtotal</td><td class="r">₹${inr(t.sub)}</td></tr>
+          ${taxLines}
+          <tr><td class="lab">Round Off</td><td class="r">₹0.00</td></tr>
+          <tr class="grand"><td>Grand Total</td><td class="r">₹${inr(t.total)}</td></tr>
+        </table>
       </div>
     </div>
-    </div><div class="sign-row">
+    <div class="sign-block">
       <div class="sign">
-        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:48px"></div>'}
+        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:36px"></div>'}
         <div>For <b>${company}</b></div>
         <div class="line">Authorized Signatory</div>
       </div>
     </div>
-    <div class="fp">SHA-256: ${esc(fingerprint) || '—'} · Generated securely by SD Dynamics · ${new Date().toLocaleString('en-IN')}</div>
+    <div class="fp">SHA-256: ${esc(fingerprint) || '—'} · Generated by SD Dynamics · ${new Date().toLocaleString('en-IN')}</div>
   </div>
 </body></html>`;
 
-  // Print in-tab only (hidden iframe). No blank browser tab.
-  // document.title becomes the suggested PDF file name.
   try {
     let iframe = document.getElementById('sd-po-print-frame');
     if (!iframe) {
       iframe = document.createElement('iframe');
       iframe.id = 'sd-po-print-frame';
-      // Non-zero size: some browsers ignore print() on 0×0 iframes
-      iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0.01;z-index:-1;pointer-events:none;border:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;';
       document.body.appendChild(iframe);
     }
     iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
@@ -402,9 +410,7 @@ function printPO(po, profile, fingerprint, clientsList) {
     try { document.title = poTitle; } catch (_) {}
 
     let printed = false;
-    const restoreTitle = () => {
-      try { document.title = prevTitle; } catch (_) {}
-    };
+    const restoreTitle = () => { try { document.title = prevTitle; } catch (_) {} };
     const runPrint = () => {
       if (printed) return;
       printed = true;
@@ -418,21 +424,17 @@ function printPO(po, profile, fingerprint, clientsList) {
         const idoc = iframe.contentDocument || win.document;
         if (idoc) idoc.title = poTitle;
       } catch (_) {}
-      // Restore ONLY from iframe afterprint (parent afterprint fires too early and kills the PDF name)
-      try {
-        win.onafterprint = () => { restoreTitle(); };
-      } catch (_) {}
+      try { win.onafterprint = () => { restoreTitle(); }; } catch (_) {}
       try {
         win.focus();
         win.print();
-        try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
+        try { toast('In the print dialog: turn Headers and footers OFF for clean edges', 'info'); } catch (_) {}
       } catch (e) {
         console.error('printPO print()', e);
         restoreTitle();
         alert('Failed to print PO. Check browser console.');
         return;
       }
-      // Fallback if iframe afterprint never fires
       setTimeout(restoreTitle, 60000);
     };
 
@@ -444,7 +446,6 @@ function printPO(po, profile, fingerprint, clientsList) {
     doc.close();
     try { doc.title = poTitle; } catch (_) {}
 
-    // Wait for images (signature) then print
     const imgs = Array.from(doc.images || []);
     const delay = sigSrc || imgs.length ? 500 : 150;
     if (imgs.length) {
@@ -454,7 +455,7 @@ function printPO(po, profile, fingerprint, clientsList) {
         if (img.complete) done();
         else { img.onload = done; img.onerror = done; }
       });
-      setTimeout(runPrint, delay + 800); // safety
+      setTimeout(runPrint, delay + 800);
     } else {
       setTimeout(runPrint, delay);
     }
@@ -463,6 +464,7 @@ function printPO(po, profile, fingerprint, clientsList) {
     alert('Failed to generate PO print. Check browser console.');
   }
 }
+
 
 
 export default function PurchaseOrdersView() {
