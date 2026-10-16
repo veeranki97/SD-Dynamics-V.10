@@ -523,9 +523,9 @@ function BoxedLayout({ ctx }) {
               {t.hsn && <th style={th}>{ctx.isServices ? 'SAC' : 'HSN/SAC'}</th>}
               {t.itemQty && <th style={th}>UNIT</th>}
               {t.itemQty && <th style={th}>QTY</th>}
-              {t.rate && <th style={th}>Rate</th>}
-              {ctx.hasAnyDiscount && <th style={th}>Disc.</th>}
-              <th style={{ ...th, borderRight: 'none' }}>Amount</th>
+              {t.rate && !ctx.hideMoney && <th style={th}>Rate</th>}
+              {ctx.hasAnyDiscount && !ctx.hideMoney && <th style={th}>Disc.</th>}
+              {!ctx.hideMoney && <th style={{ ...th, borderRight: 'none' }}>Amount</th>}
             </tr>
           </thead>
           <tbody>
@@ -541,9 +541,9 @@ function BoxedLayout({ ctx }) {
                   {t.hsn && <td style={{ ...cell, ...center }}>{item.hsn || ''}</td>}
                   {t.itemQty && <td style={{ ...cell, ...center }}>{item.unit || ''}</td>}
                   {t.itemQty && <td style={{ ...cell, ...center }}>{item.quantity}</td>}
-                  {t.rate && <td style={{ ...cell, ...right }}>{num(item.rate)}</td>}
-                  {ctx.hasAnyDiscount && <td style={{ ...cell, ...right }}>{l.discount > 0 ? num(l.discount) : ''}</td>}
-                  <td style={{ ...cell, ...right, borderRight: 'none' }}>{num(l.taxable)}</td>
+                  {t.rate && !ctx.hideMoney && <td style={{ ...cell, ...right }}>{num(item.rate)}</td>}
+                  {ctx.hasAnyDiscount && !ctx.hideMoney && <td style={{ ...cell, ...right }}>{l.discount > 0 ? num(l.discount) : ''}</td>}
+                  {!ctx.hideMoney && <td style={{ ...cell, ...right, borderRight: 'none' }}>{num(l.taxable)}</td>}
                 </tr>
               );
             })}
@@ -556,11 +556,13 @@ function BoxedLayout({ ctx }) {
             ))}
           </tbody>
         </table>
-        <div {...blockProps} style={{ display: 'grid', gridTemplateColumns: '1fr auto', borderBottom: B }}>
-          <div style={{ padding: '4px 6px', borderRight: B }}>
-            <BankLines ctx={ctx} />
-            <UpiQr ctx={ctx} />
+        <div {...blockProps} style={{ display: 'grid', gridTemplateColumns: ctx.hideMoney ? '1fr' : '1fr auto', borderBottom: B }}>
+          <div style={{ padding: '4px 6px', borderRight: ctx.hideMoney ? 'none' : B }}>
+            {!ctx.hideMoney && <BankLines ctx={ctx} />}
+            {!ctx.hideMoney && <UpiQr ctx={ctx} />}
+            {ctx.hideMoney && <div style={{ fontWeight: 700, textAlign: 'center', padding: 6 }}>— End of list —</div>}
           </div>
+          {!ctx.hideMoney && (
           <table style={{ borderCollapse: 'collapse', minWidth: 230, alignSelf: 'start' }}>
             <tbody>
               <tr><td style={{ ...cell, borderTop: 'none', ...right }}>Total</td><td style={{ ...cell, borderTop: 'none', borderRight: 'none', ...right }}>{num(totals.subtotal - (totals.totalDiscount || 0))}</td></tr>
@@ -576,8 +578,9 @@ function BoxedLayout({ ctx }) {
               )}
             </tbody>
           </table>
+          )}
         </div>
-        {ctx.showAmountWords && (
+        {!ctx.hideMoney && ctx.showAmountWords && (
           <div {...blockProps} style={{ padding: '4px 6px', borderBottom: B }}><span style={label}>Amount in words:</span> {ctx.words(totals.total)}</div>
         )}
         {ctx.showHsnSummary && <div style={{ margin: '0 -1px' }}><HsnSummaryTable ctx={ctx} /></div>}

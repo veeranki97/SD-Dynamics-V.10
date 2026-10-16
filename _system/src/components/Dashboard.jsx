@@ -1393,13 +1393,25 @@ const openPaymentModal = (bill) => {
     openWhatsAppShare(bill.clientPhone, msg);
   };
 
-  const shareEmail = (bill) => {
-    // v1.10.24 — same rich payment status as the WhatsApp share (strip
-    // markdown asterisks since mailto: doesn't render them).
+    const shareEmail = (bill) => {
+    // Prefer <a href="mailto:"> over window.open — avoids blocked popup / flicker
+    // with no mail client in Chrome, Edge, and HTA webview.
     const subject = `Invoice ${bill.invoiceNumber} - ${formatCurrency(bill.totalAmount, bill.currency)}`;
     const richBody = buildShareMessage(bill).replace(/\*/g, '');
-    const body = `Dear ${bill.clientName},\n\n${richBody}\n\nRegards`;
-    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+    const to = (bill.clientEmail || bill.data?.client?.email || '').trim();
+    const body = `Dear ${bill.clientName || 'Sir/Madam'},\n\n${richBody}\n\nRegards`;
+    const href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    try {
+      const a = document.createElement('a');
+      a.href = href;
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { try { a.remove(); } catch (_) {} }, 400);
+    } catch (_) {
+      try { window.location.href = href; } catch (__) {}
+    }
   };
 
   const clearFilters = () => {

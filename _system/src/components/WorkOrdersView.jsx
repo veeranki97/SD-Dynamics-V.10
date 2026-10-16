@@ -165,7 +165,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
       setForm({
         id: 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         costCenterId: p.costCenterId || '',
-        woNumber: '',
+        woNumber: (p.woNumber || '').trim(),
         clientName: p.clientName || '',
         clientId: p.clientId || '',
         clientState: p.clientState || '',

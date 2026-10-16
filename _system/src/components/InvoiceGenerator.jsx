@@ -4313,6 +4313,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                         site: client?.site || details?.site || 'Main Site',
                         title: (details?.workDetails || '').trim() || client?.name || 'Work Order',
                         notes: details?.workDetails || '',
+                        woNumber: (details?.workOrderNo || '').trim(),
                         taxRate: 18,
                         periodStart: details?.periodStart || '',
                         periodEnd: details?.periodEnd || '',
