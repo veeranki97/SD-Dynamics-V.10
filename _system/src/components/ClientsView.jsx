@@ -1,3 +1,4 @@
+import { sendMailSmart } from '../utils/openMail';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Users, Search, FileText, ChevronDown, ChevronUp, Trash2, X, MessageCircle, Mail, Plus, Edit3, Copy, Upload, Download } from 'lucide-react';
 import HelpButton from './HelpButton';
@@ -728,10 +729,19 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
     openWhatsAppShare(bill.clientPhone, msg);
   };
 
-  const shareEmail = (bill) => {
-    const subject = `Invoice ${bill.invoiceNumber}`;
-    const body = `Dear ${bill.clientName},\n\nPlease find the details of your invoice:\n\nInvoice No: ${bill.invoiceNumber}\nAmount: ${formatCurrency(bill.totalAmount)}\nDate: ${new Date(bill.invoiceDate).toLocaleDateString('en-IN')}\nDue: ${bill.status === 'paid' ? 'Paid' : 'Pending'}\n\nRegards`;
-    window.open(`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`, '_blank');
+  const shareEmail = async (bill) => {
+    const subject = `Invoice ${bill.invoiceNumber || ''}`;
+    const to = (bill.clientEmail || bill.data?.client?.email || '').trim();
+    const body = `Dear ${bill.clientName || 'Customer'},
+
+Please find details for invoice ${bill.invoiceNumber || ''}.
+
+Regards`;
+    if (!to) return;
+    const result = await sendMailSmart({ to, subject, body, allowGmailFallback: true });
+    if (result.ok && result.method === 'smtp') {
+      try { toast(`Sent via SMTP to ${to}`, 'success'); } catch (_) {}
+    }
   };
 
   return (

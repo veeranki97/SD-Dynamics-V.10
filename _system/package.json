@@ -1,7 +1,7 @@
 {
   "name": "sd-dynamics",
   "version": "2.4.0",
-  "description": "SD Dynamics \u2014 GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
+  "description": "SD Dynamics — GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
   "author": "Bharat <saidurga>",
   "license": "MIT",
   "repository": {
@@ -99,20 +99,20 @@
     "test:sqlite": "node -e \"import('./src/db/sqliteStore.js').then(m=>{const r=m.initSqliteStore('./data'); console.log(r); process.exit(r.ok?0:1)})\""
   },
   "dependencies": {
+    "better-sqlite3": "^11.7.0",
     "chart.js": "^4.5.1",
     "cors": "^2.8.6",
     "dompurify": "^3.4.15",
-    "better-sqlite3": "^11.7.0",
     "express": "^5.2.1",
     "html2canvas": "^1.4.1",
     "install": "^0.13.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
+    "nodemailer": "^6.10.1",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "tesseract.js": "^7.0.0",
-    "nodemailer": "^6.9.16"
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

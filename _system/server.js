@@ -1453,14 +1453,29 @@ app.post('/api/app-lock/disable', (req, res) => {
   }
 });
 
+
 app.post('/api/app-lock/prefs', (req, res) => {
   try {
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
-    if (typeof req.b
+    if (typeof req.body?.autoLockEnabled === 'boolean') lock.autoLockEnabled = req.body.autoLockEnabled;
+    if (req.body?.autoLockMinutes != null) {
+      lock.autoLockMinutes = Math.min(120, Math.max(1, Number(req.body.autoLockMinutes) || 15));
+    }
+    meta.appLock = lock;
+    writeJSON(META_PATH, meta);
+    res.json({
+      ok: true,
+      autoLockEnabled: lock.autoLockEnabled !== false,
+      autoLockMinutes: lock.autoLockMinutes || 15,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ========================
 // API session after PIN (screen lock) — not encryption
-// Token issued on /api/app-lock/verify; required on other /api when lock enabled.
 // ========================
 const SD_SESSIONS = new Map(); // token -> { exp }
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
@@ -1490,7 +1505,9 @@ function isAppLockActive() {
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
     return !!(lock.enabled && lock.pinHash && lock.pinSalt);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 const APP_LOCK_PUBLIC = new Set([
   '/api/app-lock/status',
@@ -1501,7 +1518,6 @@ const APP_LOCK_PUBLIC = new Set([
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
   if (APP_LOCK_PUBLIC.has(req.path)) return next();
-  // Always allow lock setup/disable with care — set/disable need PIN body; status is public
   if (req.path.startsWith('/api/app-lock/')) return next();
   if (!isAppLockActive()) return next();
   const token = readSessionToken(req);
@@ -1513,24 +1529,12 @@ app.use((req, res, next) => {
   });
 });
 
-
 app.post('/api/app-lock/logout', (req, res) => {
   const token = readSessionToken(req);
   if (token) SD_SESSIONS.delete(token);
   res.setHeader('Set-Cookie', 'sd_session=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly');
   res.json({ ok: true, note: 'PIN is a screen lock only. Data files are not encrypted.' });
 });
-
-ody?.autoLockEnabled === 'boolean') lock.autoLockEnabled = req.body.autoLockEnabled;
-    if (req.body?.autoLockMinutes != null) lock.autoLockMinutes = Math.min(120, Math.max(1, Number(req.body.autoLockMinutes) || 15));
-    meta.appLock = lock;
-    writeJSON(META_PATH, meta);
-    res.json({ ok: true, autoLockEnabled: lock.autoLockEnabled !== false, autoLockMinutes: lock.autoLockMinutes || 15 });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 
 app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});

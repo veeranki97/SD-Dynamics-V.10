@@ -13,6 +13,7 @@ import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/r
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
+import { sendMailSmart } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
 import { runWorkflowRules } from './WorkflowRulesView';
 import { billsToSdCsv, downloadSdExport } from '../utils/sdExport';
@@ -1456,8 +1457,7 @@ const openPaymentModal = (bill) => {
     openWhatsAppShare(bill.clientPhone, msg);
   };
 
-    const shareEmail = (bill) => {
-    // mailto URL length is limited (~2000 chars). Long bodies fail silently.
+    const shareEmail = async (bill) => {
     const subject = `Invoice ${bill.invoiceNumber || ''} — ${formatCurrency(bill.totalAmount, bill.currency)}`;
     const to = (bill.clientEmail || bill.data?.client?.email || bill.data?.client?.Email || '').trim();
     let body = `Dear ${bill.clientName || bill.data?.client?.name || 'Sir/Madam'},\n\n`;
@@ -1467,30 +1467,22 @@ const openPaymentModal = (bill) => {
       body += `Please find invoice ${bill.invoiceNumber || ''} for ${formatCurrency(bill.totalAmount, bill.currency)}.`;
     }
     body += '\n\nRegards';
-    if (body.length > 1200) body = body.slice(0, 1190) + '\n…';
-    const href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    try {
-      window.location.href = href;
-    } catch (_) {
-      try {
-        const a = document.createElement('a');
-        a.href = href;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => { try { a.remove(); } catch (_) {} }, 300);
-      } catch (__) {}
+    if (!to) {
+      toast('No client email on file — add email on the client master.', 'warning');
+      return;
     }
-    try {
-      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(body);
-    } catch (_) {}
-    if (typeof toast === 'function') {
-      toast(
-        to
-          ? `Mail app should open to ${to}. If nothing opens: paste (Ctrl+V) into Gmail/Outlook — body is on clipboard.`
-          : 'No client email on file. Body is on clipboard — open Gmail, New mail, paste.',
-        'info'
-      );
+    toast('Sending via SMTP…', 'info', 2000);
+    const result = await sendMailSmart({ to, subject, body, allowGmailFallback: true });
+    if (result.method === 'smtp' && result.ok) {
+      toast(`Email sent via SMTP to ${to}`, 'success');
+      return;
+    }
+    // SMTP failed — Gmail opened in new tab only (app stays here)
+    const why = result.smtpError || 'SMTP not available';
+    if (result.popupBlocked) {
+      toast(`${why}. Gmail popup blocked — allow pop-ups, or paste clipboard into Gmail.`, 'warning', 8000);
+    } else {
+      toast(`${why}. Opened Gmail in a new tab as fallback (app stayed open).`, 'info', 7000);
     }
   };
 

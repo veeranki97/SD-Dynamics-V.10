@@ -1,3 +1,4 @@
+import { sendMailSmart } from '../utils/openMail';
 import { toast } from './Toast';
 import { useState, useEffect, useMemo } from 'react';
 import { Bell, RefreshCw, Mail, MessageCircle } from 'lucide-react';
@@ -62,28 +63,29 @@ export default function PaymentRemindersView() {
   }, [bills, q]);
 
   const openEmail = async (b) => {
-    const email = b.data?.client?.email || b.clientEmail || '';
-    const sub = `Payment reminder: ${b.invoiceNumber || ''}`;
-    const bodyText = `Dear ${b.clientName || 'Customer'},\n\nThis is a reminder that invoice ${b.invoiceNumber || ''} has an outstanding balance of ${formatCurrency(b._rem)}.\nDue date: ${b.dueDate || b.invoiceDate || '—'}\n\nPlease arrange payment at the earliest.\n\nThank you.`;
-    // Prefer server SMTP when configured
-    try {
-      const r = await fetch('/api/mail/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(sessionStorage.getItem('sd_session_token') ? { Authorization: `Bearer ${sessionStorage.getItem('sd_session_token')}` } : {}) },
-        credentials: 'same-origin',
-        body: JSON.stringify({ to: email, subject: sub, text: bodyText }),
-      });
-      if (r.ok) { toast('Reminder emailed via SMTP', 'success'); return; }
-      const err = await r.json().catch(() => ({}));
-      if (r.status === 400 || r.status === 503) {
-        toast(err.error || 'SMTP not configured — opening mail app', 'info');
-      }
-    } catch (_) { /* fall through to mailto */ }
-    const subEnc = encodeURIComponent(sub);
-    const body = encodeURIComponent(
-      `Dear ${b.clientName || 'Customer'},\n\nThis is a reminder that invoice ${b.invoiceNumber || ''} has an outstanding balance of ${formatCurrency(b._rem)}.\nDue date: ${b.dueDate || b.invoiceDate || '—'}\n\nPlease arrange payment at the earliest.\n\nThank you.`
-    );
-    window.location.href = `mailto:${email}?subject=${subEnc}&body=${body}`;
+    const email = (b.data?.client?.email || b.clientEmail || '').trim();
+    const subject = `Payment reminder: ${b.invoiceNumber || ''}`;
+    const bodyText =
+      `Dear ${b.clientName || 'Customer'},\n\n` +
+      `This is a reminder that invoice ${b.invoiceNumber || ''} has an outstanding balance of ${formatCurrency(b._rem)}.\n` +
+      `Due date: ${b.dueDate || b.invoiceDate || '—'}\n\n` +
+      `Please arrange payment at the earliest.\n\nThank you.`;
+    if (!email) {
+      toast('No client email on file', 'warning');
+      return;
+    }
+    toast('Sending via SMTP…', 'info', 2000);
+    const result = await sendMailSmart({ to: email, subject, body: bodyText, allowGmailFallback: true });
+    if (result.method === 'smtp' && result.ok) {
+      toast(`Reminder sent via SMTP to ${email}`, 'success');
+      return;
+    }
+    const why = result.smtpError || 'SMTP failed';
+    if (result.popupBlocked) {
+      toast(`${why}. Allow pop-ups for Gmail fallback, or paste from clipboard.`, 'warning', 8000);
+    } else {
+      toast(`${why}. Gmail opened in a new tab (fallback).`, 'info', 7000);
+    }
   };
 
   const openWhatsApp = (b) => {
