@@ -6,7 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity } from '../store';
+import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
 import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
 import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/revenueFilter';
@@ -40,6 +40,10 @@ const STATUS_CONFIG = {
   paid:    { label: 'Paid',    icon: CheckCircle,    color: '#059669', bg: 'rgba(5, 150, 105, 0.14)'  },
   overdue: { label: 'Overdue', icon: AlertTriangle,  color: '#dc2626', bg: 'rgba(220, 38, 38, 0.14)'  },
   cancelled: { label: 'Cancelled', icon: X, color: '#64748b', bg: 'rgba(100, 116, 139, 0.14)' },
+  // Quotation-only pipeline (no AR / sales until Accepted → convert)
+  draft:    { label: 'Draft',    icon: Clock,         color: '#64748b', bg: 'rgba(100,116,139,0.14)' },
+  sent:     { label: 'Sent',     icon: Clock,         color: '#2563eb', bg: 'rgba(37,99,235,0.14)' },
+  accepted: { label: 'Accepted', icon: CheckCircle,   color: '#059669', bg: 'rgba(5,150,105,0.14)' },
 };
 
 // v1.10.6 — audit L4: was a local copy of getFYOptions. Now imported
@@ -240,6 +244,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     () => allBills.filter(b => belongsToProfile(b, profile)),
     [allBills, profile],
   );
+  const [purchasesList, setPurchasesList] = useState([]);
   const [filtered, setFiltered] = useState([]);
   // v1.10.66 (#64 item 3) — the headline cards are computed from `bills`, the
   // list already narrowed to the active business. They used to be summed in
@@ -329,6 +334,42 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     const gstBreakdown = { cgst: gstC, sgst: gstS, igst: gstI };
     return { byCurrency, count: bills.length, byMonth, monthKeys, topClients, topSites, salesByState, aging, gstBreakdown, gstByMonth };
   }, [bills]);
+
+  const secondaryKpis = useMemo(() => {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    let monthSales = 0;
+    for (const b of bills) {
+      const st = String(b.status || '').toLowerCase();
+      if (st === 'cancelled' || st === 'converted') continue;
+      const idate = String(b.data?.details?.invoiceDate || b.invoiceDate || b.date || '');
+      if (idate.slice(0, 7) !== ym) continue;
+      monthSales += revenueSignedAmount(b);
+    }
+    const drafts = bills.filter((b) => {
+      const st = String(b.status || '').toLowerCase();
+      if (st === 'draft') return true;
+      if (Number(b.docstatus) === 0 && !['unpaid', 'partial', 'paid', 'overdue', 'cancelled', 'converted', 'sent', 'accepted'].includes(st)) return true;
+      return false;
+    }).length;
+    const openInv = bills.filter((b) => {
+      if (!isRevenueDocument(b)) return false;
+      const st = String(b.status || '').toLowerCase();
+      if (st === 'paid' || st === 'cancelled') return false;
+      return ((Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0)) > 1;
+    }).length;
+    let monthPurchases = 0;
+    const byMonthPurchases = {};
+    for (const p of (purchasesList || [])) {
+      if (String(p.status || '').toLowerCase() === 'cancelled') continue;
+      const d = String(p.date || p.billDate || p.invoiceDate || '').slice(0, 7);
+      const amt = Number(p.totalAmount ?? p.grandTotal ?? p.amount ?? 0) || 0;
+      if (d) byMonthPurchases[d] = (byMonthPurchases[d] || 0) + amt;
+      if (d === ym) monthPurchases += amt;
+    }
+    return { monthSales, monthPurchases, drafts, openInv, byMonthPurchases, currentYm: ym };
+  }, [bills, purchasesList]);
+
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -380,6 +421,10 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   const loadBills = async () => {
     try {
       const data = await getAllBills();
+      try {
+        const pur = await getAllPurchases();
+        setPurchasesList(Array.isArray(pur) ? pur : (pur?.items || []));
+      } catch { setPurchasesList([]); }
       try {
         const wos = await getAllWorkOrders().catch(() => []);
         const map = {};
@@ -1624,9 +1669,38 @@ const openPaymentModal = (bill) => {
         </div>
       </div>
 )}
+      
+      {/* A) Second KPI row — this month + drafts + open */}
+      <div className="stats-grid stats-grid-kpi-4" style={{ marginTop: 10, marginBottom: 8 }}>
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
+          onClick={() => { setTypeFilter('tax-invoice'); setDateFrom(`${secondaryKpis.currentYm}-01`); const [y,m]=secondaryKpis.currentYm.split('-'); const last=new Date(Number(y),Number(m),0).getDate(); setDateTo(`${secondaryKpis.currentYm}-${String(last).padStart(2,'0')}`); }}
+          style={{ cursor: 'pointer' }}>
+          <p className="stat-label">This month sales</p>
+          <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
+        </div>
+        <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
+          onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
+          style={{ cursor: 'pointer' }}>
+          <p className="stat-label">This month purchases</p>
+          <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
+        </div>
+        <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
+          onClick={() => { setStatusFilter('draft'); }}
+          style={{ cursor: 'pointer' }}>
+          <p className="stat-label">Drafts</p>
+          <p className="stat-value">{secondaryKpis.drafts}</p>
+        </div>
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
+          onClick={() => { setTypeFilter('tax-invoice'); setStatusFilter('unpaid'); }}
+          style={{ cursor: 'pointer' }}>
+          <p className="stat-label">Open invoices</p>
+          <p className="stat-value">{secondaryKpis.openInv}</p>
+        </div>
+      </div>
+
       {/* KPI charts (home only) */}
       {!listMode && (
-        <DashboardCharts stats={stats} />
+        <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} />
       )}
 
       {/* Low Stock Alerts */}
@@ -2003,12 +2077,14 @@ const openPaymentModal = (bill) => {
                             && (bill.status || '') !== 'converted'
                             && !bill.convertedToInvoiceId
                             && !bill.data?.convertedLocked
+                            && (!(String(bill.invoiceType||'').includes('quot')) || String(bill.status||'').toLowerCase() === 'accepted')
                             ? { label: 'Convert to Tax Invoice', onClick: () => onConvert?.(bill, 'tax-invoice') } : null,
                           (bill.invoiceType === 'quotation' || String(bill.invoiceType||'').includes('quot'))
                             && (bill.status || '') !== 'cancelled'
                             && (bill.status || '') !== 'converted'
                             && !bill.convertedToInvoiceId
                             && !bill.data?.convertedLocked
+                            && String(bill.status||'').toLowerCase() === 'accepted'
                             ? { label: 'Convert to Proforma', onClick: () => onConvert?.(bill, 'proforma') } : null,
                           (bill.invoiceType === 'quotation' || bill.invoiceType === 'proforma'
                             || String(bill.invoiceType||'').includes('quot') || String(bill.invoiceType||'').includes('proforma'))
@@ -2016,10 +2092,14 @@ const openPaymentModal = (bill) => {
                             && (bill.status || '') !== 'converted'
                             && !bill.convertedToInvoiceId
                             && !bill.data?.convertedLocked
+                            && (!(String(bill.invoiceType||'').includes('quot')) || String(bill.status||'').toLowerCase() === 'accepted')
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
                           isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
+                          (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Draft', onClick: () => handleStatusChange(bill, 'draft') } : null,
+                          (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Sent', onClick: () => handleStatusChange(bill, 'sent') } : null,
+                          (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Accepted', onClick: () => handleStatusChange(bill, 'accepted') } : null,
                           isPaymentDocType(bill.invoiceType) && (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)
                             ? { label: 'Send Reminder', onClick: () => sendReminder({ ...bill, clientPhone: getClientPhone(bill) }) } : null,
                           { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },

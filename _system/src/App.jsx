@@ -1,6 +1,7 @@
 import { loadMasterDataFromServer } from './utils/masterData';
 import { hydratePrintSettingsFromServer } from './utils/printSettings';
 import HrmView from './components/HrmView';
+import DataExportView from './components/DataExportView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
@@ -916,6 +917,7 @@ function App() {
     // Compliance
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
+    { id: 'data-export', icon: Download, label: 'Data export', module: 'reports', group: 'Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // System — Notifications, Dark Mode, Control Panel, Settings (as in product UI)
     // HR — above Settings in the side menu
@@ -1438,7 +1440,7 @@ function App() {
         {currentView === 'reports' && (
           <ReportsView key={businessKey} />
         )}
-        {currentView === 'filing' && (
+        {currentView === 'data-export' ? <DataExportView /> : currentView === 'filing' && (
           <GSTReturns key={businessKey} />
         )}
         {currentView === 'incometax' && (

@@ -491,6 +491,25 @@ app.get('/api/bills', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+function assertPeriodNotLocked(dateStr, res) {
+  try {
+    const metaPath = path.join(DATA_DIR, 'meta.json');
+    const meta = readJSON(metaPath, {}) || {};
+    const locked = meta.lockedMonths || [];
+    const d = String(dateStr || '').slice(0, 7);
+    if (d && Array.isArray(locked) && locked.includes(d)) {
+      res.status(403).json({
+        error: `Period ${d} is locked (GSTR filed / period close).`,
+        code: 'period-locked',
+        month: d,
+      });
+      return false;
+    }
+  } catch (e) { console.warn('[period-lock]', e.message); }
+  return true;
+}
+
 app.post('/api/bills', (req, res) => {
   let bill = req.body;
   if (!bill || !bill.id) return res.status(400).json({ error: 'Bill must have an id' });
@@ -529,7 +548,7 @@ app.post('/api/bills', (req, res) => {
     const meta = readJSON(metaPath, {}) || {};
     const locked = meta.lockedMonths || [];
     const d = String(bill.invoiceDate || bill.date || '').slice(0, 7);
-    if (d && Array.isArray(locked) && locked.includes(d) && req.query.unlock !== '1') {
+    if (d && Array.isArray(locked) && locked.includes(d)) {
       return res.status(403).json({
         error: `Period ${d} is locked (GSTR filed / period close). Admin unlock required.`,
         code: 'period-locked',
@@ -546,16 +565,43 @@ app.post('/api/bills', (req, res) => {
     bill.docstatus = nonFin ? 0 : 1;
   }
   const beforeBill = fs.existsSync(filePath) ? readJSON(filePath, null) : null;
-  // P2: lock submitted docs against full overwrite unless ?force=1 or payment-only
+  // Final (docstatus 1) = locked: only paidAmount, payments, status may change
   if (beforeBill && isSubmitted(beforeBill) && req.query.force !== '1') {
-    const statusOnly = bill.status !== beforeBill.status || bill.paidAmount !== beforeBill.paidAmount;
-    // allow payment status updates; block other field rewrites by merging
-    if (!statusOnly && JSON.stringify({ ...beforeBill, status: bill.status, paidAmount: bill.paidAmount, payments: bill.payments }) !== JSON.stringify(bill)) {
-      // soft lock: still allow save but stamp
-      bill.docstatus = beforeBill.docstatus;
+    const paymentOnly = {
+      ...beforeBill,
+      status: bill.status,
+      paidAmount: bill.paidAmount,
+      payments: bill.payments,
+      updatedAt: bill.updatedAt || beforeBill.updatedAt,
+    };
+    const strip = (o) => {
+      const c = { ...o };
+      delete c.updatedAt;
+      delete c._rev;
+      return c;
+    };
+    const sameCore = JSON.stringify(strip(paymentOnly)) === JSON.stringify(strip({
+      ...bill,
+      status: bill.status,
+      paidAmount: bill.paidAmount,
+      payments: bill.payments,
+    }));
+    // Allow if only payment fields differ from before; reject taxable/line rewrites
+    const coreKeysChanged = ['totalAmount', 'taxableAmount', 'totalTaxAmount', 'invoiceNumber', 'clientName', 'data']
+      .some((k) => JSON.stringify(beforeBill[k]) !== JSON.stringify(bill[k]));
+    if (coreKeysChanged) {
+      return res.status(403).json({
+        error: 'Final invoice is locked. Only payment fields (paidAmount, payments, status) may change. Cancel instead of editing lines.',
+        code: 'final-locked',
+      });
     }
+    bill.docstatus = beforeBill.docstatus;
   }
-    writeJSON(filePath, bill);
+  // Cancel: keep row, set status cancelled (never delete)
+  if (String(bill.status || '').toLowerCase() === 'cancelled' && beforeBill) {
+    bill = { ...beforeBill, ...bill, status: 'cancelled', cancelledAt: bill.cancelledAt || new Date().toISOString() };
+  }
+  writeJSON(filePath, bill);
   // Invoice revision history (GAS InvoiceRevisions equivalent)
   try {
     const revDir = path.join(DATA_DIR, 'invoice-revisions');
@@ -830,6 +876,7 @@ app.get('/api/expenses', (req, res) => {
 
 app.post('/api/expenses', (req, res) => {
   const expense = req.body;
+  if (!assertPeriodNotLocked(expense.date || expense.expenseDate || expense.createdAt, res)) return;
   if (!expense.id) expense.id = 'exp_' + Date.now();
   const filePath = path.join(DATA_DIR, 'expenses', safeFileName(expense.id) + '.json');
   writeJSON(filePath, expense);
@@ -932,6 +979,7 @@ app.get('/api/purchases', (req, res) => {
 
 app.post('/api/purchases', (req, res) => {
   const purchase = req.body;
+  if (!assertPeriodNotLocked(purchase.date || purchase.billDate || purchase.invoiceDate || purchase.createdAt, res)) return;
   if (!purchase.id) purchase.id = 'pur_' + Date.now();
   const filePath = path.join(DATA_DIR, 'purchases', safeFileName(purchase.id) + '.json');
   writeJSON(filePath, purchase);
@@ -1014,6 +1062,7 @@ app.get('/api/journals', (req, res) => {
 app.post('/api/journals', (req, res) => {
   try {
     const j = req.body || {};
+    if (!assertPeriodNotLocked(j.date || j.createdAt, res)) return;
     // P0: reject unbalanced journals
     {
       const entries = j.entries || [];

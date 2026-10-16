@@ -47,7 +47,7 @@ export default function DashboardCharts({ stats }) {
           return String(n);
         };
 
-        // 1) Sales Trend — line (or bar from prefs), months on X
+        // 1) Sales Trend — line/bar with purchases second series
         if (prefs.showSalesTrend !== false) {
           let labels = [];
           let data = [];
@@ -59,26 +59,42 @@ export default function DashboardCharts({ stats }) {
             data = s.salesTrend.map(x => x.value || x.amount || 0);
           }
           if (!labels.length) { labels = ['No data']; data = [0]; }
+          const purchMap = s.byMonthPurchases || {};
+          const purchData = labels.map(k => Number(purchMap[k]) || 0);
           mk(salesRef.current, {
             type: prefs.salesChart === 'bar' ? 'bar' : 'line',
             data: {
               labels,
-              datasets: [{
-                label: 'Sales',
-                data,
-                borderColor: chartColor(prefs.theme || 'blue'),
-                backgroundColor: chartColor(prefs.theme || 'blue') + '66',
-                tension: 0.3,
-                fill: prefs.salesChart !== 'bar',
-              }],
+              datasets: [
+                {
+                  label: 'Sales',
+                  data,
+                  borderColor: chartColor('blue') || '#3b82f6',
+                  backgroundColor: 'rgba(59,130,246,0.15)',
+                  tension: 0.3,
+                  fill: true,
+                },
+                {
+                  label: 'Purchases',
+                  data: purchData,
+                  borderColor: chartColor('amber') || '#f59e0b',
+                  backgroundColor: 'rgba(245,158,11,0.12)',
+                  tension: 0.3,
+                  fill: false,
+                },
+              ],
             },
             options: {
               ...baseOpts,
-              plugins: { legend: { display: false } },
-              scales: {
-                y: { beginAtZero: true, ticks: { callback: inrTick } },
-                x: { ticks: { maxRotation: 0 } },
+              plugins: {
+                legend: { display: true, position: 'bottom' },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.dataset.label}: ₹${(ctx.raw || 0).toLocaleString('en-IN')}`,
+                  },
+                },
               },
+              scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
             },
           });
         }
