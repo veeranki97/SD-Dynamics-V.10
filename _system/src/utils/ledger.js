@@ -431,7 +431,37 @@ export function balanceSheet(journals, asOfDate, accountTypeOverrides = null) {
   };
 }
 
+/**
+ * FROZEN_PNL_FORMULA (do not change casually — CA reports depend on this)
+ * -----------------------------------------------------------------------
+ * For each non-reversed journal in [fromDate, toDate], skip refType period-close.
+ * Group key:
+ *   siteWise: j.site || "Unassigned"
+ *   woWise:   j.workOrderId || j.woNumber || j.workOrderNo || "Unassigned"
+ * Per line entry:
+ *   income  += credit − debit   (classifyAccount === income)
+ *   expense += debit − credit   (classifyAccount === expense)
+ * profit/net = income − expense
+ * Sample (prove once): WO W1, site S1, TI income 100000, expense PO 40000, expense 10000, CN income −5000
+ *   → site S1 / WO W1: income 95000, expense 50000, profit 45000
+ */
 /** Site-wise P&L — same classifier as computeTradingPnL */
+export function filterJournalsByProfile(journals, profile) {
+  if (!profile) return journals || [];
+  const pid = profile.id || profile.profileId || '';
+  const gst = String(profile.gstin || '').toUpperCase().replace(/\s/g, '');
+  if (!pid && !gst) return journals || [];
+  return (journals || []).filter(j => {
+    const jpid = j.profileId || j.businessId || '';
+    const jgst = String(j.profileGstin || j.gstin || '').toUpperCase().replace(/\s/g, '');
+    if (pid && jpid && String(jpid) === String(pid)) return true;
+    if (gst && jgst && jgst === gst) return true;
+    // Untagged legacy rows: include only when single-profile mode (caller passes null to skip filter)
+    if (!jpid && !jgst) return false;
+    return false;
+  });
+}
+
 export function siteWisePnL(journals, fromDate, toDate, accountTypeOverrides = null) {
   journals = activeJournals(journals);
   const bySite = {};

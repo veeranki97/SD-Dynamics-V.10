@@ -102,6 +102,9 @@ function PinLockGate({ onUnlock, autoLockMinutes, autoLockEnabled }) {
         setBusy(false);
         return;
       }
+      try {
+        if (j.sessionToken) sessionStorage.setItem('sd_session_token', j.sessionToken);
+      } catch (_) {}
       onUnlock();
     } catch {
       setErr('Could not verify PIN — is the server running?');
@@ -279,7 +282,11 @@ function App() {
     setAppUnlocked(!!v);
     try {
       if (v) sessionStorage.setItem(PIN_SESSION_KEY, '1');
-      else sessionStorage.removeItem(PIN_SESSION_KEY);
+      else {
+        sessionStorage.removeItem(PIN_SESSION_KEY);
+        sessionStorage.removeItem('sd_session_token');
+        fetch('/api/app-lock/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+      }
     } catch { /* private mode */ }
   };
 

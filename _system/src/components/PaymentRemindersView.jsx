@@ -1,3 +1,4 @@
+import { toast } from './Toast';
 import { useState, useEffect, useMemo } from 'react';
 import { Bell, RefreshCw, Mail, MessageCircle } from 'lucide-react';
 import { getAllBills } from '../store';
@@ -60,13 +61,29 @@ export default function PaymentRemindersView() {
     );
   }, [bills, q]);
 
-  const openEmail = (b) => {
+  const openEmail = async (b) => {
     const email = b.data?.client?.email || b.clientEmail || '';
-    const sub = encodeURIComponent(`Payment reminder: ${b.invoiceNumber || ''}`);
+    const sub = `Payment reminder: ${b.invoiceNumber || ''}`;
+    const bodyText = `Dear ${b.clientName || 'Customer'},\n\nThis is a reminder that invoice ${b.invoiceNumber || ''} has an outstanding balance of ${formatCurrency(b._rem)}.\nDue date: ${b.dueDate || b.invoiceDate || '—'}\n\nPlease arrange payment at the earliest.\n\nThank you.`;
+    // Prefer server SMTP when configured
+    try {
+      const r = await fetch('/api/mail/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(sessionStorage.getItem('sd_session_token') ? { Authorization: `Bearer ${sessionStorage.getItem('sd_session_token')}` } : {}) },
+        credentials: 'same-origin',
+        body: JSON.stringify({ to: email, subject: sub, text: bodyText }),
+      });
+      if (r.ok) { toast('Reminder emailed via SMTP', 'success'); return; }
+      const err = await r.json().catch(() => ({}));
+      if (r.status === 400 || r.status === 503) {
+        toast(err.error || 'SMTP not configured — opening mail app', 'info');
+      }
+    } catch (_) { /* fall through to mailto */ }
+    const subEnc = encodeURIComponent(sub);
     const body = encodeURIComponent(
       `Dear ${b.clientName || 'Customer'},\n\nThis is a reminder that invoice ${b.invoiceNumber || ''} has an outstanding balance of ${formatCurrency(b._rem)}.\nDue date: ${b.dueDate || b.invoiceDate || '—'}\n\nPlease arrange payment at the earliest.\n\nThank you.`
     );
-    window.location.href = `mailto:${email}?subject=${sub}&body=${body}`;
+    window.location.href = `mailto:${email}?subject=${subEnc}&body=${body}`;
   };
 
   const openWhatsApp = (b) => {

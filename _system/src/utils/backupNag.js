@@ -1,6 +1,6 @@
-/** Local backup reminder — no cloud required. */
+/** Local backup reminder — nag if older than 2 days (or never). */
 const KEY = 'sd_last_backup_at';
-const DAYS = 7;
+const DAYS = 2;
 
 export function markBackupDone() {
   try { localStorage.setItem(KEY, new Date().toISOString()); } catch { /* */ }
@@ -23,6 +23,6 @@ export function shouldNagBackup() {
 
 export function backupNagMessage() {
   const d = daysSinceBackup();
-  if (d >= 999) return 'No backup recorded yet. Use Settings → Backups or copy the data/ folder.';
-  return `Last backup ${d} day(s) ago. Please backup data/ (or Settings → Backups).`;
+  if (d >= 999) return 'No backup recorded yet. Use Settings → Backups (or wait for daily snapshot under data/backups/).';
+  return `Last backup ${d} day(s) ago. Please run Settings → Backups or copy data/ (incl. sd-dynamics.sqlite).`;
 }

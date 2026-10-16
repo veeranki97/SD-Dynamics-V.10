@@ -6,9 +6,17 @@ import { getFinancialYearLabel } from './utils';
 const API = '/api';
 
 async function apiFetch(url, options = {}) {
+  let sessionToken = '';
+  try { sessionToken = sessionStorage.getItem('sd_session_token') || ''; } catch (_) {}
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+  if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     ...options,
+    headers,
   });
   if (!res.ok) {
     // Preserve server-provided error message (used e.g. for 409 duplicate

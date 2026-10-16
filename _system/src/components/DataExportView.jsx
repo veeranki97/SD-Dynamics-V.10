@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Download, FileSpreadsheet, FileText, ExternalLink } from 'lucide-react';
-import { getAllBills, getAllPurchases } from '../store';
+import { getAllBills, getAllPurchases, getProfile } from '../store';
+import { buildTallySalesXml, buildTallyPurchaseXml } from '../utils/tallyXml';
 import { toast } from './Toast';
 
 function downloadText(filename, text, mime = 'text/csv;charset=utf-8') {
@@ -142,10 +143,32 @@ export default function DataExportView() {
           busy={busy === 'purch'}
           onClick={() => run('purch', exportPurchasesCsv)}
         />
-        <div className="glass-panel" style={{ padding: '1.1rem', minHeight: 140, opacity: 0.9 }}>
-          <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>Tally XML</h3>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Not available yet.</p>
-        </div>
+        <Card
+          title="Tally XML — Sales"
+          desc="Basic Sales vouchers XML for CA import into Tally (tax invoices; excludes QUO/PI/DC)."
+          icon={FileText}
+          busy={busy === 'txmls'}
+          onClick={() => run('txmls', async () => {
+            const bills = await getAllBills();
+            let company = 'SD Dynamics';
+            try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
+            downloadText('tally-sales.xml', buildTallySalesXml(bills, company), 'application/xml');
+            toast('Tally sales XML downloaded', 'success');
+          })}
+        />
+        <Card
+          title="Tally XML — Purchases"
+          desc="Basic Purchase vouchers XML for Tally."
+          icon={FileText}
+          busy={busy === 'txmlp'}
+          onClick={() => run('txmlp', async () => {
+            const purchases = await getAllPurchases();
+            let company = 'SD Dynamics';
+            try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
+            downloadText('tally-purchases.xml', buildTallyPurchaseXml(purchases, company), 'application/xml');
+            toast('Tally purchase XML downloaded', 'success');
+          })}
+        />
       </div>
       <p style={{ margin: '1rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
         <ExternalLink size={12} style={{ verticalAlign: 'middle' }} /> Tip: For full GSTR JSON with period filters, always finish export inside <strong>Compliance → GST Returns</strong>.

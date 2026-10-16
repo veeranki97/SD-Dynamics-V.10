@@ -39,6 +39,171 @@ const JUMP_NAV_SECTIONS = [
 ];
 
 
+
+
+function SmtpSettingsPanel() {
+  const [form, setForm] = useState({ host: 'smtp.gmail.com', port: 465, user: '', pass: '', from: '', secure: true });
+  const [configured, setConfigured] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const parseJsonSafe = async (r) => {
+    const ct = (r.headers.get('content-type') || '');
+    const text = await r.text();
+    if (!ct.includes('application/json') && text.trim().startsWith('<')) {
+      throw new Error(
+        'Server returned a web page instead of JSON. Restart node server.js from the _system folder (not only Vite). ' +
+        'If you just added SMTP, copy the latest server.js and restart.'
+      );
+    }
+    try { return text ? JSON.parse(text) : {}; } catch {
+      throw new Error('Invalid server response (not JSON). Is the API server running on this port?');
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        // Prefer dedicated route; fall back to meta (works on older servers)
+        let j = null;
+        try {
+          const r = await fetch('/api/mail/settings', { credentials: 'same-origin' });
+          if (r.ok) j = await parseJsonSafe(r);
+        } catch (_) { /* fall through */ }
+        if (!j) {
+          const r2 = await fetch('/api/meta/smtp', { credentials: 'same-origin' });
+          const meta = await parseJsonSafe(r2);
+          const s = meta?.value || {};
+          j = {
+            host: s.host || 'smtp.gmail.com',
+            port: s.port || 465,
+            user: s.user || '',
+            from: s.from || '',
+            configured: !!(s.user && s.pass),
+          };
+        }
+        setForm(f => ({
+          ...f,
+          host: j.host || f.host,
+          port: j.port || 465,
+          user: j.user || '',
+          from: j.from || '',
+          pass: '',
+          secure: j.secure !== false,
+        }));
+        setConfigured(!!j.configured);
+      } catch (e) {
+        console.warn('[smtp] load', e.message);
+      }
+    })();
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const payload = {
+        host: String(form.host || 'smtp.gmail.com').trim(),
+        port: Number(form.port) || 465,
+        secure: form.secure !== false,
+        user: String(form.user || '').trim(),
+        pass: form.pass, // empty = keep previous on server when using /api/mail/settings
+        from: String(form.from || form.user || '').trim(),
+      };
+
+      // 1) Try dedicated route
+      let saved = false;
+      try {
+        const r = await fetch('/api/mail/settings', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+          const j = await parseJsonSafe(r);
+          setConfigured(!!j.configured);
+          saved = true;
+        } else if (r.status !== 404) {
+          const j = await parseJsonSafe(r).catch(() => ({}));
+          throw new Error(j.error || `Save failed (${r.status})`);
+        }
+      } catch (e) {
+        if (e.message && e.message.includes('web page')) {
+          // fall through to meta
+        } else if (!String(e.message || '').includes('Save failed')) {
+          /* try meta */
+        } else {
+          throw e;
+        }
+      }
+
+      // 2) Always also write meta.smtp so credentials survive even without mail routes
+      // Load previous pass if user left password blank
+      let prevPass = '';
+      try {
+        const pr = await fetch('/api/meta/smtp', { credentials: 'same-origin' });
+        const pj = await parseJsonSafe(pr);
+        prevPass = pj?.value?.pass || '';
+      } catch (_) {}
+
+      const value = {
+        host: payload.host,
+        port: payload.port,
+        secure: payload.secure,
+        user: payload.user,
+        pass: payload.pass && String(payload.pass).length ? payload.pass : prevPass,
+        from: payload.from,
+      };
+      const r2 = await fetch('/api/meta/smtp', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      });
+      const j2 = await parseJsonSafe(r2);
+      if (!r2.ok) throw new Error(j2.error || 'Meta save failed');
+      setConfigured(!!(value.user && value.pass));
+      toast('SMTP settings saved locally (meta). PIN is a screen lock only — not encryption.', 'success');
+      saved = true;
+      if (!saved) throw new Error('Could not save SMTP');
+    } catch (e) {
+      toast(e.message || 'Failed to save SMTP', 'error');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="glass-panel" style={{ padding: 16, marginTop: 12 }}>
+      <h3 style={{ margin: '0 0 8px', fontSize: '1rem' }}>Email (SMTP) — payment reminders</h3>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>
+        Gmail: enable 2FA → create an App password. Host <code>smtp.gmail.com</code>, port <code>465</code>.
+        Stored on this PC only under meta (not cloud). Screen PIN does not encrypt these values.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
+        <label className="form-label">Host
+          <input className="form-input" value={form.host} onChange={e => setForm(f => ({ ...f, host: e.target.value }))} />
+        </label>
+        <label className="form-label">Port
+          <input className="form-input" type="number" value={form.port} onChange={e => setForm(f => ({ ...f, port: e.target.value }))} />
+        </label>
+        <label className="form-label">User (email)
+          <input className="form-input" value={form.user} onChange={e => setForm(f => ({ ...f, user: e.target.value }))} autoComplete="off" />
+        </label>
+        <label className="form-label">App password
+          <input className="form-input" type="password" value={form.pass} placeholder={configured ? '(unchanged if blank)' : ''} onChange={e => setForm(f => ({ ...f, pass: e.target.value }))} autoComplete="new-password" />
+        </label>
+        <label className="form-label">From
+          <input className="form-input" value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))} />
+        </label>
+      </div>
+      <button type="button" className="btn btn-primary btn-sm" style={{ marginTop: 10 }} disabled={busy} onClick={save}>
+        {busy ? 'Saving…' : 'Save SMTP'}
+      </button>
+      {configured && <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#059669' }}>Configured</span>}
+    </div>
+  );
+}
+
+
 function AppLockSettingsPanel() {
   const [status, setStatus] = useState({ enabled: false, configured: false, autoLockEnabled: true, autoLockMinutes: 15 });
   const [pin, setPin] = useState('');
@@ -1941,6 +2106,7 @@ export default function SettingsView({ onSaved }) {
           <strong> This is a screen lock only — the database is not encrypted.</strong>
         </p>
         <AppLockSettingsPanel />
+          <SmtpSettingsPanel />
       </div>
 
       {/* ---- App Updates ---- */}

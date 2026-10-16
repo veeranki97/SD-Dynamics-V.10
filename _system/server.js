@@ -1419,13 +1419,17 @@ app.post('/api/app-lock/verify', (req, res) => {
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
     if (!lock.pinHash || !lock.pinSalt) {
-      return res.json({ ok: true, unlocked: true, reason: 'not-configured' });
+      const token = issueSessionToken();
+      res.setHeader('Set-Cookie', `sd_session=${encodeURIComponent(token)}; Path=/; SameSite=Lax; HttpOnly`);
+      return res.json({ ok: true, unlocked: true, reason: 'not-configured', sessionToken: token, note: 'PIN is a screen lock only. Data files are not encrypted.' });
     }
     const tryHash = hashPin(pin, lock.pinSalt);
     if (tryHash !== lock.pinHash) {
       return res.status(401).json({ ok: false, error: 'Incorrect PIN' });
     }
-    res.json({ ok: true, unlocked: true });
+    const token = issueSessionToken();
+    res.setHeader('Set-Cookie', `sd_session=${encodeURIComponent(token)}; Path=/; SameSite=Lax; HttpOnly`);
+    res.json({ ok: true, unlocked: true, sessionToken: token, note: 'PIN is a screen lock only. Data files are not encrypted.' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1453,7 +1457,71 @@ app.post('/api/app-lock/prefs', (req, res) => {
   try {
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
-    if (typeof req.body?.autoLockEnabled === 'boolean') lock.autoLockEnabled = req.body.autoLockEnabled;
+    if (typeof req.b
+// ========================
+// API session after PIN (screen lock) — not encryption
+// Token issued on /api/app-lock/verify; required on other /api when lock enabled.
+// ========================
+const SD_SESSIONS = new Map(); // token -> { exp }
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+function issueSessionToken() {
+  const token = crypto.randomBytes(24).toString('hex');
+  SD_SESSIONS.set(token, { exp: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+function touchSession(token) {
+  const s = SD_SESSIONS.get(token);
+  if (!s) return false;
+  if (Date.now() > s.exp) { SD_SESSIONS.delete(token); return false; }
+  s.exp = Date.now() + SESSION_TTL_MS;
+  return true;
+}
+function readSessionToken(req) {
+  const h = req.headers['authorization'] || '';
+  const m = /^Bearer\s+(.+)$/i.exec(h);
+  if (m) return m[1].trim();
+  const c = req.headers.cookie || '';
+  const cm = /(?:^|;\s*)sd_session=([^;]+)/.exec(c);
+  if (cm) return decodeURIComponent(cm[1].trim());
+  return (req.headers['x-sd-session'] || '').toString().trim() || null;
+}
+function isAppLockActive() {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const lock = meta.appLock || {};
+    return !!(lock.enabled && lock.pinHash && lock.pinSalt);
+  } catch { return false; }
+}
+const APP_LOCK_PUBLIC = new Set([
+  '/api/app-lock/status',
+  '/api/app-lock/verify',
+  '/api/health',
+  '/api/sqlite-status',
+]);
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api')) return next();
+  if (APP_LOCK_PUBLIC.has(req.path)) return next();
+  // Always allow lock setup/disable with care — set/disable need PIN body; status is public
+  if (req.path.startsWith('/api/app-lock/')) return next();
+  if (!isAppLockActive()) return next();
+  const token = readSessionToken(req);
+  if (token && touchSession(token)) return next();
+  return res.status(401).json({
+    error: 'App locked — unlock with PIN first',
+    code: 'app-locked',
+    note: 'PIN is a screen lock only. Data files are not encrypted.',
+  });
+});
+
+
+app.post('/api/app-lock/logout', (req, res) => {
+  const token = readSessionToken(req);
+  if (token) SD_SESSIONS.delete(token);
+  res.setHeader('Set-Cookie', 'sd_session=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly');
+  res.json({ ok: true, note: 'PIN is a screen lock only. Data files are not encrypted.' });
+});
+
+ody?.autoLockEnabled === 'boolean') lock.autoLockEnabled = req.body.autoLockEnabled;
     if (req.body?.autoLockMinutes != null) lock.autoLockMinutes = Math.min(120, Math.max(1, Number(req.body.autoLockMinutes) || 15));
     meta.appLock = lock;
     writeJSON(META_PATH, meta);
@@ -1954,6 +2022,75 @@ function todayLocalIso() {
   return new Date().toLocaleDateString('sv-SE');
 }
 
+
+// ========================
+// SMTP mail (Gmail app password etc.) — optional
+// ========================
+app.get('/api/mail/settings', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const s = meta.smtp || {};
+    res.json({
+      host: s.host || 'smtp.gmail.com',
+      port: s.port || 465,
+      secure: s.secure !== false,
+      user: s.user || '',
+      from: s.from || s.user || '',
+      configured: !!(s.user && s.pass),
+      // never return pass
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/mail/settings', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const body = req.body || {};
+    const prev = meta.smtp || {};
+    meta.smtp = {
+      host: String(body.host || prev.host || 'smtp.gmail.com').trim(),
+      port: Number(body.port) || 465,
+      secure: body.secure !== false,
+      user: String(body.user || prev.user || '').trim(),
+      pass: body.pass != null && String(body.pass).length ? String(body.pass) : (prev.pass || ''),
+      from: String(body.from || body.user || prev.from || '').trim(),
+    };
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, configured: !!(meta.smtp.user && meta.smtp.pass) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/mail/send', async (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const s = meta.smtp || {};
+    if (!s.user || !s.pass) {
+      return res.status(400).json({ error: 'Configure SMTP in Settings (Gmail app password). Not encryption — credentials in meta locally.' });
+    }
+    const to = String(req.body?.to || '').trim();
+    const subject = String(req.body?.subject || '').trim();
+    const text = String(req.body?.text || req.body?.body || '').trim();
+    if (!to || !subject) return res.status(400).json({ error: 'to and subject required' });
+    let nodemailer;
+    try { nodemailer = (await import('nodemailer')).default; } catch {
+      return res.status(503).json({ error: 'Install nodemailer: npm install nodemailer', code: 'no-nodemailer' });
+    }
+    const transporter = nodemailer.createTransport({
+      host: s.host || 'smtp.gmail.com',
+      port: Number(s.port) || 465,
+      secure: s.secure !== false,
+      auth: { user: s.user, pass: s.pass },
+    });
+    const info = await transporter.sendMail({
+      from: s.from || s.user,
+      to,
+      subject,
+      text,
+    });
+    res.json({ ok: true, messageId: info.messageId });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Send failed' });
+  }
+});
+
 function runDailyBackup() {
   try {
     ensureDir(BACKUPS_DIR);
@@ -1983,6 +2120,13 @@ function runDailyBackup() {
       }
     } catch (e) { console.warn('[backup] appLock scrub:', e.message); }
     console.log(`[backup] Daily snapshot saved: ${target}`);
+    try {
+      const metaLive = readJSON(META_PATH, {}) || {};
+      metaLive.lastBackupAt = new Date().toISOString();
+      metaLive.lastBackupDate = today;
+      writeJSON(META_PATH, metaLive);
+    } catch (e) { console.warn('[backup] lastBackupAt:', e.message); }
+    // Folder copy includes sd-dynamics.sqlite when present under data/
     const all = fs.readdirSync(BACKUPS_DIR).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
     while (all.length > 30) {
       const oldest = all.shift();
@@ -2124,7 +2268,25 @@ app.post('/api/backups/now', (req, res) => {
     return errRes(res, 429, 'server-error');
   }
   __lastBackupNowMs = now;
+  // Force refresh marker even if today's folder exists
+  try {
+    const metaLive = readJSON(META_PATH, {}) || {};
+    metaLive.lastBackupAt = new Date().toISOString();
+    writeJSON(META_PATH, metaLive);
+  } catch (_) {}
   runDailyBackup();
+  // If folder already existed, still touch lastBackupAt
+  try {
+    const today = todayLocalIso();
+    const target = path.join(BACKUPS_DIR, today);
+    if (!fs.existsSync(target)) runDailyBackup();
+    else {
+      const metaLive = readJSON(META_PATH, {}) || {};
+      metaLive.lastBackupAt = new Date().toISOString();
+      metaLive.lastBackupDate = today;
+      writeJSON(META_PATH, metaLive);
+    }
+  } catch (_) {}
   res.json({ success: true });
 });
 
