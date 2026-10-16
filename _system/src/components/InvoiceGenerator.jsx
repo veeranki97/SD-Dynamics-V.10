@@ -4291,6 +4291,46 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <small style={{ color: '#64748b', display: 'block', marginTop: 4, fontSize: '0.72rem' }}>
                 Type WO number or client — auto-fills items, site, period & budget check on save.
               </small>
+              {!selectedWorkOrderId && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  style={{ marginTop: 6 }}
+                  title="Create a Work Order from this invoice, then return here with the link"
+                  onClick={() => {
+                    try {
+                      const woItems = (items || []).map((it, i) => ({
+                        id: 'woi_' + Date.now().toString(36) + '_' + i,
+                        description: it.description || it.name || '',
+                        hsn: it.hsn || it.sac || '',
+                        qty: it.qty ?? it.quantity ?? 1,
+                        unit: it.unit || 'Nos',
+                        rate: Number(it.rate) || 0,
+                        costCenterId: it.costCenterId || it.costHead || '',
+                      }));
+                      sessionStorage.setItem('sd_wo_from_invoice', JSON.stringify({
+                        clientName: client?.name || '',
+                        clientId: selectedClientId || client?.id || '',
+                        clientState: client?.state || '',
+                        hostState: profile?.state || '',
+                        site: client?.site || details?.site || 'Main Site',
+                        title: (details?.workDetails || '').trim() || client?.name || 'Work Order',
+                        notes: details?.workDetails || '',
+                        taxRate: 18,
+                        periodStart: details?.periodStart || '',
+                        periodEnd: details?.periodEnd || '',
+                        costCenterId: (items && items[0] && (items[0].costCenterId || items[0].costHead)) || '',
+                        items: woItems,
+                      }));
+                      sessionStorage.setItem('sd_return_to_invoice', '1');
+                    } catch (e) { console.warn(e); }
+                    try { sessionStorage.setItem('gst_currentView', 'workorders'); } catch (_) {}
+                    window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'workorders' }));
+                  }}
+                >
+                  Create Work Order from this invoice
+                </button>
+              )}
               {selectedWorkOrderId && (
                 <button type="button" className="ig-wo-badge" style={{ marginTop: 6 }} title="Open linked Work Order"
                   onClick={() => {

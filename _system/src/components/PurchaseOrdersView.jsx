@@ -385,7 +385,6 @@ function printPO(po, profile, fingerprint, clientsList) {
           <tr class="grand"><td>Grand Total</td><td class="r">₹${inr(t.total)}</td></tr>
         </table>
       </div>
-    </div>
     <div class="sign-block">
       <div class="sign">
         ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:36px"></div>'}

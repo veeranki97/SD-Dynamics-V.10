@@ -154,6 +154,39 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
 
   useEffect(() => { load(); }, []);
 
+  // Invoice → WO round-trip: open form prefilled from invoice
+  useEffect(() => {
+    if (loading || form) return;
+    try {
+      const raw = sessionStorage.getItem('sd_wo_from_invoice');
+      if (!raw) return;
+      sessionStorage.removeItem('sd_wo_from_invoice');
+      const p = JSON.parse(raw);
+      setForm({
+        id: 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        costCenterId: p.costCenterId || '',
+        woNumber: '',
+        clientName: p.clientName || '',
+        clientId: p.clientId || '',
+        clientState: p.clientState || '',
+        hostState: p.hostState || '',
+        site: p.site || 'Main Site',
+        title: p.title || '',
+        approvedBudget: 0,
+        taxRate: p.taxRate ?? 18,
+        status: 'approved',
+        date: new Date().toISOString().split('T')[0],
+        periodStart: p.periodStart || '',
+        periodEnd: p.periodEnd || '',
+        notes: p.notes || '',
+        items: (p.items && p.items.length) ? p.items : [emptyWOItem()],
+        createdAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[WO from invoice]', e);
+    }
+  }, [loading]);
+
   useEffect(() => {
     if (!form) return;
     const t = calcWOTotals(form.items, form.taxRate ?? 18, form.clientState, form.hostState);
@@ -220,6 +253,26 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
         taxable: t.sub, cgst: t.cgst, sgst: t.sgst, igst: t.igst, total: t.total,
       }, { overwrite: true });
       toast('Work Order saved', 'success');
+      try {
+        if (sessionStorage.getItem('sd_return_to_invoice') === '1') {
+          sessionStorage.removeItem('sd_return_to_invoice');
+          sessionStorage.setItem('sd_convert_wo', JSON.stringify({
+            workOrderId: woId,
+            woNumber,
+            clientName: form.clientName || '',
+            clientId: form.clientId || '',
+            site: form.site || '',
+            title: form.title || '',
+            notes: form.notes || '',
+            taxRate: form.taxRate ?? 18,
+            periodStart: form.periodStart || '',
+            periodEnd: form.periodEnd || '',
+            items,
+          }));
+          sessionStorage.setItem('gst_currentView', 'new');
+          window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'new' }));
+        }
+      } catch (e) { console.warn('[WO return to invoice]', e); }
       setForm(null);
       load();
     } catch (e) {
