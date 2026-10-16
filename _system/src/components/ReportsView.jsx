@@ -1,5 +1,6 @@
+import DataExportView from './DataExportView';
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, FileText } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, FileText, Download } from 'lucide-react';
 import { getAllBills, getAllExpenses, getProfile, getAllWorkOrders } from '../store';
 import { formatCurrency, getFYOptions, belongsToProfile } from '../utils';
 import { toast } from './Toast';
@@ -204,6 +205,10 @@ export default function ReportsView() {
         <button className={`btn ${activeTab === 'audit' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('audit')}>
           <FileText size={16} /> Audit Report
+        </button>
+        <button className={`btn ${activeTab === 'dataexport' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setActiveTab('dataexport')}>
+          <Download size={16} /> Data export
         </button>
         <button className={`btn ${activeTab === 'products' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('products')}>
@@ -837,6 +842,10 @@ export default function ReportsView() {
 
       {activeTab === 'audit' && (
         <AuditReportView />
+      )}
+
+      {activeTab === 'dataexport' && (
+        <DataExportView />
       )}
 
     </div>

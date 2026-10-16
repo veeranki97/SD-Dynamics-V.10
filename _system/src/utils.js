@@ -852,7 +852,8 @@ export const getUpcomingFilings = (today = new Date()) => {
   const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const push = (label, dueDate) => {
     const diff = Math.round((dueDate - t) / 86400000);
-    if (diff >= 0 && diff <= 60) out.push({ label, dueDate: dueDate.toISOString().split('T')[0], daysAway: diff });
+    // Level-1: show upcoming (60d) and slightly overdue (15d) so Dashboard bell stays useful
+    if (diff >= -15 && diff <= 60) out.push({ label, dueDate: dueDate.toISOString().split('T')[0], daysAway: diff });
   };
   // Iterate next 3 months so we catch upcoming month-end deadlines.
   for (let i = 0; i < 3; i++) {

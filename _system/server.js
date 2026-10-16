@@ -3052,6 +3052,92 @@ process.on('unhandledRejection', (err) => logFatal(err, 'unhandledRejection'));
 // every byte stays on the user's machine, which the privacy promise depends on.
 let activeServer = null;
 
+
+// ========================
+// GSP proxy (Level-2) — browser → local server → GSP (CORS + path control)
+// ========================
+app.post('/api/gsp/forward', async (req, res) => {
+  try {
+    const { baseUrl, method, path: apiPath, body, headers: extraHeaders, environment } = req.body || {};
+    if (!baseUrl || typeof baseUrl !== 'string') {
+      return res.status(400).json({ error: 'baseUrl required' });
+    }
+    let url;
+    try {
+      url = new URL(apiPath || '/', baseUrl.endsWith('/') ? baseUrl : baseUrl + '/');
+    } catch {
+      return res.status(400).json({ error: 'Invalid baseUrl or path' });
+    }
+    // Block clearly non-http targets
+    if (!/^https?:$/i.test(url.protocol)) {
+      return res.status(400).json({ error: 'Only http(s) GSP URLs allowed' });
+    }
+    const hdrs = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(extraHeaders && typeof extraHeaders === 'object' ? extraHeaders : {}),
+    };
+    // Strip hop-by-hop
+    delete hdrs.host;
+    delete hdrs.connection;
+
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 45000);
+    let upstream;
+    try {
+      upstream = await fetch(url.toString(), {
+        method: (method || 'POST').toUpperCase(),
+        headers: hdrs,
+        body: body != null && (method || 'POST').toUpperCase() !== 'GET'
+          ? JSON.stringify(body)
+          : undefined,
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const text = await upstream.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* non-JSON */ }
+
+    // Persist last GSP call meta (no secrets)
+    try {
+      const meta = readJSON(META_PATH, {}) || {};
+      meta.lastGspCall = {
+        at: new Date().toISOString(),
+        environment: environment || '',
+        path: url.pathname,
+        status: upstream.status,
+      };
+      writeJSON(META_PATH, meta);
+    } catch { /* */ }
+
+    if (json && typeof json === 'object') {
+      return res.status(upstream.status).json(json);
+    }
+    return res.status(upstream.status).json({
+      raw: text.slice(0, 4000),
+      status: upstream.status,
+      message: 'Non-JSON GSP response',
+    });
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? 'GSP request timed out' : (e.message || 'GSP proxy failed');
+    console.warn('[gsp]', msg);
+    return res.status(502).json({ error: msg });
+  }
+});
+
+app.get('/api/gsp/last', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    res.json({ lastGspCall: meta.lastGspCall || null });
+  } catch (e) {
+    errRes(res, 500, 'server-error', e);
+  }
+});
+
+
 function startServer(port) {
   const server = 
 app.listen(port, '127.0.0.1', () => {

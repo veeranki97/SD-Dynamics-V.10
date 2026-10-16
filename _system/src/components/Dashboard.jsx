@@ -373,9 +373,27 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  
+
   const [fyFilter, setFyFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // KPI card → Invoices: apply filters from session (survives remount)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('sd_invoice_list_filters');
+      if (!raw) return;
+      sessionStorage.removeItem('sd_invoice_list_filters');
+      const f = JSON.parse(raw);
+      if (f.typeFilter) setTypeFilter(f.typeFilter);
+      if (f.statusFilter) setStatusFilter(f.statusFilter);
+      if (f.dateFrom != null) setDateFrom(f.dateFrom);
+      if (f.dateTo != null) setDateTo(f.dateTo);
+      if (f.fyFilter) setFyFilter(f.fyFilter);
+    } catch (_) {}
+  }, []);
+
   // Bulk-selection state. Stores a Set of bill IDs (not the bills themselves)
   // so we don't hold stale references when the underlying bill is edited
   // elsewhere. Cleared whenever filters change so the user doesn't accidentally
@@ -1439,23 +1457,40 @@ const openPaymentModal = (bill) => {
   };
 
     const shareEmail = (bill) => {
-    // Prefer <a href="mailto:"> over window.open — avoids blocked popup / flicker
-    // with no mail client in Chrome, Edge, and HTA webview.
-    const subject = `Invoice ${bill.invoiceNumber} - ${formatCurrency(bill.totalAmount, bill.currency)}`;
-    const richBody = buildShareMessage(bill).replace(/\*/g, '');
-    const to = (bill.clientEmail || bill.data?.client?.email || '').trim();
-    const body = `Dear ${bill.clientName || 'Sir/Madam'},\n\n${richBody}\n\nRegards`;
+    // mailto URL length is limited (~2000 chars). Long bodies fail silently.
+    const subject = `Invoice ${bill.invoiceNumber || ''} — ${formatCurrency(bill.totalAmount, bill.currency)}`;
+    const to = (bill.clientEmail || bill.data?.client?.email || bill.data?.client?.Email || '').trim();
+    let body = `Dear ${bill.clientName || bill.data?.client?.name || 'Sir/Madam'},\n\n`;
+    try {
+      body += (buildShareMessage(bill) || '').replace(/\*/g, '');
+    } catch (_) {
+      body += `Please find invoice ${bill.invoiceNumber || ''} for ${formatCurrency(bill.totalAmount, bill.currency)}.`;
+    }
+    body += '\n\nRegards';
+    if (body.length > 1200) body = body.slice(0, 1190) + '\n…';
     const href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     try {
-      const a = document.createElement('a');
-      a.href = href;
-      a.rel = 'noopener';
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { try { a.remove(); } catch (_) {} }, 400);
+      window.location.href = href;
     } catch (_) {
-      try { window.location.href = href; } catch (__) {}
+      try {
+        const a = document.createElement('a');
+        a.href = href;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { a.remove(); } catch (_) {} }, 300);
+      } catch (__) {}
+    }
+    try {
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(body);
+    } catch (_) {}
+    if (typeof toast === 'function') {
+      toast(
+        to
+          ? `Mail app should open to ${to}. If nothing opens: paste (Ctrl+V) into Gmail/Outlook — body is on clipboard.`
+          : 'No client email on file. Body is on clipboard — open Gmail, New mail, paste.',
+        'info'
+      );
     }
   };
 
@@ -1673,7 +1708,23 @@ const openPaymentModal = (bill) => {
       {/* A) Second KPI row — this month + drafts + open */}
       <div className="stats-grid stats-grid-kpi-4" style={{ marginTop: 10, marginBottom: 8 }}>
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
-          onClick={() => { setTypeFilter('tax-invoice'); setDateFrom(`${secondaryKpis.currentYm}-01`); const [y,m]=secondaryKpis.currentYm.split('-'); const last=new Date(Number(y),Number(m),0).getDate(); setDateTo(`${secondaryKpis.currentYm}-${String(last).padStart(2,'0')}`); }}
+          onClick={() => {
+            const [y, mth] = secondaryKpis.currentYm.split('-');
+            const last = new Date(Number(y), Number(mth), 0).getDate();
+            const dateFrom = `${secondaryKpis.currentYm}-01`;
+            const dateTo = `${secondaryKpis.currentYm}-${String(last).padStart(2, '0')}`;
+            try {
+              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({
+                typeFilter: 'tax-invoice', statusFilter: 'all', dateFrom, dateTo, fyFilter: 'all',
+              }));
+              sessionStorage.setItem('gst_currentView', 'invoices');
+              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
+            } catch (_) {}
+            setTypeFilter('tax-invoice');
+            setStatusFilter('all');
+            setDateFrom(dateFrom);
+            setDateTo(dateTo);
+          }}
           style={{ cursor: 'pointer' }}>
           <p className="stat-label">This month sales</p>
           <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
@@ -1685,13 +1736,27 @@ const openPaymentModal = (bill) => {
           <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
-          onClick={() => { setStatusFilter('draft'); }}
+          onClick={() => {
+            try {
+              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ statusFilter: 'draft' }));
+              sessionStorage.setItem('gst_currentView', 'invoices');
+              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
+            } catch (_) {}
+            setStatusFilter('draft');
+          }}
           style={{ cursor: 'pointer' }}>
           <p className="stat-label">Drafts</p>
           <p className="stat-value">{secondaryKpis.drafts}</p>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
-          onClick={() => { setTypeFilter('tax-invoice'); setStatusFilter('unpaid'); }}
+          onClick={() => {
+            try {
+              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));
+              sessionStorage.setItem('gst_currentView', 'invoices');
+              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
+            } catch (_) {}
+            setTypeFilter('tax-invoice'); setStatusFilter('unpaid');
+          }}
           style={{ cursor: 'pointer' }}>
           <p className="stat-label">Open invoices</p>
           <p className="stat-value">{secondaryKpis.openInv}</p>

@@ -1,4 +1,5 @@
 import MonthCloseWizard from './MonthCloseWizard';
+import GstFilingAssistPanel from './GstFilingAssistPanel';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
 import { getAllBills, getAllExpenses, getAllPurchases, getProfile } from '../store';
@@ -1336,6 +1337,7 @@ export default function GSTReturns() {
       hash: 'hash',
       sup_details, itc_elg, inward_sup,
     };
+    try { window.__sdLastGstr3bPayload = gstr3b; } catch (_) {}
     const blob = new Blob([JSON.stringify(gstr3b, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `GSTR3B_${gstin || 'export'}_${ret_period}.json`; a.click();
@@ -1602,6 +1604,7 @@ export default function GSTReturns() {
       doc_issue: { doc_det: docDet },
     };
 
+    try { window.__sdLastGstr1Payload = gstr1; } catch (_) {}
     const blob = new Blob([JSON.stringify(gstr1, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `GSTR1_${gstin || 'export'}_${fp}.json`; a.click();
@@ -1715,6 +1718,37 @@ export default function GSTReturns() {
           <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Net Payable</p><strong style={{ fontSize: '1rem', color: 'var(--primary)' }}>{formatCurrency(netPayable)}</strong></div>
         </div>
       </div>
+
+
+      {/* Level-1 filing assist: due dates, checklist, period pack (no GSTN submit) */}
+      <GstFilingAssistPanel
+        periodYm={
+          filterMode === 'month' && yearFilter !== '' && monthFilter !== ''
+            ? `${yearFilter}-${String(parseInt(monthFilter, 10) + 1).padStart(2, '0')}`
+            : (filterMode === 'month' ? undefined : undefined)
+        }
+        bills={filteredBills}
+        profile={profile}
+        periodFiling={periodFiling}
+        onMarkFiled={markFiled}
+        onExportPack={async () => {
+          try { exportGSTR1JSON(); } catch (e) { console.warn(e); }
+          await new Promise((r) => setTimeout(r, 450));
+          try { exportGSTR3BJSON(); } catch (e) { console.warn(e); }
+          await new Promise((r) => setTimeout(r, 450));
+          try { exportHSN(); } catch (e) { console.warn(e); }
+          await new Promise((r) => setTimeout(r, 350));
+          try { exportGSTR3B(); } catch (e) { console.warn(e); }
+        }}
+        onBuildGstr1Payload={() => {
+          try { exportGSTR1JSON(); } catch (_) {}
+          return window.__sdLastGstr1Payload || null;
+        }}
+        onBuildGstr3bPayload={() => {
+          try { exportGSTR3BJSON(); } catch (_) {}
+          return window.__sdLastGstr3bPayload || null;
+        }}
+      />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', flexWrap: 'wrap' }}>

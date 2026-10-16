@@ -1,4 +1,5 @@
 import { buildEinvoiceJson, validateEinvoiceBill } from '../utils/einvoiceBuild';
+import { gspTestConnectivity, gspAuthenticate, isGspFilingReady } from '../utils/gspClient';
 import { useState, useEffect, useMemo } from 'react';
 import { toast } from './Toast';
 import { Save, Lock, Shield, Wifi, FileKey2, ExternalLink } from 'lucide-react';
@@ -16,7 +17,10 @@ const empty = () => ({
   username: '',
   password: '',
   autoIrnOnSave: false,
+  /** When true (default), sandbox calls do not hit the network — safe for demos */
+  simulateSandbox: true,
   notes: '',
+  pathOverrides: {},
 });
 
 /**
@@ -71,32 +75,45 @@ export default function EinvoiceSettingsPanel() {
     toast('GSP settings saved on this PC', 'success');
   };
 
-  const tryIrn = () => {
+  const tryIrn = async () => {
     if (!ready) {
       toast('Fill API base URL, Client ID and 15-digit GSTIN first', 'warning');
       return;
     }
     if (!cfg.enabled) {
-      toast('Enable e-Invoice after your GSP whitelists this machine’s public IP', 'info');
+      toast('Enable GSP after your partner whitelists this machine IP', 'info');
       return;
     }
     toast(
-      'IRN API not connected yet. After GSP onboarding, Generate IRN will run on Tax Invoice save.',
+      'IRN generation uses the same GSP credentials. Wire invoice-save → gsp IRN in a follow-up; use Filing assist for GSTR submit.',
       'info',
-      9000
+      8000
     );
   };
 
-  const testPing = () => {
-    if (!cfg.apiBaseUrl?.trim()) {
-      toast('Enter API base URL first', 'warning');
-      return;
+  const testPing = async () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(cfg)); // use current form values
+      const r = await gspTestConnectivity();
+      toast(r.message || (r.ok ? 'OK' : 'Failed'), r.ok ? 'success' : 'warning');
+    } catch (e) {
+      toast(e.message || 'Connectivity failed', 'error');
     }
-    toast(
-      'Connectivity test is a stub — open your GSP portal to verify sandbox credentials.',
-      'info',
-      7000
-    );
+  };
+
+  const testAuth = async () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(cfg));
+      const r = await gspAuthenticate('');
+      toast(
+        r.simulated
+          ? `Auth simulated. Token: ${(r.auth_token || '').slice(0, 24)}…`
+          : `Auth OK. Token received.`,
+        'success'
+      );
+    } catch (e) {
+      toast(e.message || 'Auth failed', 'error');
+    }
   };
 
   return (
@@ -256,7 +273,7 @@ export default function EinvoiceSettingsPanel() {
             <Save size={16} /> Save GSP settings
           </button>
           <button type="button" className="btn btn-secondary" onClick={testPing}>
-            <Wifi size={16} /> Test connectivity (stub)
+            <Wifi size={16} /> Test connectivity
           </button>
           <button
             type="button"
@@ -277,7 +294,32 @@ export default function EinvoiceSettingsPanel() {
         </div>
       </div>
 
+      
       <div className="glass-panel p-6 mb-4">
+        <h3 className="section-title">Level-2 return filing</h3>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 10 }}>
+          <input
+            type="checkbox"
+            checked={!!cfg.simulateSandbox}
+            onChange={(e) => patch('simulateSandbox', e.target.checked)}
+          />
+          Simulate sandbox (no network — mock ARN). Turn OFF only with real GSP keys + whitelist.
+        </label>
+        <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--text-muted)' }}>
+          Filing: GST Returns → Filing assist → Submit via GSP. Auth uses username/password; OTP if your GSP requires it.
+          Status: {isGspFilingReady() || (cfg.enabled && cfg.simulateSandbox) ? 'Ready for assist submit' : 'Incomplete credentials'}
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={testPing}>
+            <Wifi size={16} /> Test connectivity
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={testAuth}>
+            <Shield size={16} /> Test auth
+          </button>
+        </div>
+      </div>
+
+<div className="glass-panel p-6 mb-4">
         <h3 className="section-title">What works today vs later</h3>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.55, color: 'var(--text-muted)' }}>
           <li>
