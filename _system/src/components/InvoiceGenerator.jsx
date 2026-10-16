@@ -4195,35 +4195,32 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 type="text"
                 className="form-input"
                 list="inv-wo-typeahead"
-                placeholder="Type WO no. / client / site…"
-                value={
-                  selectedWorkOrderId
-                    ? ((workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
-                    : ''
-                }
+                placeholder="Type WO no. or pick from list — exact match links"
+                value={details.workOrderNo || ''}
                 onChange={(e) => {
-                  const q = e.target.value.trim();
+                  const raw = e.target.value;
+                  const q = raw.trim();
+                  // Always keep what the user types (free entry)
+                  setDetails(prev => ({ ...prev, workOrderNo: raw }));
                   if (!q) {
                     setSelectedWorkOrderId('');
-                    setDetails(prev => ({ ...prev, workOrderNo: '', workDetails: prev.workDetails }));
                     return;
                   }
-                  const id = (() => {
-                    const exact = workOrders.find(w => w.id === q || w.woNumber === q);
-                    if (exact) return exact.id;
-                    const ql = q.toLowerCase();
-                    const soft = workOrders.find(w =>
-                      String(w.woNumber || '').toLowerCase().includes(ql) ||
-                      String(w.clientName || '').toLowerCase().includes(ql) ||
-                      String(w.title || '').toLowerCase().includes(ql) ||
-                      String(w.site || '').toLowerCase().includes(ql)
-                    );
-                    return soft ? soft.id : '';
-                  })();
-                  if (!id) return; // still typing — don't clear selection mid-type if partial
+                  // Link + auto-fill ONLY on exact WO number (or id) match — never soft/partial
+                  const exact = workOrders.find(w =>
+                    String(w.id) === q ||
+                    String(w.woNumber || '').trim().toLowerCase() === q.toLowerCase()
+                  );
+                  if (!exact) {
+                    setSelectedWorkOrderId('');
+                    return;
+                  }
+                  const id = exact.id;
                   setSelectedWorkOrderId(id);
                   const wo = workOrders.find(w => w.id === id);
                   if (!wo) return;
+                  // Keep displayed text as the official WO number
+                  setDetails(prev => ({ ...prev, workOrderNo: wo.woNumber || prev.workOrderNo || q }));
                   const master = (savedClients || []).find(c =>
                     (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
                   );

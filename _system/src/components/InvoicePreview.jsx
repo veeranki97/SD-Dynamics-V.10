@@ -78,6 +78,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
     showAmountWords: false,
     showRoundOff: false,
     showBankDetails: false,
+    showUPI: false,
     showHsnSummary: false,
     hideHsnSummary: true,
   } : options;
@@ -193,7 +194,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // legacy flat profile.upiId for invoices that pre-date multi-account support.
   const upiId = account?.upiId || profile?.upiId || '';
   useEffect(() => {
-    if (!showUPI || !upiId || !totals.total || currencySymbol !== 'INR') {
+    if (hideMoneyOnDc || !showUPI || !upiId || !totals.total || currencySymbol !== 'INR') {
       setQrDataUrl('');
       return;
     }
@@ -1234,7 +1235,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                 {showHSN && <th style={{ border: '1px solid #000', padding: 4 }}>HSN/SAC</th>}
                 {showItemQty && <th style={{ border: '1px solid #000', padding: 4 }}>Qty</th>}
                 {showRateColumn && <th style={{ border: '1px solid #000', padding: 4 }}>Rate</th>}
-                <th style={{ border: '1px solid #000', padding: 4 }}>Taxable</th>
+                {showAmountCol && <th style={{ border: '1px solid #000', padding: 4 }}>Taxable</th>}
                 {showGST && isIndia && !isInterstate && (
                   <>
                     <th style={{ border: '1px solid #000', padding: 4 }}>CGST%</th>
@@ -1271,7 +1272,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                     {showHSN && <td style={{ border: '1px solid #000', padding: 4, textAlign: 'center' }}>{item.hsn || '-'}</td>}
                     {showItemQty && <td style={{ border: '1px solid #000', padding: 4, textAlign: 'center' }}>{item.quantity}{showItemUnit && item.unit ? ` ${item.unit}` : ''}</td>}
                     {showRateColumn && <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right' }}>{fmt(item.rate)}</td>}
-                    <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right' }}>{fmt(afterDiscount)}</td>
+                    {showAmountCol && <td style={{ border: '1px solid #000', padding: 4, textAlign: 'right' }}>{fmt(afterDiscount)}</td>}
                     {showGST && isIndia && !isInterstate && (
                       <>
                         <td style={{ border: '1px solid #000', padding: 4, textAlign: 'center' }}>{halfRate}%</td>
@@ -1304,7 +1305,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                       <div style={{ marginTop: 4, fontStyle: 'italic' }}>{amountInWords(totals.total)}</div>
                     </>
                   )}
-                  {qrDataUrl && (
+                  {!hideMoneyOnDc && qrDataUrl && (
                     <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
                       <img src={qrDataUrl} alt="UPI" style={{ width: 72, height: 72 }} />
                       <div>UPI: {upiId}<br />{fmt(totals.total)}</div>
@@ -1314,7 +1315,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                 <td style={{ border: '1px solid #000', padding: 0, verticalAlign: 'top' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
                     <tbody>
-                      {showSubtotal && (
+                      {showSubtotal && showAmountCol && (
                         <tr>
                           <td style={{ borderBottom: '1px solid #000', padding: '4px 8px' }}>Taxable Value</td>
                           <td style={{ borderBottom: '1px solid #000', padding: '4px 8px', textAlign: 'right' }}>{fmt(totals.subtotal)}</td>
@@ -1344,10 +1345,17 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                           <td style={{ borderBottom: '1px solid #000', padding: '4px 8px', textAlign: 'right' }}>{totals.roundOff > 0 ? '+' : ''}{fmt(totals.roundOff)}</td>
                         </tr>
                       )}
+                      {showAmountCol && (
                       <tr>
                         <td style={{ padding: '6px 8px', fontWeight: 800 }}>Grand Total</td>
                         <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800 }}>{fmt(totals.total)}</td>
                       </tr>
+                      )}
+                      {hideMoneyOnDc && (
+                      <tr>
+                        <td colSpan={2} style={{ padding: '6px 8px', fontWeight: 700, textAlign: 'center' }}>— End of list —</td>
+                      </tr>
+                      )}
                     </tbody>
                   </table>
                 </td>
@@ -1541,7 +1549,7 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                     </>
                   )
                 )}
-                <td className="inv-td inv-td-right inv-td-amount">{fmt(afterDiscount)}</td>
+                {showAmountCol && <td className="inv-td inv-td-right inv-td-amount">{fmt(afterDiscount)}</td>}
               </tr>
             );
           })}
