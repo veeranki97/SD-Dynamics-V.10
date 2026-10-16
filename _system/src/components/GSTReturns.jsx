@@ -1,4 +1,3 @@
-import MonthCloseWizard from './MonthCloseWizard';
 import GstFilingAssistPanel from './GstFilingAssistPanel';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
@@ -1633,6 +1632,18 @@ export default function GSTReturns() {
       {/* Header row: title + period selector + portal link */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
         <h1 className="page-title" style={{ margin: 0 }}>GST Returns</h1>
+        {profile?.gstin ? (
+          <span className="gstin-header-badge" title="Business GSTIN (from Settings → Company)" style={{
+            fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.02em',
+            padding: '0.2rem 0.55rem', borderRadius: 6,
+            background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)',
+            color: 'var(--text-secondary, #64748b)', fontFamily: 'ui-monospace, monospace',
+          }}>
+            {String(profile.gstin).toUpperCase()}
+          </span>
+        ) : (
+          <span style={{ fontSize: '0.75rem', color: '#b45309' }}>GSTIN not set — Settings → Company</span>
+        )}
         <HelpButton title="GST Returns — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
             <li><strong>Pick a period</strong> — Monthly / Quarterly (QRMP) / Full Year, then the specific month + year.</li>
@@ -1640,7 +1651,7 @@ export default function GSTReturns() {
             <li><strong>GSTR-1</strong> tab shows B2B / B2C / HSN Summary / Docs Issued as the portal expects. "Download JSON" gives you the file to upload at gst.gov.in.</li>
             <li><strong>GSTR-3B</strong> auto-populates from your GSTR-1 (from July 2025). Cross-check with the Notes column before filing.</li>
             <li><strong>GSTR-2B</strong> — upload the JSON you download from the portal; app matches ITC against your Purchase Bills to flag mismatches.</li>
-            <li><strong>Mark Filed</strong> — after filing on the portal, click Mark Filed to keep the app's status in sync.</li>
+            <li><strong>R1 / 3B pills</strong> (header) — single place to mark Filed after portal filing. Optional “Mark Filed” also appears on the GSTR-1 / GSTR-3B tabs while reviewing that return.</li>
           </ul>
         </HelpButton>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
@@ -1749,8 +1760,7 @@ export default function GSTReturns() {
           return window.__sdLastGstr3bPayload || null;
         }}
       />
-
-      {/* Tabs */}
+{/* Tabs */}
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         {[
           { id: 'gstr1', label: 'GSTR-1', icon: BarChart3 },
@@ -2616,8 +2626,10 @@ export default function GSTReturns() {
       {activeTab === 'guide' && (
         <>
           {/* Single month-close entry (not inside each StepList) */}
-          <div id="month-close" style={{ marginBottom: '0.75rem' }}>
-            <MonthCloseWizard />
+          <div id="month-close" style={{ marginBottom: '0.5rem' }}>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+              <strong>Month lock:</strong> Filing assist → <em>Month lock</em> tab (above). One place only — not duplicated here.
+            </p>
           </div>
           {/* Quick Start */}
           <div className="glass-panel" style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem', borderLeft: '3px solid var(--primary)' }}>

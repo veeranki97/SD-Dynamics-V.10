@@ -8,7 +8,7 @@ import { markBackupDone } from '../utils/backupNag';
  * Month-close wizard: pick month → GSTR reminder → checklist → lock via /api/period-lock.
  * Reuses existing periodLock + backup; does not rewrite GST engine.
  */
-export default function MonthCloseWizard() {
+export default function MonthCloseWizard({ compact = false }) {
   const now = new Date();
   const [month, setMonth] = useState(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -94,10 +94,12 @@ export default function MonthCloseWizard() {
   };
 
   return (
-    <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+    <div className={compact ? undefined : 'card'} style={{ padding: compact ? '0.25rem 0 0' : 16, marginBottom: compact ? 0 : 16 }}>
+      {!compact && (
       <h3 style={{ margin: '0 0 8px', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
         <Lock size={18} /> Month close
       </h3>
+      )}
       <p style={{ margin: '0 0 12px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
         Select a month, export GSTR from GST Returns, confirm the checklist, then lock the period.
       </p>
@@ -119,7 +121,7 @@ export default function MonthCloseWizard() {
           <FileText size={14} /> GSTR export
         </button>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14, fontSize: '0.85rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: compact ? 8 : 14, fontSize: '0.8rem' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
           <input type="checkbox" checked={checks.gstr} onChange={e => setChecks(c => ({ ...c, gstr: e.target.checked }))} />
           GSTR-1 / GSTR-3B reviewed or exported for this month

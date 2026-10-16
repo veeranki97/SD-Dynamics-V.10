@@ -2427,10 +2427,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     const capScale = (n) => Math.min(6, Math.max(2, Math.round(n)));
     const qualityCfg = {
       draft:    { scale: 2, imgFormat: 'JPEG', quality: 0.88 },
-      standard: { scale: capScale(Math.max(3.5, (window.devicePixelRatio || 1) * 2.2)), imgFormat: 'PNG', quality: 1.0 },
-      hd:       { scale: capScale(Math.max(4, (window.devicePixelRatio || 1) * 2.5)), imgFormat: 'PNG', quality: 1.0 },
+      standard: { scale: capScale(Math.max(4, (window.devicePixelRatio || 1) * 2.5)), imgFormat: 'PNG', quality: 1.0 },
+      hd:       { scale: capScale(Math.max(5, (window.devicePixelRatio || 1) * 3)), imgFormat: 'PNG', quality: 1.0 },
     };
-    const q = qualityCfg[printSettings.pdfQuality] || qualityCfg.standard;
+    // Prefer HD for tax docs — Google-Script PDFs look sharp because they are vector/print; we rasterize at higher DPI.
+    const q = qualityCfg[printSettings.pdfQuality || 'hd'] || qualityCfg.hd;
     const renderScale = q.scale;
     const jpegQuality = q.quality;
     const imgFormat = q.imgFormat;   // 'JPEG' or 'PNG'
@@ -2663,7 +2664,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           compress: true,
         });
       }
-      pdf.addImage(mainImg, imgFormat, contentXOffset, contentYOffset, contentWidth, finalH, undefined, 'MEDIUM');
+      pdf.addImage(mainImg, imgFormat, contentXOffset, contentYOffset, contentWidth, finalH, undefined, 'NONE');
       pageRecipes.push({ img: mainImg, y: contentYOffset, h: finalH, x: contentXOffset, w: contentWidth });
     } else {
       // v1.10.8 multi-page path — snap page breaks to safe DOM row boundaries.
@@ -2733,7 +2734,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         const pageMmHeight = (cropHeight * contentWidth) / mainCanvas.width;
         if (i > 0) pdf.addPage();
         const yForThisPage = contentYOffset + (i > 0 ? pageHeaderReserve : 0);
-        pdf.addImage(pageImg, imgFormat, contentXOffset, yForThisPage, contentWidth, pageMmHeight, undefined, 'MEDIUM');
+        pdf.addImage(pageImg, imgFormat, contentXOffset, yForThisPage, contentWidth, pageMmHeight, undefined, 'NONE');
         pageRecipes.push({ img: pageImg, y: yForThisPage, h: pageMmHeight, x: contentXOffset, w: contentWidth });
       }
     }
@@ -2754,7 +2755,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       const extraImg = c.toDataURL(imgFormat === 'PNG' ? 'image/png' : 'image/jpeg', jpegQuality);
       const extraH = Math.min((c.height * pdfWidth) / c.width, extraMaxH);
       pdf.addPage();
-      pdf.addImage(extraImg, imgFormat, 0, extraYOffset, pdfWidth, extraH, undefined, 'MEDIUM');
+      pdf.addImage(extraImg, imgFormat, 0, extraYOffset, pdfWidth, extraH, undefined, 'NONE');
       pageRecipes.push({ img: extraImg, y: extraYOffset, h: extraH });
     }
 

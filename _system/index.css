@@ -23,11 +23,12 @@
      dynamic tints that used to be color-mix now use rgba(var(--primary-rgb), α). */
   --primary-rgb: 37, 99, 235;
   --primary-darker: #1e3a8a;
-  --bg: #f0f2f5;
-  --bg-primary: #f0f2f5;
-  --bg-secondary: #f8fafc;       /* card / inset surface — light grey on light, dark slate on dark */
-  --bg-tertiary: #f1f5f9;        /* hover / selected inset */
-  --card-bg: rgba(255, 255, 255, 0.92);
+  --bg: #F5F7FB;                 /* app canvas — light gray everywhere except pure-white panels */
+  --bg-primary: #F5F7FB;
+  --bg-secondary: #FFFFFF;       /* cards / glass panels — pure white */
+  --bg-tertiary: #EEF2F7;        /* hover / selected inset */
+  --card-bg: #FFFFFF;            /* no translucent mix — avoids gray-on-gray mottling */
+  --surface: #FFFFFF;
   --text: #111827;
   --text-primary: #111827;       /* alias used by newer components */
   --text-secondary: #6b7280;
@@ -672,11 +673,14 @@ body {
 
 /* ========= Glass Panels ========= */
 .glass-panel {
-  background: var(--card-bg);
-  backdrop-filter: blur(20px);
+  background: #FFFFFF;
+  /* no backdrop blur — blur made nested panels look muddy gray */
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
+}
+[data-theme="dark"] .glass-panel {
+  background: var(--card-bg);
 }
 
 /* ========= Page Headers ========= */
@@ -3813,31 +3817,126 @@ div.stats-grid.stats-grid-kpi-4 .stat-value {
 }
 
 
-/* —— SD dense ERP (surgical) —— */
-.main-content { padding: 1.15rem 1.35rem !important; }
-.glass-panel { padding: 0.85rem 1rem !important; }
-.stat-card { padding: 0.75rem 0.9rem !important; }
-.data-table th, .data-table td { padding: 0.45rem 0.55rem !important; font-size: 0.84rem; }
-.filters-sticky-bar,
-.expense-filters-sticky,
-.clients-search-sticky {
-  position: sticky;
-  top: 0;
-  z-index: 18;
+/* Invoice generator density (surgical, logic-safe) */
+.ig-panel {
+  padding: 0.65rem 0.85rem !important;
+  margin-bottom: 0.65rem !important;
   background: var(--surface, var(--card, #fff));
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
-.modal-overlay {
-  animation: sd-fade-in 150ms ease-out;
+.ig-panel .section-title {
+  margin-bottom: 0.45rem !important;
+  font-size: 0.92rem;
 }
-.modal-content, .dossier-panel, .glass-panel.dossier {
-  animation: sd-fade-in 150ms ease-out;
+.ig-panel .form-group {
+  margin-bottom: 0.45rem !important;
 }
-@keyframes sd-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.ig-panel .form-label {
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
 }
-@media (prefers-reduced-motion: reduce) {
-  .modal-overlay, .modal-content, .dossier-panel, .glass-panel.dossier {
-    animation: none !important;
-  }
+.ig-panel .form-input {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+.sd-line-grid.line-item-row,
+.line-item-row.sd-line-grid {
+  margin-bottom: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  gap: 0.4rem !important;
+}
+.line-item-field .form-label {
+  margin-bottom: 0.15rem !important;
+  font-size: 0.68rem !important;
+}
+.generator-toolbar.ig-fixed-savebar {
+  padding: 0.45rem 0.65rem !important;
+  gap: 0.4rem;
+}
+.sd-inv-totals {
+  padding: 0.5rem 0.75rem !important;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, var(--surface, #f8fafc));
+}
+.sd-inv-totals .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.15rem 0;
+  font-size: 0.85rem;
+}
+.sd-inv-totals .row.grand {
+  font-weight: 700;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
+}
+
+
+/* Project Dossier tables — tight cells (overrides global .data-table padding) */
+.dossier-dense-table.data-table,
+table.dossier-dense-table {
+  width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse !important;
+  font-size: 0.78rem !important;
+}
+.dossier-dense-table.data-table th,
+.dossier-dense-table.data-table td,
+table.dossier-dense-table th,
+table.dossier-dense-table td {
+  padding: 0.28rem 0.45rem !important;
+  min-width: 0 !important;
+  vertical-align: middle !important;
+  line-height: 1.25 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border, #e2e8f0) !important;
+}
+.dossier-dense-table.data-table th,
+table.dossier-dense-table th {
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #64748b);
+  background: var(--bg-secondary, #f8fafc) !important;
+}
+.dossier-dense-table .text-end {
+  text-align: right !important;
+}
+.dossier-modal-body {
+  padding: 0.75rem 1rem !important;
+}
+
+
+/* ========== SD surface rules: gray canvas, white work surfaces ========== */
+.main-content {
+  background: var(--bg) !important;
+}
+.page {
+  background: transparent;
+}
+/* Invoice create/edit: pure white workspace on gray shell */
+.sd-inv-form,
+.invoice-form-compact,
+.invoice-workspace,
+.main-content:has(.sd-inv-form),
+.main-content:has(.invoice-form-compact) {
+  background: #FFFFFF;
+}
+.main-content:has(.sd-inv-form) .glass-panel,
+.main-content:has(.invoice-form-compact) .glass-panel {
+  background: #FFFFFF;
+  box-shadow: none;
+  border-color: #E2E8F0;
+}
+/* Lists / reports / GST / books stay on gray canvas with white cards */
+.data-table {
+  background: #FFFFFF;
+}
+.stat-card {
+  background: #FFFFFF;
 }
