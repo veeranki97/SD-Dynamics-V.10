@@ -1,115 +1,132 @@
 /**
- * Email helpers: prefer server SMTP, never navigate the app tab away to Gmail.
+ * Prefer server SMTP (nodemailer). If no SMTP / send fails → Gmail compose in NEW tab.
+ * If client email missing → promptForEmail (Swal or window.prompt).
+ * Does NOT import from store.js (apiFetch is not exported there).
  */
-export function copyText(text) {
+import { invoiceEmailHtml, defaultInvoiceBody } from './emailTemplates';
+
+async function postJson(path, body) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(body ?? {}),
+  });
+  let data = null;
   try {
-    if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
-  } catch (_) {}
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  } catch (_) {}
-  return Promise.resolve();
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const err = new Error(data?.error || `API ${res.status}`);
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
 }
 
-function sessionHeaders() {
-  const headers = { 'Content-Type': 'application/json' };
-  try {
-    const t = sessionStorage.getItem('sd_session_token');
-    if (t) headers.Authorization = `Bearer ${t}`;
-  } catch (_) {}
-  return headers;
-}
-
-/**
- * Try backend SMTP first. Returns { ok, error, code }.
- */
-export async function tryServerSendMail({ to, subject, text, body } = {}) {
-  const email = String(to || '').trim();
-  const sub = String(subject || '').trim();
-  const msg = String(text || body || '').trim();
-  if (!email) return { ok: false, error: 'No recipient email', code: 'no-to' };
-  if (!sub) return { ok: false, error: 'No subject', code: 'no-subject' };
-  try {
-    const r = await fetch('/api/mail/send', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: sessionHeaders(),
-      body: JSON.stringify({ to: email, subject: sub, text: msg }),
+export async function promptForEmail(defaultEmail = '') {
+  const existing = String(defaultEmail || '').trim();
+  if (existing.includes('@')) return existing;
+  if (typeof window !== 'undefined' && window.Swal) {
+    const r = await window.Swal.fire({
+      title: 'Client email missing',
+      text: 'Enter the email address to send this message. You can also save it on the Client master.',
+      input: 'email',
+      inputPlaceholder: 'client@company.com',
+      showCancelButton: true,
+      confirmButtonText: 'Continue',
+      inputValidator: (v) => {
+        if (!v || !String(v).includes('@')) return 'Valid email required';
+        return null;
+      },
     });
-    const ct = r.headers.get('content-type') || '';
-    const raw = await r.text();
-    let j = {};
-    if (ct.includes('json') || (raw && raw[0] === '{')) {
-      try { j = JSON.parse(raw); } catch (_) {}
-    }
-    if (r.ok) return { ok: true, messageId: j.messageId };
-    // HTML response = route missing on this server
-    if (raw.trim().startsWith('<')) {
-      return { ok: false, error: 'Mail API not on this server — restart with updated server.js + npm install nodemailer', code: 'no-route' };
-    }
-    return { ok: false, error: j.error || `Send failed (${r.status})`, code: j.code || String(r.status) };
-  } catch (e) {
-    return { ok: false, error: e.message || 'Network error', code: 'network' };
+    if (r.isDismissed) return null;
+    return String(r.value || '').trim();
   }
+  const v = window.prompt('Client email is missing. Enter email to send:', '');
+  if (!v || !v.includes('@')) return null;
+  return v.trim();
 }
 
-/**
- * Client-only open. Never uses window.location (keeps you in the app).
- * preferGmail: open Gmail compose in NEW tab only.
- */
-export function openMailClient({ to = '', subject = '', body = '', preferGmail = false } = {}) {
-  const email = String(to || '').trim();
-  let subj = String(subject || '');
-  let bod = String(body || '');
-  if (bod.length > 1500) bod = bod.slice(0, 1490) + '\n…';
+export async function sendMailPreferred({
+  to,
+  subject,
+  body,
+  html,
+  businessName,
+  pdfUrl,
+  addressLine,
+  useInvoiceTemplate = false,
+}) {
+  let email = String(to || '').trim();
+  if (!email.includes('@')) {
+    email = await promptForEmail('');
+    if (!email) return { ok: false, cancelled: true, error: 'No email' };
+  }
 
-  const mailto = `mailto:${email}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(bod)}`;
-  const gmail =
-    `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}` +
-    `&su=${encodeURIComponent(subj)}&body=${encodeURIComponent(bod)}`;
-
-  copyText(bod);
-
-  if (preferGmail) {
-    const w = window.open(gmail, '_blank', 'noopener,noreferrer');
-    return { method: 'gmail', href: gmail, popupBlocked: !w };
+  let htmlBody = html;
+  if (useInvoiceTemplate || (!html && body)) {
+    htmlBody = invoiceEmailHtml({
+      businessName: businessName || 'SD Dynamics',
+      bodyText: body || defaultInvoiceBody(subject, '', businessName),
+      pdfUrl,
+      addressLine,
+    });
   }
 
   try {
-    const a = document.createElement('a');
-    a.href = mailto;
-    a.rel = 'noopener';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { try { a.remove(); } catch (_) {} }, 400);
+    const res = await postJson('/api/mail/send', {
+      to: email,
+      subject: subject || 'Message from SD Dynamics',
+      text: body || subject || '',
+      html: htmlBody || undefined,
+    });
+    if (res && (res.ok || res.messageId)) {
+      return { ok: true, via: 'smtp', to: email, ...res };
+    }
+  } catch (_) {
+    /* SMTP unavailable — fall through */
+  }
+
+  const gmail =
+    'https://mail.google.com/mail/?view=cm&fs=1&to=' +
+    encodeURIComponent(email) +
+    '&su=' +
+    encodeURIComponent(subject || '') +
+    '&body=' +
+    encodeURIComponent(body || '');
+  try {
+    if (navigator.clipboard && body) await navigator.clipboard.writeText(body);
   } catch (_) {}
-  return { method: 'mailto', href: mailto, gmailFallback: gmail };
+  window.open(gmail, '_blank', 'noopener,noreferrer');
+  return { ok: true, via: 'gmail-compose', to: email };
+}
+
+export async function sendMonthlyReportNow() {
+  try {
+    return await postJson('/api/mail/monthly-report', {});
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 /**
- * SMTP first → on failure optional Gmail new-tab (never same tab).
+ * Alias used by Dashboard.jsx / PaymentReminders.
+ * Accepts either (opts object) or legacy (to, subject, body).
  */
-export async function sendMailSmart({ to, subject, body, allowGmailFallback = true } = {}) {
-  const server = await tryServerSendMail({ to, subject, text: body });
-  if (server.ok) return { ...server, method: 'smtp' };
-  if (!allowGmailFallback) return { ...server, method: 'smtp-failed' };
-  const open = openMailClient({ to, subject, body, preferGmail: true });
-  return {
-    ok: false,
-    method: open.method,
-    smtpError: server.error,
-    smtpCode: server.code,
-    popupBlocked: open.popupBlocked,
-  };
+export async function sendMailSmart(a, b, c) {
+  if (a && typeof a === 'object' && !Array.isArray(a)) {
+    return sendMailPreferred(a);
+  }
+  return sendMailPreferred({
+    to: a,
+    subject: b,
+    body: c,
+    useInvoiceTemplate: true,
+  });
 }
 
-export function openGmailCompose(opts) {
-  return openMailClient({ ...opts, preferGmail: true });
-}
+export { sendMailPreferred as openMail };

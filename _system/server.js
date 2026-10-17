@@ -4,6 +4,7 @@ import express from 'express';
 // where `cors()` echoed `*` for every origin.
 import fs from 'fs';
 import crypto from 'crypto';
+import { registerMailRoutes } from './src/mailRoutes.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 // v1.10.31 — Data-F3.1: share computeInvoiceTotals with the client so
@@ -2465,6 +2466,12 @@ app.get('/api/activity-logs', (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+
+try {
+  registerMailRoutes(app, { readJSON, writeJSON, META_PATH, readAllFromDir });
+} catch (e) { console.warn('[mail]', e.message); }
+
 
 app.post('/api/activity-logs', (req, res) => {
   try {
