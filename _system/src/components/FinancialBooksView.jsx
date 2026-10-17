@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getAllJournals, saveJournal, getAllBills, getAllExpenses, getAllWorkOrders, getAllCostCenters } from '../store';
+import { getAllJournals, saveJournal, getAllBills, getAllExpenses, getAllWorkOrders, getAllCostCenters, getProfile } from '../store';
 import { formatCurrency } from '../utils';
 import {
   trialBalance, balanceSheet, computeTradingPnL, siteWisePnL,
-  woWisePnL, costCenterWisePnL,
+  woWisePnL, costCenterWisePnL, filterJournalsByProfile,
   periodCloseJournal, bankBalance, lockMonth, unlockMonth, isMonthLocked,
 } from '../utils/ledger';
 import { toast } from './Toast';
@@ -27,7 +27,11 @@ export default function FinancialBooksView() {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   });
 
-  const load = () => getAllJournals().then(setJournals).catch(() => toast('Failed to load journals', 'error'));
+  const [profile, setProfile] = useState(null);
+  const load = () => {
+    getAllJournals().then(setJournals).catch(() => toast('Failed to load journals', 'error'));
+    getProfile().then(setProfile).catch(() => setProfile(null));
+  };
   useEffect(() => { load(); }, []);
   useEffect(() => {
     getAllBills().then(setBillRows).catch(() => setBillRows([]));
@@ -36,11 +40,12 @@ export default function FinancialBooksView() {
     getAllCostCenters().then(setCostCenters).catch(() => setCostCenters([]));
   }, []);
 
-  const tb = useMemo(() => trialBalance(journals, asOf), [journals, asOf]);
-  const bs = useMemo(() => balanceSheet(journals, asOf), [journals, asOf]);
-  const pnl = useMemo(() => computeTradingPnL(journals, from, asOf), [journals, from, asOf]);
+  const scopedJournals = useMemo(() => filterJournalsByProfile(journals, profile), [journals, profile]);
+  const tb = useMemo(() => trialBalance(scopedJournals, asOf), [scopedJournals, asOf]);
+  const bs = useMemo(() => balanceSheet(scopedJournals, asOf), [scopedJournals, asOf]);
+  const pnl = useMemo(() => computeTradingPnL(scopedJournals, from, asOf), [scopedJournals, from, asOf]);
   const sites = useMemo(() => {
-    const fromJ = siteWisePnL(journals, from, asOf) || [];
+    const fromJ = siteWisePnL(scopedJournals, from, asOf) || [];
     const hasReal = fromJ.some(s => s.site !== 'Unassigned' && ((s.income || 0) + (s.expense || 0) > 0.01));
     if (hasReal) return fromJ;
     const map = {};
@@ -70,12 +75,12 @@ export default function FinancialBooksView() {
       profit: Math.round((s.income - s.expense) * 100) / 100,
     }));
   }, [journals, from, asOf, billRows, expRows]);
-  const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
-  const ccs = useMemo(() => (typeof costCenterWisePnL === 'function' ? costCenterWisePnL(journals, from, asOf) : []), [journals, from, asOf]);
-  const bank = useMemo(() => bankBalance(journals, 'Bank') + bankBalance(journals, 'Cash'), [journals]);
+  const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(scopedJournals, from, asOf) : []), [scopedJournals, from, asOf]);
+  const ccs = useMemo(() => (typeof costCenterWisePnL === 'function' ? costCenterWisePnL(scopedJournals, from, asOf) : []), [scopedJournals, from, asOf]);
+  const bank = useMemo(() => bankBalance(scopedJournals, 'Bank') + bankBalance(scopedJournals, 'Cash'), [scopedJournals]);
 
   const runPeriodClose = async () => {
-    const j = periodCloseJournal(journals, asOf);
+    const j = periodCloseJournal(scopedJournals, asOf);
     if (!j) return toast('Nothing to close (P&L ~ 0)', 'info');
     if (!confirm(`Post period-close journal for ${asOf}? Net P&L: ${j.entries.debit || j.entries.credit}`)) return;
     try {

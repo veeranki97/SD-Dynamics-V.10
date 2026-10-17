@@ -99,7 +99,7 @@
     "test:sqlite": "node -e \"import('./src/db/sqliteStore.js').then(m=>{const r=m.initSqliteStore('./data'); console.log(r); process.exit(r.ok?0:1)})\""
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^13.0.3",
     "chart.js": "^4.5.1",
     "cors": "^2.8.6",
     "dompurify": "^3.4.15",

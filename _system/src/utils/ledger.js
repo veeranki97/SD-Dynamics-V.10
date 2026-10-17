@@ -445,19 +445,30 @@ export function balanceSheet(journals, asOfDate, accountTypeOverrides = null) {
  * Sample (prove once): WO W1, site S1, TI income 100000, expense PO 40000, expense 10000, CN income −5000
  *   → site S1 / WO W1: income 95000, expense 50000, profit 45000
  */
+/** Site-wise P&L — same classifier as computeTradingPnL
+ * FROZEN FORMULA (do not change without updating pnl-sample-test.mjs):
+ *   income  += credit − debit  when classifyAccount === income
+ *   expense += debit − credit  when classifyAccount === expense
+ *   profit = income − expense
+ * Prove: WO W1 + site S1 + TI 1L + PO 40k + exp 10k + CN 5k → income 95k, expense 50k, profit 45k
+ * Multi-profile: callers must pass filterJournalsByProfile(journals, activeProfile) first.
+ */
 /** Site-wise P&L — same classifier as computeTradingPnL */
 export function filterJournalsByProfile(journals, profile) {
   if (!profile) return journals || [];
+  const list = journals || [];
   const pid = profile.id || profile.profileId || '';
   const gst = String(profile.gstin || '').toUpperCase().replace(/\s/g, '');
-  if (!pid && !gst) return journals || [];
-  return (journals || []).filter(j => {
+  if (!pid && !gst) return list;
+  const anyTagged = list.some(j => j.profileId || j.businessId || j.profileGstin || j.gstin);
+  // Hard split only once books are tagged; untagged-only legacy data stays visible for one GSTIN
+  if (!anyTagged) return list;
+  return list.filter(j => {
     const jpid = j.profileId || j.businessId || '';
     const jgst = String(j.profileGstin || j.gstin || '').toUpperCase().replace(/\s/g, '');
     if (pid && jpid && String(jpid) === String(pid)) return true;
     if (gst && jgst && jgst === gst) return true;
-    // Untagged legacy rows: include only when single-profile mode (caller passes null to skip filter)
-    if (!jpid && !jgst) return false;
+    if (!jpid && !jgst) return false; // untagged after multi-profile era: hide from other GSTIN
     return false;
   });
 }

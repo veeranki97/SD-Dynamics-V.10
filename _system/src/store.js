@@ -410,7 +410,18 @@ export const deletePurchaseOrder = async (id) =>
 export const getAllJournals = async () => apiFetch(`${API}/journals`);
 export const saveJournal = async (j, { overwrite = true } = {}) => {
   const qs = overwrite ? '?overwrite=1' : '';
-  return apiFetch(`${API}/journals${qs}`, { method: 'POST', body: JSON.stringify(j) });
+  let body = j && typeof j === 'object' ? { ...j } : j;
+  try {
+    // Hard multi-profile split: every journal carries active GSTIN / profile id
+    if (body && typeof body === 'object' && !body.profileId && !body.profileGstin) {
+      const prof = await getProfile().catch(() => null);
+      if (prof) {
+        if (prof.id || prof.profileId) body.profileId = prof.id || prof.profileId;
+        if (prof.gstin) body.profileGstin = String(prof.gstin).toUpperCase().replace(/\s/g, '');
+      }
+    }
+  } catch (_) { /* keep body as-is */ }
+  return apiFetch(`${API}/journals${qs}`, { method: 'POST', body: JSON.stringify(body) });
 };
 
 // ---- Recurring Invoices ----

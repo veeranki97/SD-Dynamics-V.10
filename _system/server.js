@@ -100,10 +100,11 @@ for (const dir of DIRS) {
 // SQLite primary store (full cut-over)
 // ========================
 const _sqliteInit = initSqliteStore(DATA_DIR);
-if (_sqliteInit.ok) {
+globalThis.__sqliteLastInit = _sqliteInit;
+if (_sqliteInit.ok || _sqliteInit.ready) {
   console.log('[sqlite] Primary store ready', _sqliteInit.migrated != null ? `(migrated ${_sqliteInit.migrated})` : '');
 } else {
-  console.warn('[sqlite] Falling back to JSON files:', _sqliteInit.reason);
+  console.warn('[sqlite] Falling back to JSON files:', _sqliteInit.error || _sqliteInit.reason || _sqliteInit);
 }
 
 
@@ -3085,17 +3086,32 @@ app.post('/api/period-lock', (req, res) => {
 
 app.get('/api/sqlite-status', (req, res) => {
   try {
-    const base = sqliteStats();
+    const base = typeof sqliteStats === 'function' ? sqliteStats() : { ready: false };
+    const last = globalThis.__sqliteLastInit || {};
+    const out = {
+      ...base,
+      ready: !!(base && base.ready),
+      initError: last.error || last.reason || null,
+      hint: (base && base.ready)
+        ? null
+        : 'From _system folder: npm rebuild better-sqlite3 && node server.js. Then open System health → Re-import from JSON if needed.',
+    };
     if (req.query.verify === '1' || req.query.verify === 'true') {
-      const parity = verifyParity();
-      if (!parity.ok) {
-        console.warn('[sqlite] parity mismatch', parity.rows.filter((r) => !r.ok));
+      try {
+        const parity = verifyParity();
+        if (!parity.ok) console.warn('[sqlite] parity mismatch', parity.rows.filter((r) => !r.ok));
+        out.parity = parity;
+      } catch (pe) {
+        out.parityError = pe.message;
       }
-      return res.json({ ...base, parity });
     }
-    res.json(base);
+    res.json(out);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({
+      error: e.message,
+      ready: false,
+      hint: 'npm rebuild better-sqlite3 then restart node server.js',
+    });
   }
 });
 

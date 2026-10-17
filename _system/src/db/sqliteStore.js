@@ -43,7 +43,17 @@ function jsonMirrorEnabled() {
 }
 
 function openDb(dbPath) {
-  const Database = require('better-sqlite3');
+  let Database;
+  try {
+    Database = require('better-sqlite3');
+  } catch (e) {
+    const err = new Error(
+      'better-sqlite3 load failed: ' + (e && e.message ? e.message : e) +
+      ' — From _system folder run: npm rebuild better-sqlite3   (must match your Node version)'
+    );
+    err.cause = e;
+    throw err;
+  }
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
@@ -67,16 +77,43 @@ function migrate(db) {
       payload_json TEXT NOT NULL,
       PRIMARY KEY (collection, id)
     );
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
+  // Upgrade older DBs created before index columns existed (CREATE TABLE IF NOT EXISTS does not add columns)
+  const cols = new Set(
+    db.prepare('PRAGMA table_info(records)').all().map((r) => r.name)
+  );
+  const need = [
+    ['invoiceNumber', 'TEXT'],
+    ['clientName', 'TEXT'],
+    ['status', 'TEXT'],
+    ['docDate', 'TEXT'],
+    ['totalAmount', 'REAL'],
+    ['workOrderId', 'TEXT'],
+    ['isDeleted', 'INTEGER DEFAULT 0'],
+    ['updatedAt', 'TEXT'],
+    ['payload_json', 'TEXT'],
+  ];
+  for (const [name, typ] of need) {
+    if (!cols.has(name)) {
+      try {
+        db.exec(`ALTER TABLE records ADD COLUMN ${name} ${typ}`);
+        console.log('[sqlite] ALTER TABLE records ADD COLUMN', name);
+      } catch (e) {
+        console.warn('[sqlite] ALTER', name, e.message);
+      }
+    }
+  }
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_rec_coll_date ON records(collection, docDate);
     CREATE INDEX IF NOT EXISTS idx_rec_coll_inv ON records(collection, invoiceNumber);
     CREATE INDEX IF NOT EXISTS idx_rec_coll_status ON records(collection, status);
     CREATE INDEX IF NOT EXISTS idx_rec_coll_client ON records(collection, clientName);
     CREATE INDEX IF NOT EXISTS idx_rec_coll_wo ON records(collection, workOrderId);
     CREATE INDEX IF NOT EXISTS idx_rec_coll_del ON records(collection, isDeleted);
-    CREATE TABLE IF NOT EXISTS schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
   `);
   const row = db.prepare('SELECT value FROM schema_meta WHERE key = ?').get('version');
   const ver = row ? parseInt(row.value, 10) : 0;

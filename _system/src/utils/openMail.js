@@ -6,9 +6,14 @@
 import { invoiceEmailHtml, defaultInvoiceBody } from './emailTemplates';
 
 async function postJson(path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  try {
+    const tok = sessionStorage.getItem('sd_session_token');
+    if (tok) headers['Authorization'] = `Bearer ${tok}`;
+  } catch (_) {}
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     credentials: 'same-origin',
     body: JSON.stringify(body ?? {}),
   });
