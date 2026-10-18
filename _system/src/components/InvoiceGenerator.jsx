@@ -734,6 +734,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [clientPickerIdx, setClientPickerIdx] = useState(-1);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [showClientModal, setShowClientModal] = useState(false);
+  const [clientModalLocked, setClientModalLocked] = useState(false);
   const [modalClient, setModalClient] = useState(null);
   const [isEditingClient, setIsEditingClient] = useState(false);
   const clientNameRef = useRef(null);
@@ -1635,16 +1636,9 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   // Open modal to add new client (pre-fill from current invoice fields)
   const openAddClientModal = () => {
-    setModalClient({ name: client.name || '', address: client.address || '', city: client.city || '', pin: client.pin || '', state: client.state || '', gstin: client.gstin || '' });
+    setModalClient(null);
     setIsEditingClient(false);
-    setShowClientModal(true);
-    setShowClientSuggestions(false);
-  };
-
-  // Open modal to edit existing saved client
-  const openEditClientModal = (cli) => {
-    setModalClient(cli);
-    setIsEditingClient(true);
+    setClientModalLocked(false);
     setShowClientModal(true);
   };
 
@@ -1652,7 +1646,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const handleClientModalSave = async (formData) => {
     const data = { ...formData };
     if (isEditingClient && modalClient?.id) data.id = modalClient.id;
-    await saveClient(data);
+    try {
+      await saveClient(data);
+    } catch (e) {
+      toast(e?.message || e?.body?.error || 'Could not save client', 'error');
+      return;
+    }
     const updated = (await getAllClients() || []).filter(c => !c.isVendor && c.type !== 'vendor');
     setSavedClients(updated);
     // Sync the invoice form with the FULL saved record — dropping
@@ -4076,7 +4075,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Client Modal */}
-          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
+          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} lockedFields={clientModalLocked} />
 
           {/* Client Details */}
           <div className="glass-panel ig-panel">

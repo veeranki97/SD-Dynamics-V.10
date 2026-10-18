@@ -3942,3 +3942,60 @@ html:not([data-theme="dark"]) .sidebar .nav-btn.active {
 [data-theme="dark"] .sidebar {
   /* keep existing dark navy */
 }
+
+
+/* ---- Light theme sidebar (not navy) ---- */
+[data-theme="light"] .sidebar,
+html:not([data-theme="dark"]) .sidebar {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-right: 1px solid #e2e8f0;
+}
+[data-theme="light"] .sidebar a,
+[data-theme="light"] .sidebar .nav-item,
+[data-theme="light"] .sidebar button,
+html:not([data-theme="dark"]) .sidebar .nav-item {
+  color: #334155 !important;
+}
+[data-theme="light"] .sidebar .nav-item:hover,
+[data-theme="light"] .sidebar a:hover,
+html:not([data-theme="dark"]) .sidebar .nav-item:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .sidebar .nav-item.active,
+html:not([data-theme="dark"]) .sidebar .nav-item.active {
+  background: #4f46e5 !important;
+  color: #fff !important;
+}
+[data-theme="dark"] .sidebar {
+  /* keep dark navy */
+}
+
+/* Mobile: read-only tables as cards */
+@media (max-width: 768px) {
+  .data-table.mobile-cards thead { display: none; }
+  .data-table.mobile-cards tbody tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface, #fff);
+  }
+  .data-table.mobile-cards tbody td {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: none;
+    padding: 0.35rem 0;
+  }
+  .data-table.mobile-cards tbody td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-muted, #64748b);
+    font-size: 0.75rem;
+  }
+  /* Entry grids with inputs: keep horizontal scroll */
+  .table-responsive.entry-table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}

@@ -1,3 +1,23 @@
+
+export function applyEmailTemplate(template, vars = {}) {
+  let s = String(template?.subject || '');
+  let b = String(template?.body || '');
+  for (const [k, v] of Object.entries(vars)) {
+    const re = new RegExp('\\{\\{' + k + '\\}\\}', 'g');
+    s = s.replace(re, String(v ?? ''));
+    b = b.replace(re, String(v ?? ''));
+  }
+  return { subject: s, body: b };
+}
+
+export async function loadEmailTemplates() {
+  try {
+    const r = await fetch('/api/meta/email-templates', { credentials: 'same-origin' });
+    if (!r.ok) return {};
+    return await r.json();
+  } catch { return {}; }
+}
+
 /**
  * Prefer server SMTP (nodemailer). If no SMTP / send fails → Gmail compose in NEW tab.
  * If client email missing → promptForEmail (Swal or window.prompt).

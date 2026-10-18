@@ -2018,6 +2018,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Terms Templates ---- */}
+      <EmailTemplatesPanel />
       <div id="section-terms" className="glass-panel p-6 mb-6" style={{ order: 3 }}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="section-title" style={{ margin: 0 }}>Terms & Conditions Templates</h3>
@@ -2291,6 +2292,54 @@ function EditIcon({ size }) {
 // ============================================================
 // v1.9.5 — Backup Management + Trash Bin
 // ============================================================
+
+
+function EmailTemplatesPanel() {
+  const [tpl, setTpl] = useState({});
+  const [key, setKey] = useState('invoice');
+  useEffect(() => {
+    fetch('/api/meta/email-templates', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then(setTpl)
+      .catch(() => {});
+  }, []);
+  const cur = tpl[key] || { subject: '', body: '' };
+  const save = async () => {
+    try {
+      const r = await fetch('/api/meta/email-templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(tpl),
+      });
+      const j = await r.json();
+      if (j.emailTemplates) setTpl(j.emailTemplates);
+      toast('Email templates saved', 'success');
+    } catch (e) { toast(e.message || 'Save failed', 'error'); }
+  };
+  return (
+    <div id="section-email-tpl" className="glass-panel p-6 mb-6" style={{ order: 3.5 }}>
+      <h3 className="section-title" style={{ marginTop: 0 }}>Email templates</h3>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Placeholders: {'{{clientName}} {{invoiceNumber}} {{amount}} {{dueDate}} {{companyName}} {{woNumber}} {{poNumber}}'}. SMTP from Mail settings; otherwise mailto fallback.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+        {['invoice', 'reminder', 'statement', 'po', 'wo'].map((k) => (
+          <button key={k} type="button" className={key === k ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'} onClick={() => setKey(k)}>{k}</button>
+        ))}
+      </div>
+      <div className="form-group">
+        <label className="form-label">Subject</label>
+        <input className="form-input" value={cur.subject || ''} onChange={(e) => setTpl((t) => ({ ...t, [key]: { ...cur, subject: e.target.value } }))} />
+      </div>
+      <div className="form-group">
+        <label className="form-label">Body</label>
+        <textarea className="form-input" rows={6} value={cur.body || ''} onChange={(e) => setTpl((t) => ({ ...t, [key]: { ...cur, body: e.target.value } }))} />
+      </div>
+      <button type="button" className="btn btn-primary" onClick={save}>Save templates</button>
+    </div>
+  );
+}
 
 function AutoBackupPanel() {
   const [cfg, setCfg] = useState({ enabled: false, intervalHours: 24, keepCount: 14, googleDrive: false, lastRunAt: null, lastError: null });

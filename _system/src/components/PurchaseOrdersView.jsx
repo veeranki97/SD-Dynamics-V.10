@@ -216,6 +216,8 @@ function printPO(po, profile, fingerprint, clientsList) {
   .party .sec { padding: 8px 10px; min-height: 72px; }
   .subject { padding: 7px 10px; }
   .sign-block { padding: 10px 12px 8px; flex-shrink: 0; }
+  .hdr-gap { height: 3.6em; /* ~3 blank lines after letterhead */ }
+  .subject-gap { height: 3.6em; }
   .hdr {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -345,6 +347,7 @@ function printPO(po, profile, fingerprint, clientsList) {
         <div><b>Status:</b> ${esc(po.status || 'Issued')}</div>
       </div>
     </div>
+    <div class="hdr-gap"></div>
     <div class="party">
       <div class="sec">
         <div class="lbl">Supplier Details (To)</div>
@@ -360,6 +363,7 @@ function printPO(po, profile, fingerprint, clientsList) {
         ${!shipName && !shipSite && !shipStreet && !shipCityLine ? '<div class="det">—</div>' : ''}
       </div>
     </div>
+    <div class="subject-gap"></div>
     <div class="subject"><b>Subject:</b> ${subject || '—'}</div>
     <table class="items">
       <thead>

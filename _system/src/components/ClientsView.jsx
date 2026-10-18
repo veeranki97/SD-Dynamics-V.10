@@ -654,7 +654,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
     setEditingClientId(client.id);
     setShowForm(true);
     if (locked) {
-      // toast optional - avoid import issues if toast already used
+      toast('Name, GSTIN and State locked — this client has invoices. Phone/email still editable.', 'info');
     }
   };
 

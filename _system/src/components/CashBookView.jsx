@@ -4,6 +4,45 @@ import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals
 import { formatCurrency, belongsToProfile } from '../utils';
 import { toast } from './Toast';
 
+function openPrintHtml(html, title) {
+  const t = String(title || 'Cash-Book').replace(/[/\\?%*:|"<>]/g, '-');
+  let iframe = document.getElementById('sd-cashbook-print-frame');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'sd-cashbook-print-frame';
+    document.body.appendChild(iframe);
+  }
+  iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
+  const prevTitle = document.title;
+  try { document.title = t; } catch (_) {}
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!doc) {
+    try { document.title = prevTitle; } catch (_) {}
+    toast('Print frame unavailable', 'error');
+    return;
+  }
+  doc.open();
+  doc.write(html);
+  doc.close();
+  try { doc.title = t; } catch (_) {}
+  const restore = () => { try { document.title = prevTitle; } catch (_) {} };
+  setTimeout(() => {
+    try {
+      const win = iframe.contentWindow;
+      if (win) {
+        try { win.onafterprint = restore; } catch (_) {}
+        win.focus();
+        win.print();
+      }
+    } catch (e) {
+      console.error(e);
+      restore();
+    }
+    setTimeout(restore, 60000);
+  }, 300);
+}
+
+
 /**
  * Chronological cash book with opening balance + running balance.
  * Opening balance stored in localStorage key freegstbill_cashbook_ob
@@ -24,7 +63,8 @@ function exportCashCsv(rows) {
 
 
 function exportCashPdf({ title, subtitle, company, rows, mode, dayDate, closing }) {
-  const w = window.open('', '_blank');
+  const __printTitle = String(title || (mode === 'day' ? 'Day-Book' : 'Cash-Book')).replace(/[/\\?%*:|"<>]/g, '-');
+  let w = { document: { write(html){ openPrintHtml(html, __printTitle); }, close(){} }, close(){} };
   if (!w) return;
   const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -58,7 +98,7 @@ function exportCashPdf({ title, subtitle, company, rows, mode, dayDate, closing 
     ? '<th>Voucher Type</th><th>Voucher No.</th><th>Particulars</th><th style="text-align:right">Inward (₹)</th><th style="text-align:right">Outward (₹)</th>'
     : '<th>Date</th><th>Party / Particulars</th><th>Type</th><th style="text-align:right">Money In (Dr)</th><th style="text-align:right">Money Out (Cr)</th><th style="text-align:right">Running Bal</th>';
   const period = mode === 'day' ? `Report Period: ${esc(dayDate)}` : 'Account: Main Cashbook';
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(title)}</title><style>@page{size:A4;margin:12mm}body{font-family:Segoe UI,Arial,sans-serif;font-size:10px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #e2e8f0}th{text-align:left;font-size:9px;color:#64748b;padding:6px 8px}.hdr{margin-bottom:12px}.foot{margin-top:16px;font-size:8px;color:#94a3b8}</style>
 <style>
 @page{size:A4;margin:12mm}
 body{font-family:'Segoe UI',Arial,sans-serif;font-size:11px;color:#0f172a;margin:0}
@@ -78,7 +118,7 @@ ${mode !== 'day' ? `<div class="close"><div class="lbl">Closing Balance</div><di
 </div>
 <table><thead><tr>${headCols}</tr></thead><tbody>${body || '<tr><td colspan="6" style="padding:16px;text-align:center;color:#94a3b8">No entries</td></tr>'}</tbody></table>
 <div class="foot">This is a computer-generated document from ${esc(company)}. No signature is required.</div>
-<script>try{document.title=document.title||'Cash-Book'}catch(e){} setTimeout(function(){window.print()},250)</script>
+<script>try{document.title=document.title||'Cash-Book'}catch(e){} /* print triggered by parent iframe */</script>
 </body></html>`);
   w.document.close();
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { getCountryConfig, isValidIndianGSTIN, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, PAPER_SIZES } from '../utils';
+import { getCountryConfig, isValidIndianGSTIN, getStateCode, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, PAPER_SIZES } from '../utils';
 import { getRegionMode } from '../store';
 
 export default function ClientModal({ lockedFields = false, show, onClose, onSave, client, isEditing, defaultCountry }) {
@@ -46,16 +46,29 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
 
   const handleSave = () => {
     if (!form.name.trim()) return;
-    if ((form.country === 'India' || !form.country) && form.gstin && form.gstin.trim()) {
-      const v = isValidIndianGSTIN(form.gstin);
-      if (!v.valid) { alert(v.message); return; }
+    const payload = { ...form };
+    if (lockedFields && client) {
+      // Guardian: identity fields cannot change when invoices exist
+      payload.name = client.name != null && client.name !== '' ? client.name : payload.name;
+      payload.gstin = client.gstin != null && client.gstin !== '' ? client.gstin : payload.gstin;
+      payload.state = client.state != null && client.state !== '' ? client.state : payload.state;
     }
-    if (lockedFields) {
-      alert('Company Name, GSTIN and State are locked — this client has active Tax Invoices.');
-      return;
+    if ((payload.country === 'India' || !payload.country) && payload.gstin && String(payload.gstin).trim()) {
+      const v = isValidIndianGSTIN(payload.gstin);
+      if (!v.valid) {
+        alert(v.message || 'Invalid GSTIN');
+        return;
+      }
+      const codeFromGstin = String(payload.gstin).trim().toUpperCase().slice(0, 2);
+      const codeFromState = getStateCode(payload.state);
+      if (codeFromState && codeFromGstin && String(codeFromState).padStart(2, '0') !== String(codeFromGstin).padStart(2, '0')) {
+        alert(`GSTIN state code ${codeFromGstin} does not match state "${payload.state}" (expected ${codeFromState}).`);
+        return;
+      }
     }
-    onSave(form);
+    onSave(payload);
   };
+
 
   const cell = { marginBottom: 0 };
   const grid3 = { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' };
@@ -70,6 +83,11 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
           <h3 className="section-title" style={{ margin: 0 }}>{isEditing ? 'Edit Client' : 'Add New Client'}</h3>
           <button type="button" className="icon-btn" onClick={onClose} title="Close"><X size={18} /></button>
         </div>
+        {lockedFields && (
+          <p className="identity-lock-banner" style={{ fontSize: '0.8rem', color: '#b45309', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '0.5rem 0.75rem', margin: '0 0 0.75rem' }}>
+            Name, GSTIN and State are locked — this client has invoices. Phone, email and notes can still be updated.
+          </p>
+        )}
 
         {/* Row 1: Name + Sites side-by-side */}
         <div style={grid2}>
@@ -146,7 +164,7 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
             <label className="form-label">{cc.taxIdLabel}</label>
             <input type="text" className="form-input"
               style={taxIdWarning ? { borderColor: '#f59e0b' } : undefined}
-              value={form.gstin}
+              value={form.gstin} disabled={!!lockedFields} readOnly={!!lockedFields}
               onChange={e => {
                 const g = e.target.value.toUpperCase();
                 const code = g.replace(/[^0-9A-Z]/g, '').slice(0, 2);

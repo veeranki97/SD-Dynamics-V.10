@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Plus, Trash2, ClipboardList } from 'lucide-react';
 import {
   getAllWorkOrders, getAllExpenses, getAllPurchases, getAllPurchaseOrders, saveWorkOrder, deleteWorkOrder,
-  getAllBills, getAllClients, getAllCostCenters,
+  getAllBills, getAllClients, getAllCostCenters, getAllProducts,
 } from '../store';
 import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency } from '../utils';
@@ -112,6 +112,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [list, setList] = useState([]);
   const [bills, setBills] = useState([]);
   const [clients, setClients] = useState([]);
+  const [productCatalog, setProductCatalog] = useState([]);
   const [costCenters, setCostCenters] = useState([]);
   const [hsnMaster, setHsnMaster] = useState([]);
   const [unitMaster, setUnitMaster] = useState([]);
@@ -143,7 +144,8 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
       setPurchaseOrders(pos || []);
       setPurchases(pbs || []);
       setExpenses(exps || []);
-      getAllCostCenters().then(setCostCenters).catch(() => {});
+      try { getAllProducts().then(setProductCatalog).catch(() => setProductCatalog([])); } catch (_) {}
+    getAllCostCenters().then(setCostCenters).catch(() => {});
     } catch (e) {
       console.error('[WorkOrdersView.load]', e);
       toast('Failed to load Work Orders: ' + (e?.message || 'network'), 'error');
@@ -215,7 +217,29 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
       createdAt: new Date().toISOString(),
     });
 
-  const updateItem = (idx, field, value) => {
+  
+  const applyProductToLine = (idx, productNameOrId) => {
+    const q = String(productNameOrId || '').trim().toLowerCase();
+    if (!q || !productCatalog?.length) return;
+    const p = productCatalog.find((x) => String(x.id) === q || String(x.name || '').toLowerCase() === q || String(x.sku || '').toLowerCase() === q);
+    if (!p) return;
+    setForm((f) => {
+      const items = [...(f.items || [])];
+      const row = { ...items[idx] };
+      if (p.name) row.description = p.name;
+      if (p.hsn || p.sac) row.hsn = p.hsn || p.sac;
+      if (p.unit) row.unit = p.unit;
+      if (p.rate != null && p.rate !== '') row.rate = p.rate;
+      if (p.costHead || p.costCenterId || p.costCentreId) {
+        row.costHead = p.costHead || p.costCenterId || p.costCentreId;
+        row.costCenterId = p.costCenterId || p.costCentreId || p.costHead;
+      }
+      items[idx] = row;
+      return { ...f, items };
+    });
+  };
+
+const updateItem = (idx, field, value) => {
     setForm(prev => {
       if (!prev) return prev;
       const items = [...(prev.items || [])];
@@ -382,6 +406,9 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
         <div className="glass-panel" style={{ padding: 12, marginTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <strong>Line items</strong>
+              <datalist id="wo-products-master">{(productCatalog || []).map((p) => (
+                <option key={p.id || p.name} value={p.name || ''} />
+              ))}</datalist>
             <button type="button" className="btn btn-secondary btn-sm" onClick={addItem}>
               <Plus size={14} /> Add row
             </button>
@@ -404,7 +431,7 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
                 {(form.items || []).map((it, idx) => (
                   <tr key={it.id || idx}>
                     <td>
-                      <input className="form-input" value={it.description || ''}
+                      <input className="form-input" list="wo-products-master" onBlur={(e) => applyProductToLine(idx, e.target.value)} value={it.description || ''}
                         onChange={e => updateItem(idx, 'description', e.target.value)} />
                     </td>
                     <td>

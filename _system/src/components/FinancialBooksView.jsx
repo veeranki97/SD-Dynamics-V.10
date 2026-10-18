@@ -41,6 +41,51 @@ export default function FinancialBooksView() {
   }, []);
 
   const scopedJournals = useMemo(() => filterJournalsByProfile(journals, profile), [journals, profile]);
+  
+  const exportTradingCapitalPdf = () => {
+    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const sales = Number(pnl.sales || 0);
+    const purchases = Number(pnl.purchases || 0);
+    const expenses = Number(pnl.expenses || 0);
+    const gp = Number(pnl.grossProfit || 0);
+    const np = Number(pnl.netProfit || 0);
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Trading-PL-Capital</title>
+<style>@page{size:A4;margin:12mm}body{font-family:Segoe UI,Arial,sans-serif;font-size:10px;color:#0f172a}
+h1{font-size:14px;margin:0 0 4px}h2{font-size:12px;margin:16px 0 8px;border-bottom:1px solid #0f172a;padding-bottom:4px}
+table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px solid #0f172a;padding:6px 8px}
+.side{display:grid;grid-template-columns:1fr 1fr;gap:0} .muted{color:#64748b;font-size:9px}
+</style></head><body>
+<div class="muted">${esc(from)} to ${esc(asOf)}</div>
+<h1>Trading Account / Profit & Loss / Capital</h1>
+<h2>Trading Account</h2>
+<table>
+<tr><td>To Opening Stock</td><td style="text-align:right">₹0.00</td><td>By Sales</td><td style="text-align:right">₹${inr(sales)}</td></tr>
+<tr><td>To Purchases</td><td style="text-align:right">₹${inr(purchases)}</td><td>By Closing Stock</td><td style="text-align:right">₹0.00</td></tr>
+<tr><td>To Gross Profit c/d</td><td style="text-align:right">₹${inr(Math.max(0,gp))}</td><td>By Gross Loss c/d</td><td style="text-align:right">₹${inr(Math.max(0,-gp))}</td></tr>
+</table>
+<h2>Profit & Loss Account</h2>
+<table>
+<tr><td>To Indirect Expenses</td><td style="text-align:right">₹${inr(expenses)}</td><td>By Gross Profit b/d</td><td style="text-align:right">₹${inr(Math.max(0,gp))}</td></tr>
+<tr><td>To Net Profit transferred to Capital</td><td style="text-align:right">₹${inr(Math.max(0,np))}</td><td>By Net Loss</td><td style="text-align:right">₹${inr(Math.max(0,-np))}</td></tr>
+</table>
+<h2>Capital Account (summary)</h2>
+<table>
+<tr><td>To Net Loss</td><td style="text-align:right">₹${inr(Math.max(0,-np))}</td><td>By Net Profit</td><td style="text-align:right">₹${inr(Math.max(0,np))}</td></tr>
+<tr><td colspan="2" class="muted">Stock lines omitted (no inventory qty). Figures from journals / sales / purchases for the period.</td><td></td><td></td></tr>
+</table>
+<script>setTimeout(function(){window.print()},300)</script>
+</body></html>`;
+    let iframe = document.getElementById('sd-trading-print-frame');
+    if (!iframe) { iframe = document.createElement('iframe'); iframe.id = 'sd-trading-print-frame'; document.body.appendChild(iframe); }
+    iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
+    const prev = document.title;
+    document.title = 'Trading-PL-Capital';
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { try { iframe.contentWindow.print(); } catch(_){} document.title = prev; }, 400);
+  };
+
   const tb = useMemo(() => trialBalance(scopedJournals, asOf), [scopedJournals, asOf]);
   const bs = useMemo(() => balanceSheet(scopedJournals, asOf), [scopedJournals, asOf]);
   const pnl = useMemo(() => computeTradingPnL(scopedJournals, from, asOf), [scopedJournals, from, asOf]);
@@ -213,7 +258,12 @@ export default function FinancialBooksView() {
         </div>
       )}
 
-      {tab === 'pnl' && (
+      {(tab === 'pnl') && (
+          <div style={{ marginBottom: 8 }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={exportTradingCapitalPdf}>Print Trading / P&L / Capital</button>
+          </div>
+        )}
+        {tab === 'pnl' && (
         <div className="glass-panel p-4" style={{ maxWidth: 480 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Sales</span><strong>{formatCurrency(pnl.sales)}</strong></div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Direct costs / purchases</span><span>{formatCurrency(pnl.purchases)}</span></div>

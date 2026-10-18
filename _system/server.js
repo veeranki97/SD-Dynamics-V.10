@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 // invoice-level discount, and round-off. Previously the recurring auto-fire
 // re-implemented totals inline and silently reintroduced every bug the
 // v1.10.1 extraction fixed. Same source of truth now.
-import { computeInvoiceTotals } from './src/utils.js';
+import { computeInvoiceTotals, isValidIndianGSTIN, getStateCode } from './src/utils.js';
 import {
   initSqliteStore, isSqliteReady, sqliteList, sqliteGet, sqliteUpsert, sqliteRemove, sqliteStats,
   sqliteCount, verifyParity, pathToCollectionId, sqliteUpsertMany,
@@ -25,6 +25,50 @@ import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 try { /* ensure activity dir early */ } catch {}
 const DATA_DIR = path.join(__dirname, 'data');
+
+/** GSTIN: empty OK (B2C); else 15-char + checksum; optional state name must match first 2 digits. */
+function validateGstin(gstin, stateName) {
+  const g = String(gstin || '').trim();
+  if (!g) return { ok: true, empty: true };
+  const r = isValidIndianGSTIN(g);
+  if (!r || !r.valid) return { ok: false, error: (r && r.message) || 'Invalid GSTIN' };
+  if (stateName) {
+    const codeFromState = getStateCode(stateName);
+    const codeFromGstin = String(g).slice(0, 2);
+    if (codeFromState && codeFromGstin && String(codeFromState).padStart(2, '0') !== String(codeFromGstin).padStart(2, '0')) {
+      return {
+        ok: false,
+        error: `GSTIN state code ${codeFromGstin} does not match state "${stateName}" (expected ${codeFromState}). Fix state or GSTIN.`,
+      };
+    }
+  }
+  return { ok: true, stateCode: r.stateCode };
+}
+
+function clientHasTaxInvoices(client) {
+  if (!client) return false;
+  const bills = readAllFromDir('bills') || [];
+  const cid = String(client.id || '');
+  const cname = String(client.name || '').trim().toLowerCase();
+  const cgst = String(client.gstin || '').trim().toUpperCase();
+  for (const b of bills) {
+    if (b.is_deleted || b.deleted) continue;
+    const st = String(b.status || '').toLowerCase();
+    if (st === 'cancelled') continue;
+    const t = String(b.invoiceType || b.type || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+    // Lock on any real sales doc that sits on the ledger (not pure quotation/dc-only if you want — lock on tax + PI + CN)
+    if (t.includes('quotation') || t === 'delivery-challan' || t === 'dc') continue;
+    const bid = String(b.clientId || b.data?.clientId || b.data?.client?.id || '');
+    const bname = String(b.clientName || b.data?.client?.name || b.data?.clientName || '').trim().toLowerCase();
+    const bgst = String(b.clientGstin || b.data?.client?.gstin || b.data?.gstin || '').trim().toUpperCase();
+    if (cid && bid && cid === bid) return true;
+    if (cname && bname && cname === bname) return true;
+    if (cgst.length === 15 && bgst === cgst) return true;
+  }
+  return false;
+}
+
+
 
 // Port choice — we deliberately default to a high, unusual number rather than
 // the conventional 3001. The 3000-range is heavily used by every other Node /
@@ -798,9 +842,24 @@ app.get('/api/clients', (req, res) => {
 });
 
 app.post('/api/clients', (req, res) => {
-  const client = req.body;
+  const client = req.body || {};
   if (!client.id) client.id = 'cli_' + Date.now();
+  const v = validateGstin(client.gstin, client.state);
+  if (!v.ok) return res.status(400).json({ error: v.error });
   const filePath = path.join(DATA_DIR, 'clients', safeFileName(client.id) + '.json');
+  const prev = readJSON(filePath, null);
+  if (prev && clientHasTaxInvoices(prev)) {
+    const norm = (x) => String(x || '').trim().toLowerCase();
+    const identityChanged =
+      (prev.name && client.name && norm(prev.name) !== norm(client.name)) ||
+      (prev.gstin && client.gstin && String(prev.gstin).trim().toUpperCase() !== String(client.gstin).trim().toUpperCase()) ||
+      (prev.state && client.state && norm(prev.state) !== norm(client.state));
+    if (identityChanged) {
+      return res.status(403).json({
+        error: 'Client has invoices — cannot change name/GSTIN/state. Create a new client or use a credit note process.',
+      });
+    }
+  }
   writeJSON(filePath, client);
   res.json({ success: true, id: client.id });
 });
