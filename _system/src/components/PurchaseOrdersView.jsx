@@ -81,16 +81,18 @@ function printPO(po, profile, fingerprint, clientsList) {
     sigSrc = (profile && (profile.signature || profile.signatureImage))
       || ps.signatureImage || ps.signature || '';
   } catch { sigSrc = (profile && (profile.signature || profile.signatureImage)) || ''; }
+  
   const t = calcPOTotals(po.items, po.taxRate, po.vendorState, profile?.state);
   const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  
   const company = esc(profile?.businessName || profile?.name || 'SAI DURGA');
   const cAddr = esc([profile?.address, profile?.city, profile?.state, profile?.pincode].filter(Boolean).join(', '));
   const cGst = esc(profile?.gstin || '');
   const cPhone = esc(profile?.phone || profile?.mobile || '');
   const cEmail = esc(profile?.email || '');
 
-  // --- Vendor (supplier): enrich from master list if PO fields thin ---
+  // --- Vendor (supplier) ---
   let vendorNameRaw = po.vendorName || po.vendor || '';
   let vendorGstRaw = po.vendorGstin || po.vendorGSTIN || '';
   let vendorAddrRaw = po.vendorAddress || po.vendorAddr || '';
@@ -117,8 +119,7 @@ function printPO(po, profile, fingerprint, clientsList) {
   const vendorAddr = esc(vendorAddrRaw);
   const vendorPhone = esc(vendorPhoneRaw);
 
-  // --- Ship To: client site delivery (NOT seller address). No separate Bill-To on PO —
-  // the company header is the buyer. Match professional Indian PO layout (Supplier | Ship To).
+  // --- Ship To ---
   let shipNameRaw = po.shipToName || po.clientName || po.billToName || '';
   const shipSiteRaw = po.shipToSite || po.site || po.deliverySite || '';
   let shipStreetRaw = '';
@@ -160,7 +161,6 @@ function printPO(po, profile, fingerprint, clientsList) {
     ? po.terms
     : (profile?.defaultTerms || DEFAULT_PO_TERMS);
   const terms = esc(termsRaw).replace(/\n/g, '<br/>');
-  const notes = esc(po.deliveryNotes || po.instructions || '');
   const poTitle = String(po.poNumber || 'PO').replace(/[\\/:*?"<>|]/g, '-');
 
   const rows = (po.items || []).map((it, i) => {
@@ -177,169 +177,158 @@ function printPO(po, profile, fingerprint, clientsList) {
   }).join('');
 
   const rate = Number(po.taxRate) || 0;
-  let taxLines = '';
-  if (t.igst > 0) taxLines += `<tr><td class="lab">IGST (${rate}%)</td><td class="r">₹${inr(t.igst)}</td></tr>`;
-  else if (t.cgst > 0 || t.sgst > 0) {
-    taxLines += `<tr><td class="lab">CGST (${rate / 2}%)</td><td class="r">₹${inr(t.cgst)}</td></tr>`;
-    taxLines += `<tr><td class="lab">SGST (${rate / 2}%)</td><td class="r">₹${inr(t.sgst)}</td></tr>`;
+  let taxLinesHtml = '';
+  let numTaxLines = 0;
+  if (t.igst > 0) {
+    taxLinesHtml += `<tr><td class="totals-lab">IGST (${rate}%)</td><td class="totals-val">₹${inr(t.igst)}</td></tr>`;
+    numTaxLines = 1;
+  } else if (t.cgst > 0 || t.sgst > 0) {
+    taxLinesHtml += `<tr><td class="totals-lab">CGST (${rate / 2}%)</td><td class="totals-val">₹${inr(t.cgst)}</td></tr>`;
+    taxLinesHtml += `<tr><td class="totals-lab">SGST (${rate / 2}%)</td><td class="totals-val">₹${inr(t.sgst)}</td></tr>`;
+    numTaxLines = 2;
   } else {
-    taxLines = `<tr><td class="lab">GST (${rate}%)</td><td class="r">₹${inr(t.gst || 0)}</td></tr>`;
+    taxLinesHtml += `<tr><td class="totals-lab">GST (${rate}%)</td><td class="totals-val">₹${inr(t.gst || 0)}</td></tr>`;
+    numTaxLines = 1;
   }
+  const rowspan = 3 + numTaxLines; 
+
+  const tsDate = new Date().toLocaleString('en-IN');
+  const signBlock = `<div style="display:inline-block; border:1.5pt solid #16a34a; border-radius:4px; padding:6px 10px; font-size:8.5pt; text-align:left; line-height:1.3; background-color:#f0fdf4; color:#16a34a; min-width:180px;">
+    <div style="font-weight:bold; font-size:9.5pt; margin-bottom:3px; border-bottom:1pt solid #bbf7d0; padding-bottom:2px;">
+      <span style="font-size:1.1em;">✔</span> Signature Valid
+    </div>
+    <div style="color:#000;">
+      <strong>Digitally signed by:</strong><br>${company}<br>
+      <strong>Date:</strong> ${tsDate}<br>
+      <strong>Location:</strong> ${esc(profile?.state || 'Andhra Pradesh')}, India
+    </div>
+  </div>`;
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${poTitle}</title>
 <style>
-  @page { size: A4 portrait; margin: 0; }
+  @page { size: A4 portrait; margin: 8mm; }
   * { box-sizing: border-box; }
-  html, tr, .sign-block, .foot, .hdr, .party { page-break-inside: avoid; }
-  body { margin: 0; padding: 0; background: #fff; }
+  html, body { margin: 0; padding: 0; background: #fff; }
   body {
-    font-family: Arial, Helvetica, sans-serif;
-    color: #0f172a;
-    font-size: 9px;
-    line-height: 1.35;
+    font-family: 'Helvetica', Arial, sans-serif;
+    color: #000;
+    font-size: 9.5pt;
+    line-height: 1.4;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  @page { size: A4 portrait; margin: 0; }
-  html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; }
-  /* Full A4 outer frame — fixed content box so border reaches bottom */
   .sheet {
     border: 1.5pt solid #000;
-    width: 194mm;
-    height: 281mm; max-height: 281mm;
-    margin: 8mm;
+    width: 100%;
+    min-height: 265mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
-  .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
   .sheet-spacer { flex: 1 1 auto; min-height: 2mm; }
-  .party .sec { padding: 4px 8px; min-height: 48px; }
-  .subject { padding: 4px 8px; }
-  .sign-block { padding: 10px 12px 8px; flex-shrink: 0; }
-  .hdr-gap { height: 1.2em; }
-  .subject-gap { height: 0.8em; }
+  
   .hdr {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    padding: 8px 10px;
-    border-bottom: 1.5px solid #0f172a;
-    align-items: start;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 10px 12px;
   }
-  .hdr h1 { margin: 0 0 2px; font-size: 16px; font-weight: 800; letter-spacing: 0.03em; }
-  .hdr .muted { font-size: 8.5px; color: #334155; line-height: 1.4; }
-  .hdr .meta { text-align: right; font-size: 9px; }
+  .hdr-left { max-width: 48%; padding-right: 15px; }
+  .hdr h1 { margin: 0 0 4px; font-size: 16pt; font-weight: 900; letter-spacing: 0.03em; color: #003366; text-transform: uppercase; }
+  .hdr .muted { font-size: 9.5pt; color: #333; line-height: 1.5; }
+  .hdr .meta { text-align: right; font-size: 9.5pt; }
   .hdr .doc {
     display: inline-block;
-    font-size: 12px;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    border: 1.5px solid #0f172a;
-    padding: 4px 10px;
-    margin-bottom: 4px;
+    font-size: 13pt;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    border: 1.5pt solid #000;
+    padding: 6px 16px;
+    margin-bottom: 8px;
+    background: #fff;
+    color: #000;
   }
+  
+  .spacer { height: 15px; } 
+  .divider { border-top: 1.5pt solid #000; }
+  
   .party {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    border-bottom: 1.5px solid #0f172a;
-  }
-  .party .sec { padding: 8px 10px; min-height: 78px; }
-  .party .sec + .sec { border-left: 1.5px solid #0f172a; }
-  .party .lbl {
-    font-size: 8pt; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.04em; color: #333; margin-bottom: 4px;
-    border-bottom: 0.75pt solid #999; padding-bottom: 2px;
-  }
-  .party .name { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
-  .party .det { font-size: 9px; color: #1e293b; line-height: 1.4; }
-  .subject {
-    padding: 7px 10px;
     border-bottom: 1.5pt solid #000;
-    font-size: 9.5pt;
-    background: #f3f4f6;
   }
+  .party .sec { padding: 0; min-height: 90px; display: flex; flex-direction: column; }
+  .party .sec + .sec { border-left: 1.5pt solid #000; }
+  .party .lbl {
+    font-size: 9pt; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.04em; color: #000; margin: 0;
+    border-bottom: 1.5pt solid #000; padding: 6px 12px;
+    background: #fff;
+  }
+  .party .name { font-size: 11pt; font-weight: 800; margin: 8px 12px 3px 12px; color: #000; }
+  .party .det { font-size: 9.5pt; color: #222; line-height: 1.4; padding: 0 12px 8px 12px; }
+  
+  .subject { padding: 8px 12px; font-size: 10pt; }
+
   table.items {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
+    border-bottom: 1.5pt solid #000;
   }
   table.items th, table.items td {
-    border: 1px solid #0f172a;
-    padding: 4px 5px;
+    border: 1pt solid #000;
+    padding: 6px 5px;
     vertical-align: top;
-    font-size: 9px;
+    font-size: 9.5pt;
   }
   table.items th {
-    background: #f1f5f9;
-    font-size: 8px;
+    background: #fff;
+    font-size: 9pt;
     text-transform: uppercase;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: 0.02em;
+    color: #000;
+    text-align: center;
   }
   table.items th:first-child, table.items td:first-child { border-left: none; }
   table.items th:last-child, table.items td:last-child { border-right: none; }
-  table.items thead tr:first-child th { border-top: none; }
   td.c { text-align: center; }
   td.r { text-align: right; white-space: nowrap; }
-  .foot {
-    display: grid;
-    grid-template-columns: 1.25fr 0.75fr;
-    border-top: 1.5px solid #0f172a;
+  
+  .terms-box {
+    border-right: 1.5pt solid #000 !important;
+    padding: 10px 12px !important;
+    vertical-align: top;
   }
-  .foot .notes {
-    padding: 8px 10px;
-    border-right: 1.5pt solid #000;
-    font-size: 8.5pt;
-    line-height: 1.45;
+  .totals-lab { color: #000; font-weight: 800; padding: 6px 8px !important; border: 1pt solid #000 !important; border-left: none !important; }
+  .totals-val { text-align: right; font-weight: 800; padding: 6px 8px !important; border: 1pt solid #000 !important; border-right: none !important; }
+  .grand-row td {
+    border-bottom: none !important;
+    border-top: 1.5pt solid #000 !important;
+    font-size: 11.5pt !important;
+    font-weight: 900 !important;
+    padding: 8px 5px !important;
+    background: #fff;
   }
-  .foot .notes b { display: block; margin: 0 0 2px; font-size: 9px; }
-  .foot .totals { padding: 0; }
-  .foot .totals table { width: 100%; border-collapse: collapse; }
-  .foot .totals td {
-    padding: 3px 8px;
-    font-size: 9.5px;
-    border-bottom: 1px solid #e2e8f0;
-  }
-  .foot .totals td.lab { color: #475569; }
-  .foot .totals td.r { text-align: right; font-weight: 600; }
-  .foot .totals tr.grand td {
-    border-bottom: none;
-    border-top: 1.5px solid #0f172a;
-    font-size: 11px;
-    font-weight: 800;
-    padding: 5px 8px;
-    background: #f8fafc;
-  }
+
   .sign-block {
     display: flex;
-    justify-content: flex-end;
-    padding: 12px 12px 10px;
-    border-top: 0.75pt solid #999;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 15px 12px 10px;
   }
-  .sign { text-align: right; font-size: 9px; }
-  .sign img { max-height: 42px; max-width: 130px; object-fit: contain; display: block; margin: 0 0 2px auto; }
-  .sign .line {
-    margin-top: 4px;
-    border-top: 1.2px solid #0f172a;
-    display: inline-block;
-    min-width: 140px;
-    padding-top: 2px;
-    font-weight: 600;
-  }
-  .fp {
-    font-size: 6.5px;
-    color: #94a3b8;
-    text-align: center;
-    padding: 3px 8px 5px;
-    border-top: 1px dashed #cbd5e1;
-  }
+  .sign-left { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; }
+  .sign-left img { max-height: 45px; display: block; margin: 6px 0; }
+  .sign-left .line { margin-top: 6px; border-top: 1.2pt solid #000; min-width: 160px; padding-top: 4px; font-weight: 800; text-align: left; font-size: 9.5pt; color: #000; }
+  
+  .fp { font-size: 8pt; color: #555; text-align: center; padding-top: 8px; margin-top: 4px; }
 </style></head><body>
   <div class="sheet">
     <div class="hdr">
-      <div>
-        <h1>${company.toUpperCase()}</h1>
+      <div class="hdr-left">
+        <h1>${company}</h1>
         <div class="muted">${cAddr}${cGst ? '<br/>GSTIN: ' + cGst : ''}${(cPhone || cEmail) ? '<br/>' + [cPhone, cEmail].filter(Boolean).join(' · ') : ''}</div>
       </div>
       <div class="meta">
@@ -349,7 +338,10 @@ function printPO(po, profile, fingerprint, clientsList) {
         <div><b>Status:</b> ${esc(po.status || 'Issued')}</div>
       </div>
     </div>
-    <div class="hdr-gap"></div>
+    
+    <div class="spacer"></div>
+    <div class="divider"></div>
+
     <div class="party">
       <div class="sec">
         <div class="lbl">Supplier Details (To)</div>
@@ -365,119 +357,97 @@ function printPO(po, profile, fingerprint, clientsList) {
         ${!shipName && !shipSite && !shipStreet && !shipCityLine ? '<div class="det">—</div>' : ''}
       </div>
     </div>
-    <div class="subject-gap"></div>
+    
     <div class="subject"><b>Subject:</b> ${subject || '—'}</div>
+    <div class="spacer"></div>
+
     <table class="items">
       <thead>
         <tr>
-          <th style="width:5%">Sl</th>
-          <th>Description / Material</th>
-          <th style="width:11%">HSN/SAC</th>
-          <th style="width:8%">Unit</th>
-          <th style="width:8%">Qty</th>
-          <th style="width:13%">Unit Rate</th>
-          <th style="width:14%">Amount (₹)</th>
+          <th style="width:5%">SL</th>
+          <th style="width:39%">DESCRIPTION / MATERIAL</th>
+          <th style="width:12%">HSN/SAC</th>
+          <th style="width:8%">UNIT</th>
+          <th style="width:8%">QTY</th>
+          <th style="width:14%">UNIT RATE</th>
+          <th style="width:14%">AMOUNT (₹)</th>
         </tr>
       </thead>
       <tbody>
         ${rows || '<tr><td colspan="7" class="c">No items</td></tr>'}
+        
+        <!-- Aligned Bottom Grid via Colspan=5 -->
+        <tr>
+          <td colspan="5" rowspan="${rowspan}" class="terms-box">
+            <b>Terms &amp; Conditions</b><br/><br/>
+            ${terms}
+          </td>
+          <td class="totals-lab">Subtotal</td>
+          <td class="totals-val">₹${inr(t.sub)}</td>
+        </tr>
+        ${taxLinesHtml}
+        <tr>
+          <td class="totals-lab">Round Off</td>
+          <td class="totals-val">₹0.00</td>
+        </tr>
+        <tr class="grand-row">
+          <td class="totals-lab">Grand Total</td>
+          <td class="totals-val">₹${inr(t.total)}</td>
+        </tr>
       </tbody>
     </table>
-    <div class="foot">
-      <div class="notes">
-        ${notes ? `<b>Notes / Instructions</b>${notes.replace(/\n/g, '<br/>')}<br/><br/>` : ''}
-        <b>Terms &amp; Conditions</b>
-        ${terms}
-      </div>
-      <div class="totals">
-        <table>
-          <tr><td class="lab">Subtotal</td><td class="r">₹${inr(t.sub)}</td></tr>
-          ${taxLines}
-          <tr><td class="lab">Round Off</td><td class="r">₹0.00</td></tr>
-          <tr class="grand"><td>Grand Total</td><td class="r">₹${inr(t.total)}</td></tr>
-        </table>
-      </div>
+    
     <div class="sheet-spacer"></div>
+    
     <div class="sign-block">
-      <div class="sign">
-        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:36px"></div>'}
-        <div>For <b>${company}</b></div>
+      <div class="sign-left">
+        <div style="font-weight: 800;">For ${company}</div>
+        ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:45px"></div>'}
         <div class="line">Authorized Signatory</div>
       </div>
+      <div class="sign-right">
+        ${signBlock}
+      </div>
     </div>
-    <div class="fp">SHA-256: ${esc(fingerprint) || '—'} · Generated by SD Dynamics · ${new Date().toLocaleString('en-IN')}</div>
   </div>
+  
+  <!-- Fingerprint moved OUTSIDE the border -->
+  <div class="fp">SHA-256: ${esc(fingerprint) || '—'} · Generated by SD Dynamics · ${tsDate}</div>
 </body></html>`;
 
   try {
     let iframe = document.getElementById('sd-po-print-frame');
-    if (!iframe) {
-      iframe = document.createElement('iframe');
-      iframe.id = 'sd-po-print-frame';
-      document.body.appendChild(iframe);
-    }
-    iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
-    iframe.setAttribute('title', poTitle);
-    const prevTitle = document.title;
-    try { document.title = poTitle; } catch (_) {}
+    if (iframe) iframe.remove(); 
 
-    let printed = false;
-    const restoreTitle = () => { try { document.title = prevTitle; } catch (_) {} };
-    const runPrint = () => {
-      if (printed) return;
-      printed = true;
-      const win = iframe.contentWindow;
-      if (!win) {
-        restoreTitle();
-        alert('Print failed — iframe not ready. Try again.');
-        return;
-      }
-      try {
-        const idoc = iframe.contentDocument || win.document;
-        if (idoc) idoc.title = poTitle;
-      } catch (_) {}
-      try { win.onafterprint = () => { restoreTitle(); }; } catch (_) {}
-      try {
-        win.focus();
-        win.print();
-        try { toast('In the print dialog: turn Headers and footers OFF for clean edges', 'info'); } catch (_) {}
-      } catch (e) {
-        console.error('printPO print()', e);
-        restoreTitle();
-        alert('Failed to print PO. Check browser console.');
-        return;
-      }
-      setTimeout(restoreTitle, 60000);
-    };
+    iframe = document.createElement('iframe');
+    iframe.id = 'sd-po-print-frame';
+    iframe.style.cssText = 'position:absolute;width:0;height:0;left:-9999px;top:-9999px;border:none;';
+    document.body.appendChild(iframe);
 
     const win = iframe.contentWindow;
-    const doc = iframe.contentDocument || (win && win.document);
-    if (!doc) throw new Error('iframe document unavailable');
+    const doc = iframe.contentDocument || win.document;
+    
     doc.open();
     doc.write(html);
     doc.close();
-    try { doc.title = poTitle; } catch (_) {}
 
-    const imgs = Array.from(doc.images || []);
-    const delay = sigSrc || imgs.length ? 500 : 150;
-    if (imgs.length) {
-      let left = imgs.length;
-      const done = () => { left -= 1; if (left <= 0) setTimeout(runPrint, 80); };
-      imgs.forEach(img => {
-        if (img.complete) done();
-        else { img.onload = done; img.onerror = done; }
-      });
-      setTimeout(runPrint, delay + 800);
-    } else {
-      setTimeout(runPrint, delay);
-    }
+    // 800ms delay ensures DOM layout is locked and images are fully decoded
+    iframe.onload = () => {
+      setTimeout(() => {
+        try {
+          win.focus();
+          win.print();
+        } catch (err) {
+          console.error(err);
+          alert("Print dialog blocked by browser. Please allow popups/printing.");
+        }
+      }, 800); 
+    };
   } catch (e) {
     console.error('printPO failed', e);
-    alert('Failed to generate PO print. Check browser console.');
+    alert('Failed to generate PO print.');
   }
 }
-
-
 
 export default function PurchaseOrdersView() {
   const [list, setList] = useState([]);
@@ -590,7 +560,7 @@ export default function PurchaseOrdersView() {
         date: new Date().toISOString().split('T')[0],
         status: 'draft',
         taxRate: p.taxRate != null ? Number(p.taxRate) : 18,
-        notes: p.notes || (p.clientName ? `Subcontract for client: ${p.clientName}` : '') || '',
+        notes: p.notes || (p.clientName ? 'Subcontract for client: ' + p.clientName : '') || '',
         subject: p.subject || p.title || '',
         terms: p.terms || DEFAULT_PO_TERMS,
         items: mappedWithCc,
