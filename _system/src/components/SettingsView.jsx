@@ -1354,7 +1354,7 @@ export default function SettingsView({ onSaved }) {
       <div id="section-print" style={{ order: 4 }}><PrintSettings /></div>
 
       {/* v1.9.5 — Backup Management + Trash Bin */}
-      <div id="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>
+      <div id="section-backups" style={{ order: 8 }}><AutoBackupPanel /><BackupAndTrashPanel /></div>
 
       {/* ---- Modules / Features ---- */}
       <div id="section-modules" className="glass-panel p-6 mb-6" style={{ order: 5 }}>
@@ -1424,7 +1424,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Business Profile ---- */}
-      <form id="section-company" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1, opacity: profileLoaded ? 1 : 0.65, pointerEvents: profileLoaded ? 'auto' : 'none' }}>
+      <form id="section-company" data-setup-anchor="1" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1, opacity: profileLoaded ? 1 : 0.65, pointerEvents: profileLoaded ? 'auto' : 'none' }}>
         {!profileLoaded && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
             Loading company details… fields unlock when ready (prevents overwrite on slow PCs).
@@ -2106,6 +2106,7 @@ export default function SettingsView({ onSaved }) {
           <strong> This is a screen lock only — the database is not encrypted.</strong>
         </p>
         <AppLockSettingsPanel />
+          <SetupChecklistPanel profile={profile} clientsCount={0} />
           <SmtpSettingsPanel />
       </div>
 
@@ -2290,6 +2291,111 @@ function EditIcon({ size }) {
 // ============================================================
 // v1.9.5 — Backup Management + Trash Bin
 // ============================================================
+
+function AutoBackupPanel() {
+  const [cfg, setCfg] = useState({ enabled: false, intervalHours: 24, keepCount: 14, googleDrive: false, lastRunAt: null, lastError: null });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch('/api/auto-backup/status', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then(setCfg)
+      .catch(() => {});
+  }, []);
+  const save = async (patch) => {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    try {
+      const r = await fetch('/api/auto-backup/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(next),
+      });
+      const j = await r.json();
+      if (j.autoBackup) setCfg(j.autoBackup);
+      toast('Auto-backup settings saved', 'success');
+    } catch (e) {
+      toast(e.message || 'Save failed', 'error');
+    }
+  };
+  const runNow = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/auto-backup/run', { method: 'POST', credentials: 'same-origin' });
+      const j = await r.json();
+      if (j.ok) toast('Auto backup completed', 'success');
+      else toast(j.error || j.reason || 'Backup skipped', 'warning');
+      const st = await fetch('/api/auto-backup/status', { credentials: 'same-origin' }).then((x) => x.json());
+      setCfg(st);
+    } catch (e) {
+      toast(e.message || 'Run failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="glass-panel" style={{ padding: '0.85rem 1rem', marginBottom: '0.75rem' }}>
+      <h3 className="section-title" style={{ marginTop: 0 }}>Automatic backup</h3>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+        Copies data (and SQLite if present) to <code>data/backups/auto/</code>. Put that folder inside OneDrive/Google Drive Desktop for off-machine sync — no Graph API required.
+        PIN hashes and SMTP passwords are scrubbed from backup meta.
+      </p>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.85rem' }}>
+        <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => save({ enabled: e.target.checked })} />
+        Enable scheduled local backup
+      </label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8, alignItems: 'center' }}>
+        <label style={{ fontSize: '0.82rem' }}>
+          Interval{' '}
+          <select className="form-input" style={{ width: 'auto' }} value={cfg.intervalHours || 24}
+            onChange={(e) => save({ intervalHours: Number(e.target.value) })}>
+            <option value={6}>Every 6 hours</option>
+            <option value={12}>Every 12 hours</option>
+            <option value={24}>Daily</option>
+            <option value={168}>Weekly</option>
+          </select>
+        </label>
+        <label style={{ fontSize: '0.82rem' }}>
+          Keep last{' '}
+          <input type="number" className="form-input" style={{ width: 70 }} min={1} max={90}
+            value={cfg.keepCount || 14}
+            onChange={(e) => save({ keepCount: Number(e.target.value) || 14 })} />
+        </label>
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={runNow}>
+          {busy ? 'Running…' : 'Run now'}
+        </button>
+      </div>
+      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+        Last run: {cfg.lastRunAt ? new Date(cfg.lastRunAt).toLocaleString('en-IN') : '—'}
+        {cfg.lastError ? ` · Error: ${cfg.lastError}` : ''}
+      </p>
+    </div>
+  );
+}
+
+function SetupChecklistPanel({ profile, clientsCount }) {
+  const items = [
+    { ok: !!(profile?.businessName), label: 'Company name' },
+    { ok: !!(profile?.gstin && String(profile.gstin).length >= 15), label: 'GSTIN (15 chars)' },
+    { ok: !!(profile?.bankName || profile?.bankAccount || profile?.upiId), label: 'Bank / UPI on invoices' },
+    { ok: (clientsCount || 0) > 0, label: 'At least one client' },
+    { ok: true, label: 'Backup folder (Settings → Backups)' },
+  ];
+  return (
+    <div className="glass-panel" style={{ padding: '0.75rem 1rem', marginBottom: '0.75rem' }}>
+      <h3 className="section-title" style={{ marginTop: 0 }}>Setup checklist</h3>
+      <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
+        {items.map((it) => (
+          <li key={it.label} style={{ color: it.ok ? '#15803d' : '#b45309', marginBottom: 4 }}>
+            {it.ok ? '✓' : '○'} {it.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
 function BackupAndTrashPanel() {
   const [backups, setBackups] = useState([]);
   const [trash, setTrash] = useState([]);

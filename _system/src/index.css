@@ -3906,3 +3906,39 @@ table.dossier-dense-table th {
 .dossier-modal-body {
   padding: 0.75rem 1rem !important;
 }
+
+
+/* Light theme sidebar — readable navy-free surface (dark theme unchanged) */
+[data-theme="light"] .sidebar,
+html:not([data-theme="dark"]) .sidebar {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-right: 1px solid #e2e8f0;
+}
+[data-theme="light"] .sidebar-title,
+html:not([data-theme="dark"]) .sidebar-title {
+  color: #0f172a !important;
+}
+[data-theme="light"] .sidebar-subtitle,
+html:not([data-theme="dark"]) .sidebar-subtitle {
+  color: #64748b !important;
+}
+[data-theme="light"] .sidebar .nav-btn,
+[data-theme="light"] .sidebar .nav-group-header,
+html:not([data-theme="dark"]) .sidebar .nav-btn,
+html:not([data-theme="dark"]) .sidebar .nav-group-header {
+  color: #334155 !important;
+}
+[data-theme="light"] .sidebar .nav-btn:hover,
+html:not([data-theme="dark"]) .sidebar .nav-btn:hover {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+[data-theme="light"] .sidebar .nav-btn.active,
+html:not([data-theme="dark"]) .sidebar .nav-btn.active {
+  background: #e0e7ff !important;
+  color: #3730a3 !important;
+}
+[data-theme="dark"] .sidebar {
+  /* keep existing dark navy */
+}

@@ -3276,34 +3276,32 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   };
 
   const generatePDF = async () => {
-    // Save & Download always writes a real file named {invoiceNumber}.pdf (not only print dialog).
-    // Print button still uses printInvoiceViaIframe / executePrint for vector print.
+    // Save & Download: persist bill first, then vector print/PDF for A4 (sharp text).
+    // Thermal still uses html2canvas path below.
     if (!printRef.current) return;
-    // v1.10.58 (#47) — same gate as Save: printing persists the bill and
-    // reserves an invoice number, so a blank one must not get through here
-    // either.
     const problem = validateForSave();
     if (problem) { toast(problem, 'warning'); return; }
     try {
       setSaving(true);
-      // v1.10.26 — force preview on-screen so html2canvas can snapshot it.
-      // Wrapped around buildPDF only (the rest of the flow can happen with
-      // preview back to collapsed state).
+      const prevPrinted = Number(editingBill?.printedCount) || 0;
+      await saveInvoiceToDB(false, {
+        printedCount: prevPrinted + 1,
+        lastPrintedAt: new Date().toISOString(),
+      });
+      clearDraft();
+      const paperKind = (typeof getPaperSize === 'function')
+        ? getPaperSize(invoiceOptions.paperSize, invoiceOptions).kind
+        : '';
+      const thermal = paperKind === 'thermal' || !!(printSettings?.thermal);
+      if (!thermal) {
+        printInvoiceViaIframe();
+        toast('Saved. Print dialog: choose Save as PDF, Headers/footers OFF. File name follows invoice number.', 'success', 8000);
+        return;
+      }
+      // Thermal / legacy canvas path
       const pdf = await withPreviewOnScreen(() => buildPDF());
       const fileName = `${String(details.invoiceNumber || typeConfig.prefix || 'invoice').replace(/[/\\:*?"<>|]+/g, '-')}.pdf`;
       pdf.save(fileName);
-
-      // v1.9.0 — bump print history + save. Both the local bill record and
-      // the server copy get updated so the reprint indicator + history
-      // views stay accurate. printedCount defaults to 0 and increments
-      // once per PDF generated.
-      const prevPrinted = Number(editingBill?.printedCount) || 0;
-      const printedPatch = {
-        printedCount: prevPrinted + 1,
-        lastPrintedAt: new Date().toISOString(),
-      };
-      await saveInvoiceToDB(false, printedPatch);
-      clearDraft();
 
       const pdfBlob = pdf.output('blob');
 

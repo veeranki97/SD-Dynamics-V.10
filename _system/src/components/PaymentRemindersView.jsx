@@ -18,6 +18,24 @@ export default function PaymentRemindersView() {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
+  const [sched, setSched] = useState({ enabled: false, interval: 'daily', lastRunAt: null });
+
+  const saveSched = async (patch) => {
+    const next = { ...sched, ...patch };
+    setSched(next);
+    try {
+      await fetch('/api/meta/reminderSchedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ value: next }),
+      });
+      toast('Reminder schedule saved (runs while server is open)', 'success');
+    } catch {
+      toast('Could not save schedule', 'error');
+    }
+  };
+
 
   const load = async () => {
     setLoading(true);
@@ -32,6 +50,12 @@ export default function PaymentRemindersView() {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    fetch('/api/meta/reminderSchedule', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((j) => { if (j?.value) setSched({ enabled: false, interval: 'daily', ...j.value }); })
+      .catch(() => {});
+  }, []);
 
   const overdue = useMemo(() => {
     const list = (bills || [])
@@ -98,6 +122,21 @@ export default function PaymentRemindersView() {
 
   return (
     <div className="page" style={{ maxWidth: '100%', width: '100%', padding: '0 4px' }}>
+      <div className="glass-panel" style={{ padding: '0.6rem 0.85rem', marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+        <label style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input type="checkbox" checked={!!sched.enabled} onChange={(e) => saveSched({ enabled: e.target.checked })} />
+          Schedule while server runs
+        </label>
+        <select className="form-input" style={{ width: 'auto' }} value={sched.interval || 'daily'}
+          onChange={(e) => saveSched({ interval: e.target.value })}>
+          <option value="daily">Daily tick</option>
+          <option value="weekly">Weekly tick</option>
+        </select>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          Last tick: {sched.lastRunAt ? new Date(sched.lastRunAt).toLocaleString('en-IN') : '—'} (send still from row actions; SMTP required)
+        </span>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{
           width: 44, height: 44, borderRadius: 12,

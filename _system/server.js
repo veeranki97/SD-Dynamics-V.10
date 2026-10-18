@@ -1132,6 +1132,7 @@ app.post('/api/purchaseorders', (req, res) => {
     if (!po.id) {
       po.id = 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     }
+    if (!assertPeriodNotLocked(po.date || po.poDate || po.orderDate || po.createdAt, res)) return;
     const dir = path.join(DATA_DIR, 'purchaseorders');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, safeFileName(po.id) + '.json');
@@ -1351,7 +1352,24 @@ function scrubAppLockForExport(meta) {
     const { pinHash, pinSalt, ...rest } = out.appLock;
     out.appLock = { ...rest, pinConfigured: !!(pinHash && pinSalt) };
   }
+  // Never export SMTP password (backups, meta GET, drive uploads)
+  if (out.smtp && typeof out.smtp === 'object') {
+    const { pass, password, ...srest } = out.smtp;
+    out.smtp = { ...srest, configured: !!(pass || password || srest.user) };
+  }
   return out;
+}
+
+function scrubMetaValueForGet(key, value) {
+  if (key === 'smtp' && value && typeof value === 'object') {
+    const { pass, password, ...rest } = value;
+    return { ...rest, configured: !!(pass || password || rest.user) };
+  }
+  if (key === 'appLock' && value && typeof value === 'object') {
+    const { pinHash, pinSalt, ...rest } = value;
+    return { ...rest, pinConfigured: !!(pinHash && pinSalt) };
+  }
+  return value;
 }
 function tryConsumeResetPinFile(meta) {
   for (const p of appLockResetPinPaths()) {
@@ -1540,7 +1558,10 @@ app.post('/api/app-lock/logout', (req, res) => {
 
 app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
-  res.json({ value: meta[req.params.key] ?? null });
+  const key = req.params.key;
+  let value = meta[key] ?? null;
+  value = scrubMetaValueForGet(key, value);
+  res.json({ value });
 });
 
 app.post('/api/meta/:key', (req, res) => {
@@ -2146,6 +2167,152 @@ function runDailyBackup() {
 
 setTimeout(runDailyBackup, 5000);
 setInterval(runDailyBackup, 24 * 60 * 60 * 1000);
+
+// ========================
+// Auto backup (Settings → meta.autoBackup) — non-breaking; separate folder
+// ========================
+function getAutoBackupConfig() {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const a = meta.autoBackup || {};
+    return {
+      enabled: !!a.enabled,
+      intervalHours: [6, 12, 24, 168].includes(Number(a.intervalHours)) ? Number(a.intervalHours) : 24,
+      keepCount: Math.max(1, Math.min(90, Number(a.keepCount) || 14)),
+      localDir: 'backups/auto',
+      googleDrive: !!a.googleDrive,
+      lastRunAt: a.lastRunAt || null,
+      lastError: a.lastError || null,
+    };
+  } catch {
+    return { enabled: false, intervalHours: 24, keepCount: 14, localDir: 'backups/auto', googleDrive: false, lastRunAt: null, lastError: null };
+  }
+}
+
+function runAutoBackup(force = false) {
+  const cfg = getAutoBackupConfig();
+  if (!cfg.enabled && !force) return { ok: false, skipped: true, reason: 'disabled' };
+  const now = Date.now();
+  if (!force && cfg.lastRunAt) {
+    const elapsed = now - new Date(cfg.lastRunAt).getTime();
+    if (elapsed < cfg.intervalHours * 3600 * 1000 - 60000) {
+      return { ok: false, skipped: true, reason: 'not-due' };
+    }
+  }
+  const autoRoot = path.join(DATA_DIR, 'backups', 'auto');
+  try {
+    ensureDir(autoRoot);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const target = path.join(autoRoot, stamp);
+    ensureDir(target);
+    const entries = fs.readdirSync(DATA_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === 'backups' || entry.name === 'errors.log' || entry.name === 'port.txt') continue;
+      const src = path.join(DATA_DIR, entry.name);
+      const dst = path.join(target, entry.name);
+      if (entry.isDirectory()) copyDirRecursive(src, dst);
+      else fs.copyFileSync(src, dst);
+    }
+    try {
+      const metaBak = path.join(target, 'meta.json');
+      if (fs.existsSync(metaBak)) {
+        const m = JSON.parse(fs.readFileSync(metaBak, 'utf8'));
+        fs.writeFileSync(metaBak, JSON.stringify(scrubAppLockForExport(m), null, 2), 'utf8');
+      }
+    } catch (e) { console.warn('[auto-backup] scrub', e.message); }
+    // prune
+    const folders = fs.readdirSync(autoRoot).filter((n) => {
+      try { return fs.statSync(path.join(autoRoot, n)).isDirectory(); } catch { return false; }
+    }).sort();
+    while (folders.length > cfg.keepCount) {
+      const oldest = folders.shift();
+      try { fs.rmSync(path.join(autoRoot, oldest), { recursive: true, force: true }); } catch { /* */ }
+    }
+    const metaLive = readJSON(META_PATH, {}) || {};
+    metaLive.autoBackup = {
+      ...(metaLive.autoBackup || {}),
+      lastRunAt: new Date().toISOString(),
+      lastError: null,
+    };
+    metaLive.lastBackupAt = metaLive.autoBackup.lastRunAt;
+    writeJSON(META_PATH, metaLive);
+    console.log('[auto-backup] saved', target);
+    return { ok: true, path: target };
+  } catch (err) {
+    console.warn('[auto-backup] failed', err.message);
+    try {
+      const metaLive = readJSON(META_PATH, {}) || {};
+      metaLive.autoBackup = { ...(metaLive.autoBackup || {}), lastError: err.message, lastRunAt: new Date().toISOString() };
+      writeJSON(META_PATH, metaLive);
+    } catch { /* */ }
+    return { ok: false, error: err.message };
+  }
+}
+
+setTimeout(() => { try { runAutoBackup(false); } catch (e) { console.warn(e.message); } }, 15000);
+setInterval(() => { try { runAutoBackup(false); } catch (e) { console.warn(e.message); } }, 30 * 60 * 1000);
+
+app.get('/api/auto-backup/status', (req, res) => {
+  try {
+    res.json(getAutoBackupConfig());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/auto-backup/run', (req, res) => {
+  try {
+    const r = runAutoBackup(true);
+    res.json(r);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/auto-backup/config', (req, res) => {
+  try {
+    const body = req.body || {};
+    const meta = readJSON(META_PATH, {}) || {};
+    const prev = meta.autoBackup || {};
+    meta.autoBackup = {
+      enabled: body.enabled != null ? !!body.enabled : !!prev.enabled,
+      intervalHours: [6, 12, 24, 168].includes(Number(body.intervalHours)) ? Number(body.intervalHours) : (prev.intervalHours || 24),
+      keepCount: Math.max(1, Math.min(90, Number(body.keepCount != null ? body.keepCount : prev.keepCount) || 14)),
+      localDir: 'backups/auto',
+      googleDrive: body.googleDrive != null ? !!body.googleDrive : !!prev.googleDrive,
+      lastRunAt: prev.lastRunAt || null,
+      lastError: prev.lastError || null,
+    };
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, autoBackup: getAutoBackupConfig() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Payment reminder schedule (SMTP while server runs)
+function runScheduledReminders() {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const sch = meta.reminderSchedule || {};
+    if (!sch.enabled) return;
+    const interval = sch.interval === 'weekly' ? 7 * 24 : 24; // hours
+    if (sch.lastRunAt) {
+      const elapsed = Date.now() - new Date(sch.lastRunAt).getTime();
+      if (elapsed < interval * 3600 * 1000 - 60000) return;
+    }
+    // Log only — actual bulk send stays manual on Payment Reminders UI (safety).
+    // Stamping lastRunAt so ops can see schedule is alive.
+    meta.reminderSchedule = { ...sch, lastRunAt: new Date().toISOString(), lastNote: 'schedule-tick (send from Payment Reminders UI or future bulk job)' };
+    writeJSON(META_PATH, meta);
+    console.log('[reminders] schedule tick', meta.reminderSchedule.lastRunAt);
+  } catch (e) {
+    console.warn('[reminders]', e.message);
+  }
+}
+setInterval(runScheduledReminders, 60 * 60 * 1000);
+
+
 
 // Backup management endpoints
 app.get('/api/backups', (req, res) => {
@@ -3327,16 +3494,19 @@ app.get('/api/gsp/last', (req, res) => {
 });
 
 
+// F) Optional LAN: SD_BIND=0.0.0.0 (Tailscale only — do not port-forward publicly). Default 127.0.0.1
+const BIND_HOST = (process.env.SD_BIND || process.env.HOST || '127.0.0.1').trim() || '127.0.0.1';
 function startServer(port) {
   const server = 
-app.listen(port, '127.0.0.1', () => {
+app.listen(port, BIND_HOST, () => {
     activeServer = server;
     // Persist the chosen port — the .bat launcher reads this for the browser URL.
     // Writing on EVERY successful boot means: if our preferred 47371 was busy and
     // we landed on 47372 instead, next launch tries 47372 first (cuts collision
     // scans in half on repeated reboots of whatever was holding 47371).
     try { fs.writeFileSync(PORT_FILE, String(port), 'utf-8'); } catch { /* ignore */ }
-    console.log(`\n  SD Dynamics running at http://localhost:${port}`);
+    console.log(`\n  SD Dynamics running at http://${BIND_HOST === '0.0.0.0' ? 'localhost' : BIND_HOST}:${port}`);
+    if (BIND_HOST === '0.0.0.0') console.log('  BIND 0.0.0.0 — use Tailscale; PIN required; do not port-forward publicly.');
     console.log(`  Data stored in: ${DATA_DIR}\n`);
   });
   server.on('error', (err) => {

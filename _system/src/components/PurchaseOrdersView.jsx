@@ -198,18 +198,24 @@ function printPO(po, profile, fingerprint, clientsList) {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  /* Single outer frame — continuous borders like SD invoice / professional PO */
+  @page { size: A4 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; }
+  /* Full A4 outer frame — fixed content box so border reaches bottom */
   .sheet {
     border: 1.5pt solid #000;
-    width: 100%;
-    max-width: 100%;
-    display: block;
+    width: 194mm;
+    height: 281mm;
+    margin: 8mm auto;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
   }
-  /* Word-style: content height only — no giant gap before signature */
-  .party .sec { padding: 8px 10px; min-height: 78px; }
+  .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+  .sheet-spacer { flex: 1 1 auto; min-height: 8mm; }
+  .party .sec { padding: 8px 10px; min-height: 72px; }
   .subject { padding: 7px 10px; }
-  .sign-block { padding: 14px 12px 10px; }
+  .sign-block { padding: 10px 12px 8px; flex-shrink: 0; }
   .hdr {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -385,6 +391,7 @@ function printPO(po, profile, fingerprint, clientsList) {
           <tr class="grand"><td>Grand Total</td><td class="r">₹${inr(t.total)}</td></tr>
         </table>
       </div>
+    <div class="sheet-spacer"></div>
     <div class="sign-block">
       <div class="sign">
         ${sigSrc ? `<img src="${sigSrc}" alt="Signature"/>` : '<div style="height:36px"></div>'}
