@@ -15,6 +15,7 @@ import { openWhatsAppShare } from '../utils/share';
 import { confirmAction } from './ConfirmModal';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
+import { sendMailSmart } from '../utils/openMail';
 
 function getAccentRGB() {
   try {
@@ -920,6 +921,18 @@ export default function VendorsView() {
                     <div className="client-actions-bar" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '0.75rem 1.5rem', borderTop: '1px solid var(--border)', position: 'relative', zIndex: 20 }}>
                       {savedVendor ? (
                         <ActionMenu items={[
+                          { label: 'Email Vendor', onClick: async () => {
+                          const to = (savedVendor.email || '').trim();
+                          if (!to) { toast('No email on this vendor', 'warning'); return; }
+                          const r = await sendMailSmart({
+                            to,
+                            subject: `Message from ${savedVendor.name || 'vendor'}`,
+                            body: `Dear ${savedVendor.name || 'Vendor'},\n\n`,
+                            allowGmailFallback: true,
+                          });
+                          if (r?.ok) toast('Mail opened/sent', 'success');
+                          else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
+                        } },
                           { label: 'Edit Vendor', onClick: () => handleOpenEdit(savedVendor) },
                           { label: 'Copy Vendor', onClick: () => handleOpenAdd({ ...savedVendor, id: undefined, name: `${savedVendor.name} (Copy)` }) },
                           { label: 'Delete Vendor', danger: true, onClick: () => handleDeleteVendor(savedVendor.id) },

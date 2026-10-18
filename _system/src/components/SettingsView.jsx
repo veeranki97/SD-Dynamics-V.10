@@ -24,18 +24,20 @@ import { getBackupsList, restoreBackup, triggerBackup, deleteBackup, getTrashedB
 // module scope so the scroll-spy effect below can reference it without
 // re-computing on every render.
 const JUMP_NAV_SECTIONS = [
-  ['section-company',  'Company'],
+  ['section-company', 'Company'],
   ['section-profiles', 'Profiles'],
-  ['section-terms',    'Terms'],
-  ['section-print',    'Print & PDF'],
-  ['section-modules',  'Features'],
-  ['section-stock',    'Stock'],
-  ['section-region',   'Region'],
-  ['section-backups',  'Backups'],
-  ['section-cloud',    'Google Drive'],
-  ['section-data',     'Import/Export'],
-  ['section-applock',  'App lock'],
-  ['section-updates',  'Updates'],
+  ['section-email-tpl', 'Email templates'],
+  ['section-terms', 'Terms'],
+  ['section-print', 'Print & PDF'],
+  ['section-charts', 'Chart aesthetics'],
+  ['section-modules', 'Features'],
+  ['section-stock', 'Stock'],
+  ['section-region', 'Region'],
+  ['section-backups', 'Backup & Trash'],
+  ['section-cloud', 'Google Drive'],
+  ['section-data', 'Import/Export'],
+  ['section-applock', 'App lock'],
+  ['section-updates', 'Updates'],
 ];
 
 
@@ -1354,7 +1356,7 @@ export default function SettingsView({ onSaved }) {
       <div id="section-print" style={{ order: 4 }}><PrintSettings /></div>
 
       {/* v1.9.5 — Backup Management + Trash Bin */}
-      <div id="section-backups" style={{ order: 8 }}><AutoBackupPanel /><BackupAndTrashPanel /></div>
+      <div id="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>
 
       {/* ---- Modules / Features ---- */}
       <div id="section-modules" className="glass-panel p-6 mb-6" style={{ order: 5 }}>
@@ -1940,7 +1942,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Dashboard Chart Aesthetics (above Cloud Backup) ---- */}
-      <ChartSettingsPanel />
+      <div id="section-charts" style={{ order: 4.5 }}><ChartSettingsPanel /></div>
 
       {/* ---- Cloud Backup ---- */}
       <div id="section-cloud" className="glass-panel p-6 mb-6" style={{ order: 9 }}>
@@ -2383,8 +2385,8 @@ function AutoBackupPanel() {
     }
   };
   return (
-    <div className="glass-panel" style={{ padding: '0.85rem 1rem', marginBottom: '0.75rem' }}>
-      <h3 className="section-title" style={{ marginTop: 0 }}>Automatic backup</h3>
+    <div style={{ padding: '0 0 0.85rem', marginBottom: '0.85rem', borderBottom: '1px solid var(--border)' }}>
+      <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>Automatic backup</h4>
       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
         Copies data (and SQLite if present) to <code>data/backups/auto/</code>. Put that folder inside OneDrive/Google Drive Desktop for off-machine sync — no Graph API required.
         PIN hashes and SMTP passwords are scrubbed from backup meta.
@@ -2527,6 +2529,8 @@ function BackupAndTrashPanel() {
 
   return (
     <div className="glass-panel p-6 mb-6">
+      <AutoBackupPanel />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.75rem' }}>
         <div>
           <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>

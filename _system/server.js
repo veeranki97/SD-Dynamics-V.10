@@ -557,6 +557,12 @@ function assertPeriodNotLocked(dateStr, res) {
 }
 
 app.post('/api/bills', (req, res) => {
+  try {
+    const bill0 = req.body || {};
+    const d0 = bill0.invoiceDate || bill0.data?.details?.invoiceDate || bill0.date;
+    if (rejectIfFrozen(res, d0, 'bill')) return;
+  } catch (e) { console.warn('[freeze] bill', e.message); }
+
   let bill = req.body;
   if (!bill || !bill.id) return res.status(400).json({ error: 'Bill must have an id' });
   const filePath = path.join(DATA_DIR, 'bills', safeFileName(bill.id) + '.json');
@@ -936,6 +942,11 @@ app.get('/api/expenses', (req, res) => {
 });
 
 app.post('/api/expenses', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (rejectIfFrozen(res, body.date || body.expenseDate, 'expense')) return;
+  } catch (e) { console.warn('[freeze] expense', e.message); }
+
   const expense = req.body;
   if (!assertPeriodNotLocked(expense.date || expense.expenseDate || expense.createdAt, res)) return;
   if (!expense.id) expense.id = 'exp_' + Date.now();
@@ -1039,6 +1050,11 @@ app.get('/api/purchases', (req, res) => {
 });
 
 app.post('/api/purchases', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (rejectIfFrozen(res, body.date || body.invoiceDate || body.billDate, 'purchase')) return;
+  } catch (e) { console.warn('[freeze] purchase', e.message); }
+
   const purchase = req.body;
   if (!assertPeriodNotLocked(purchase.date || purchase.billDate || purchase.invoiceDate || purchase.createdAt, res)) return;
   if (!purchase.id) purchase.id = 'pur_' + Date.now();
@@ -1122,6 +1138,11 @@ app.get('/api/journals', (req, res) => {
 
 app.post('/api/journals', (req, res) => {
   try {
+    const body = req.body || {};
+    if (rejectIfFrozen(res, body.date || body.entryDate, 'journal')) return;
+  } catch (e) { console.warn('[freeze] journal', e.message); }
+
+  try {
     const j = req.body || {};
     if (!assertPeriodNotLocked(j.date || j.createdAt, res)) return;
     // P0: reject unbalanced journals
@@ -1186,6 +1207,11 @@ app.get('/api/purchaseorders', (req, res) => {
   }
 });
 app.post('/api/purchaseorders', (req, res) => {
+  try {
+    const body = req.body || {};
+    if (rejectIfFrozen(res, body.date || body.poDate || body.orderDate, 'purchase order')) return;
+  } catch (e) { console.warn('[freeze] purchase order', e.message); }
+
   try {
     const po = req.body || {};
     if (!po.id) {
@@ -1350,7 +1376,51 @@ app.delete('/api/profiles/:id', (req, res) => {
 // ========================
 const META_PATH = path.join(DATA_DIR, 'meta.json');
 
+/** Period freeze: meta.freezeDays (synced from UI). Blocks POST if doc date older than N days. */
+function getFreezeDays() {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const n = Number(meta.freezeDays != null ? meta.freezeDays : 0);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return 0; }
+}
+function isDateFrozen(dateStr) {
+  const freezeDays = getFreezeDays();
+  if (!freezeDays || !dateStr) return false;
+  const d = new Date(String(dateStr).slice(0, 10));
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  const diff = Math.floor((today - d) / 86400000);
+  return diff > freezeDays;
+}
+function rejectIfFrozen(res, dateStr, label) {
+  if (isDateFrozen(dateStr)) {
+    res.status(403).json({
+      error: `Period freeze: cannot save ${label || 'document'} older than ${getFreezeDays()} days (date ${String(dateStr).slice(0, 10)}).`,
+    });
+    return true;
+  }
+  return false;
+}
+
+
+
 // Dedicated printSettings routes (persist across ports via meta + SQLite)
+
+app.get('/api/meta/freezeDays', (req, res) => {
+  try { res.json({ value: getFreezeDays() }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/meta/freezeDays', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    meta.freezeDays = Math.max(0, Number(req.body?.value ?? req.body?.freezeDays ?? 0) || 0);
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, value: meta.freezeDays });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/meta/printSettings', (req, res) => {
   try {
     const meta = readJSON(META_PATH, {}) || {};

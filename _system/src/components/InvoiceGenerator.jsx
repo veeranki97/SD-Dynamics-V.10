@@ -2327,7 +2327,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       if (!iframe) {
         iframe = document.createElement('iframe');
         iframe.id = 'sd-inv-print-frame';
-        iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
+        iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;border:0;opacity:0;z-index:-1;pointer-events:none';
         document.body.appendChild(iframe);
       }
       iframe.setAttribute('title', invNo);

@@ -9,6 +9,7 @@ import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
 import ActionMenu from './ActionMenu';
+import { sendMailSmart } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 
 function calcWOTotals(items, taxRate, clientState, hostState) {
@@ -631,6 +632,19 @@ const updateItem = (idx, field, value) => {
                   </td>
                   <td>
                     <ActionMenu items={[
+                      { label: 'Email client', onClick: async () => {
+                        const cli = (clients || []).find(c => c.id === wo.clientId || c.name === wo.clientName) || {};
+                        const to = (cli.email || wo.clientEmail || '').trim();
+                        if (!to) { toast('No client email on file', 'warning'); return; }
+                        const r = await sendMailSmart({
+                          to,
+                          subject: `Work Order ${wo.woNumber || wo.number || wo.id || ''}`,
+                          body: `Dear ${cli.name || wo.clientName || 'Client'},\n\nRegarding work order ${wo.woNumber || wo.number || ''}.\n\nRegards`,
+                          allowGmailFallback: true,
+                        });
+                        if (r?.ok) toast('Mail opened/sent', 'success');
+                        else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
+                      } },
                       { label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) },
                       { label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) },
                       { label: 'View ledger', onClick: () => navigateLedgerForWo(woRow) },

@@ -15,6 +15,7 @@ import { emptyWOItem, calcItemAmount, resolveWoCostCenter, resolveWoSite } from 
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
+import { sendMailSmart } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 import { getPrintSettings } from '../utils/printSettings';
 function downloadRowsCsv(filename, rows, cols) {
@@ -187,13 +188,14 @@ function printPO(po, profile, fingerprint, clientsList) {
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${poTitle}</title>
 <style>
-  @page { size: A4 portrait; margin: 10mm; }
+  @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
+  html, tr, .sign-block, .foot, .hdr, .party { page-break-inside: avoid; }
+  body { margin: 0; padding: 0; background: #fff; }
   body {
     font-family: Arial, Helvetica, sans-serif;
     color: #0f172a;
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1.35;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -204,20 +206,20 @@ function printPO(po, profile, fingerprint, clientsList) {
   .sheet {
     border: 1.5pt solid #000;
     width: 194mm;
-    height: 281mm;
-    margin: 8mm auto;
+    height: 281mm; max-height: 281mm;
+    margin: 8mm;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
   .sheet-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
-  .sheet-spacer { flex: 1 1 auto; min-height: 8mm; }
-  .party .sec { padding: 8px 10px; min-height: 72px; }
-  .subject { padding: 7px 10px; }
+  .sheet-spacer { flex: 1 1 auto; min-height: 2mm; }
+  .party .sec { padding: 4px 8px; min-height: 48px; }
+  .subject { padding: 4px 8px; }
   .sign-block { padding: 10px 12px 8px; flex-shrink: 0; }
-  .hdr-gap { height: 3.6em; /* ~3 blank lines after letterhead */ }
-  .subject-gap { height: 3.6em; }
+  .hdr-gap { height: 1.2em; }
+  .subject-gap { height: 0.8em; }
   .hdr {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -999,6 +1001,19 @@ export default function PurchaseOrdersView() {
                     { label: 'Edit', onClick: () => setForm({ ...po, terms: po.terms || DEFAULT_PO_TERMS, subject: po.subject || po.title || '' }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
                     { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint, clients); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
+                    { label: 'Email vendor', onClick: async () => {
+                      const v = (vendors || []).find(x => x.id === po.vendorId || x.name === po.vendorName) || {};
+                      const to = (v.email || po.vendorEmail || '').trim();
+                      if (!to) { toast('No vendor email — add email on vendor master', 'warning'); return; }
+                      const r = await sendMailSmart({
+                        to,
+                        subject: `Purchase Order ${po.poNumber || po.number || ''}`.trim(),
+                        body: `Dear ${v.name || po.vendorName || 'Vendor'},\n\nPlease find Purchase Order ${po.poNumber || po.number || ''}.\n\nRegards`,
+                        allowGmailFallback: true,
+                      });
+                      if (r?.ok) toast(r.via === 'smtp' ? 'Email sent' : 'Mail client opened', 'success');
+                      else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
+                    } },
                     { label: 'Export CSV', onClick: () => downloadRowsCsv(`PO-${po.poNumber || po.id}.csv`, [po], [
                       { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
                       { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },

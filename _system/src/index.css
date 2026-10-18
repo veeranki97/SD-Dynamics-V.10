@@ -3999,3 +3999,12 @@ html:not([data-theme="dark"]) .sidebar .nav-item.active {
   /* Entry grids with inputs: keep horizontal scroll */
   .table-responsive.entry-table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+
+/* Action menu must not clip inside cards/tables */
+.glass-panel, .client-card, .data-table, .table-responsive, .client-actions-bar {
+  overflow: visible !important;
+}
+.main-content, .page-body {
+  overflow-x: visible;
+}

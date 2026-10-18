@@ -261,6 +261,17 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
       {(tab === 'pnl') && (
           <div style={{ marginBottom: 8 }}>
             <button type="button" className="btn btn-secondary btn-sm" onClick={exportTradingCapitalPdf}>Print Trading / P&L / Capital</button>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 8 }} onClick={async () => {
+              try {
+                const { isConnected, uploadJSON } = await import('../services/googleDrive');
+                if (!isConnected?.()) { toast('Connect Google Drive in Settings first', 'warning'); return; }
+                const payload = { type: 'trading-pl-capital', from, asOf, pnl, generatedAt: new Date().toISOString() };
+                // scrub
+                delete payload.smtp; delete payload.pinHash;
+                await uploadJSON(payload, `Trading-PL-${from || 'start'}-${asOf || 'end'}.json`);
+                toast('Archived summary JSON to Google Drive', 'success');
+              } catch (e) { toast(e.message || 'Drive archive failed', 'error'); }
+            }}>Archive to Drive</button>
           </div>
         )}
         {tab === 'pnl' && (
@@ -385,7 +396,14 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
           <div className="form-group" style={{ marginTop: 16 }}>
             <label className="form-label">Freeze after N days (0 = off)</label>
             <input type="number" className="form-input" defaultValue={localStorage.getItem('fgsb_freeze_days') || '0'}
-              onBlur={e => { localStorage.setItem('fgsb_freeze_days', String(Number(e.target.value) || 0)); toast('Freeze days saved', 'success'); }} />
+              onBlur={async e => {
+              const v = Number(e.target.value) || 0;
+              localStorage.setItem('fgsb_freeze_days', String(v));
+              try {
+                await fetch('/api/meta/freezeDays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ value: v }) });
+              } catch (_) {}
+              toast('Freeze days saved (server enforced)', 'success');
+            }} />
           </div>
         </div>
       )}
