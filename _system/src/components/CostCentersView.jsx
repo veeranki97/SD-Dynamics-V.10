@@ -5,7 +5,8 @@ import {
   getExpenseCategories, addExpenseCategory, removeExpenseCategory,
   loadMasterDataFromServer, syncMasterDataToServer,
 } from '../utils/masterData';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
+const InventoryViewLazy = lazy(() => import('./InventoryView'));
 import { getAllCostCenters, saveCostCenter, deleteCostCenter } from '../store';
 import { toast } from './Toast';
 import { confirmAction, promptAction } from './ConfirmModal';
@@ -32,13 +33,23 @@ const TABS = [
   { id: 'hsn', label: 'HSN / SAC' },
   { id: 'units', label: 'Units' },
   { id: 'exp', label: 'Expense categories' },
+  { id: 'services', label: 'Services' },
 ];
 
 export default function CostCentersView() {
   const [hsnSearch, setHsnSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
   const [catSearch, setCatSearch] = useState('');
-  const [tab, setTab] = useState('cc');
+  const [tab, setTab] = useState(() => {
+    try {
+      const t = sessionStorage.getItem('sd_master_tab');
+      if (t && ['cc', 'hsn', 'units', 'exp', 'services'].includes(t)) return t;
+    } catch (_) {}
+    return 'cc';
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem('sd_master_tab', tab); } catch (_) {}
+  }, [tab]);
   const [list, setList] = useState([]);
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
@@ -238,7 +249,7 @@ export default function CostCentersView() {
     <div className="page" style={{ maxWidth: 960 }}>
       <h1 style={{ marginBottom: 4 }}>Master data</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: 16, fontSize: '0.9rem' }}>
-        Cost centres, HSN/SAC, units and expense categories used on invoices, work orders, POs and expenses.
+        Cost centres, HSN/SAC, units, expense categories and the Services catalogue used on invoices, work orders, POs and expenses.
       </p>
 
       {/* Tab bar */}
@@ -432,6 +443,17 @@ export default function CostCentersView() {
             </table>
           </div>
         </>
+      )}
+
+      {tab === 'services' && (
+        <div className="master-services-tab" style={{ marginTop: 4 }}>
+          <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Service / product catalogue for invoice line descriptions. Same module as before — now under Master data.
+          </p>
+          <Suspense fallback={<div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading services…</div>}>
+            <InventoryViewLazy />
+          </Suspense>
+        </div>
       )}
     </div>
   );

@@ -707,7 +707,7 @@ function App() {
       const raw = localStorage.getItem('fgsb_nav_groups');
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { Dashboard: true, Sales: true, Purchase: true, Projects: true, Books: true, GST: true, HR: true, System: true };
+    return { Sales: true, Orders: true, Parties: true, Money: true, Purchases: true, Books: true, Compliance: true, System: true, Home: true };
   });
   const toggleNavGroup = (g) => {
     setExpandedGroups(prev => {
@@ -894,51 +894,51 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, JSON.stringify(enabledModules)]);
 
-  // Grouped navigation (sa-erp style groups — all routes preserved)
+  // Grouped navigation — process-oriented (Sales / Purchase / Work / Money / Books / Compliance)
+  // E-Invoice lives only under Settings (no duplicate System entry).
+  // Services catalogue lives under Work → Master data → Services tab.
   const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Dashboard' },
-    // Sales
+    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
+    // Sales — documents + clients
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring', group: 'Sales', parent: 'invoices' },
     { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Sales' },
-    // Purchase
+    // Purchase — vendors + PO + bills + expenses
     { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Purchase' },
     { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Purchase' },
-    { id: 'purchases', icon: ShoppingCart, label: 'Purchases', module: 'purchases', group: 'Purchase' },
+    { id: 'purchases', icon: ShoppingCart, label: 'Purchase Bills', module: 'purchases', group: 'Purchase' },
     { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses', group: 'Purchase' },
-    // Projects
-    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Projects' },
-    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Projects' },
-    // Money → under Books for continuity but keep receipts accessible
-    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Books' },
-    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Books' },
-    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Books' },
-    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Books' },
+    // Work — jobs + masters (Services tab inside Master data)
+    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Work' },
+    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Work' },
+    // Money
+    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Money' },
+    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Money' },
+    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Money' },
+    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Money' },
+    // Books
     { id: 'vouchers', icon: BookOpen, label: 'Vouchers', module: 'reports', group: 'Books' },
     { id: 'coa', icon: BookOpen, label: 'Chart of Accounts', module: 'reports', group: 'Books' },
     { id: 'generalledger', icon: BookOpen, label: 'General Ledger', module: 'reports', group: 'Books' },
     { id: 'finbooks', icon: BookOpen, label: 'Trial Balance / BS', module: 'reports', group: 'Books' },
     { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
-    // GST
-    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'GST' },
-    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'GST' },
-    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'GST' },
+    // Compliance
+    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
+    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
+    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // HR
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
-    // System
+    // System — no E-Invoice duplicate; no Services (use Master data → Services)
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
     { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
     { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
-    { id: 'einvoice', icon: FileText, label: 'E-Invoice / GSP', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
-    { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'System' },
     { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard', group: 'System' },
   ].filter(item => showIfModule(item.module));
-
 
   // Command palette actions — declared here (not earlier) because the deps
   // array references `navItems` and `handleNewInvoice`, which are consts.
@@ -953,6 +953,24 @@ function App() {
       acts.push({ label: `Go to ${item.label}`, hint: '', category: 'nav', run: item.onClick || (() => setCurrentView(item.id)) });
     });
     acts.push({ label: 'Go to Settings', hint: '', category: 'nav', run: () => setCurrentView('settings') });
+    acts.push({
+      label: 'Go to Master data → Services',
+      hint: '',
+      category: 'nav',
+      run: () => {
+        try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {}
+        setCurrentView('costcenters');
+      },
+    });
+    acts.push({
+      label: 'Settings → GST & e-Invoice',
+      hint: '',
+      category: 'nav',
+      run: () => {
+        try { sessionStorage.setItem('sd_settings_tab', 'gst-einvoice'); } catch (_) {}
+        setCurrentView('settings');
+      },
+    });
     acts.push({ label: 'Toggle dark mode', hint: '', category: 'action', run: () => setDarkMode(d => !d) });
     acts.push({ label: 'Show keyboard shortcuts', hint: 'Ctrl+/', category: 'help', run: () => setShowShortcutsHelp(true) });
     if (updateInfo?.updateAvailable) {
@@ -986,7 +1004,7 @@ function App() {
         label: `📦 ${p.name} — product${p.hsn ? ' · HSN: ' + p.hsn : ''}`,
         hint: (p.stock ?? 0) + ' in stock',
         category: 'product',
-        run: () => setCurrentView('inventory'),
+        run: () => { try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); },
       });
     });
     // Settings sections (jump to specific area)
@@ -1370,7 +1388,7 @@ function App() {
       )}
       <div className="main-content">
         {(currentView === 'dashboard' || currentView === 'invoices') && (
-          <Dashboard listMode={currentView === 'invoices'} onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} onConvert={handleConvertToInvoice} onOpenProducts={() => setCurrentView('inventory')} activeProfile={profile} />
+          <Dashboard listMode={currentView === 'invoices'} onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} onConvert={handleConvertToInvoice} onOpenProducts={() => { try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); }} activeProfile={profile} />
         )}
         {currentView === 'new' && (
           <InvoiceGenerator
@@ -1557,7 +1575,7 @@ function App() {
                   </button>
                 )}
                 {isLive('lowStock') && (
-                  <button type="button" className="notice notice-note" onClick={() => { setShowNotifs(false); setCurrentView('inventory'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                  <button type="button" className="notice notice-note" onClick={() => { setShowNotifs(false); try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
                     <span className="notice-icon">📦</span>
                     <div style={{ flex: 1 }}>
                       <strong>{notifications.lowStock.length} product{notifications.lowStock.length !== 1 ? 's' : ''} low on stock</strong>
