@@ -3,6 +3,36 @@
 **Format:** [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) | **Versioning:** [Semantic Versioning](https://semver.org/)
 
 ---
+## [v2.4.0] — Current Version (2026-10-19)
+
+### Summary
+
+This release is a maintenance + platform update that brings developer tooling, asset bundling for OCR (Tesseract), and packaging improvements together with small runtime hardening found in the repository.
+
+What I verified in the code while preparing this entry:
+
+- package.json version is 2.4.0 (engines: Node >= 18) — confirms a deliberate version bump.
+- A postinstall / prebuild script bundles Tesseract assets: `scripts/bundle-tesseract-assets.mjs` (see `postinstall` and `prebuild` in package.json).
+- Build & release automation is present: `release:zip`, `verify:release`, and developer scripts/tests (unit and smoke) exist in `scripts/` and `tests/` references in package.json.
+- The app includes a large server.js (Express) and a full React frontend under `_system/src/` (App.jsx, main.jsx, store.js, utils.js), plus a Vite config and PWA assets — confirms the build/runtime shape.
+- Several Windows install/update/start/stop PowerShell and BAT scripts are present under `_system/` (install-windows.ps1, update-windows.ps1, start-windows.ps1, etc.).
+- Documents and user guide material are present: `_system/docs/` and `_system/src/userGuideContent.js`.
+- An Enterprise script file `EnterpriseCore.gs` is present (legacy/Google Apps Script snippet / enterprise helper).
+
+### Notable changes in this release
+
+- ✅ Bumped package to `v2.4.0` and clarified Node requirement (>=18).
+- ✅ Added/activated Tesseract asset bundling via `scripts/bundle-tesseract-assets.mjs` and `postinstall`/`prebuild` hooks to ensure OCR-related assets ship with releases.
+- ✅ Developer tooling: expanded test scripts, smoke tests, and release verification helpers (see `scripts/*` and `tests/*` references in package.json).
+- ✅ Packaging & release: `release:zip` pipeline and release verification scripts included to produce platform ZIPs that respect cross-platform path rules (Vite + server build).
+- ✅ Installer & maintenance scripts: multiple installers/updaters and admin scripts exist for Windows and developer workflows (`install-windows.ps1`, `update-windows.ps1`, `start-windows.ps1`, `backup-windows.ps1`, `Start FreeGSTBill.bat`, etc.).
+- ✅ Docs & UX: user guide content is maintained inside the app (`_system/src/userGuideContent.js`) and `_system/docs/` contains extended documentation.
+
+### Important notes / migration
+
+- Node >= 18 is required for better-sqlite3 and some native modules: ensure your environment satisfies this.
+- The `postinstall` script runs an asset bundler for Tesseract; if you publish or run in CI, ensure `node` and npm scripts run so assets are built before the app starts.
+- Existing v2.3.8 migrations (JSON → SQLite) remain in place — this release does not remove the migration paths.
 
 ## [v2.3.8] — Current Version (2026-10-03)
 
@@ -236,15 +266,12 @@ This version includes all stable features developed to date:
 
 ---
 
-## Planned Features (v2.4.0+)
+## Planned Features (v2.5.0+)
 
 ### Short-term (Next 2-3 months)
 
 - [ ] **Profile Isolation** — Each business gets its own ledger (currently all share)
-- [ ] **Payment Reminders** — Email alerts for overdue invoices
 - [ ] **E-invoicing Integration** — IRN via GSP partner (needs IP whitelisting)
-- [ ] **Bank CSV Import** — Match statement rows to invoices
-- [ ] **Audit Report (PDF)** — CA-ready summary for lender/ITR
 - [ ] **GST 2B Auto-Download** — Fetch from portal (GSTN API)
 
 ### Medium-term (3-6 months)

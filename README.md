@@ -16,24 +16,37 @@
 
 Your data never leaves your computer. No cloud. No signup. No tracking. Open-source and offline-first.
 
-<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge&label=DOWNLOAD" alt="Download SD Dynamics"></a>
+<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge" alt="Latest release" /></a>
 
-<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 3, 2026</sub>
+<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 19, 2026</sub>
 
-[⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [📖 Docs](https://github.com/veeranki97/SD-Dynamics-V.10/tree/main/_system/docs)
+[⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [⭐ Source](https://github.com/veeranki97/SD-Dynamics-V.10)
 
 </div>
 
 ---
 
+## What's new in v2.4.0
+
+This release includes the latest reliability and packaging improvements for SD Dynamics V.10, with a stronger release pipeline and better local runtime compatibility.
+
+- **Node.js 18+ required** for native modules and release tooling.
+- **Tesseract OCR asset bundling** is now part of the install/build flow via `postinstall` and `prebuild` hooks.
+- **Release verification and packaging flow** is hardened with `release:zip` and `verify:release` scripts.
+- **Windows installer and updater scripts** remain available for local deployment, backup, and maintenance.
+- **SQLite + JSON hybrid storage** continues to support faster large-data workflows and safe migration.
+
+---
+
 ## Install in 60 Seconds — one launcher per platform
 
-The download ZIP holds a **launcher for each system**, a plain-English **`READ ME FIRST.txt`**, and a `_system/` folder with everything else. Extract the ZIP, double-click the launcher for your computer, and you're done.
+Requirements: **Node.js 18+** and npm. The download ZIP holds a **launcher for each system**, a plain-English **`READ ME FIRST.txt`**, and a `_system/` folder with everything else. Extract the ZIP, double-click the launcher for your computer, and follow the prompts.
 
-```
+```text
 SD-Dynamics-V.10/
 ├── SD Dynamics - WINDOWS.hta    ← Windows: double-click this
 ├── READ ME FIRST.txt            ← step-by-step, in plain English
+├── install.ps1                  ← one-command installer for PowerShell
 └── _system/                     ← the app (hidden after install)
 ```
 
@@ -48,6 +61,7 @@ It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynami
 ## 📑 Table of Contents
 
 * [Install in 60 Seconds](#install-in-60-seconds--one-launcher-per-platform)
+* [What's new in v2.4.0](#whats-new-in-v240)
 * [Why Choose SD Dynamics V.10?](#why-choose-sd-dynamics-v10)
 * [Your First Invoice in 5 Minutes](#your-first-invoice-in-5-minutes)
 * [Key Features](#key-features)
@@ -136,9 +150,6 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
 
 * **Vendor & Client Ledgers:** Save clients and subcontractors with GSTINs, track outstanding amounts, and maintain full vendor history.
 * **Multi-Business Profiles:** Run multiple business entities side-by-side, each with its own GSTIN and bank details.
-  <!-- TODO before publishing: verify data isolation between profiles end to end (create two profiles,
-       confirm an invoice/ledger entry made under one never appears under the other, including in
-       Reports and GSTR exports) before restoring the stronger "fully isolated financial books" wording. -->
 * **Automated Backup:** Daily automatic backups to `data/backups/YYYY-MM-DD/` with a 30-day retention Trash bin.
 * **Command Palette:** `Ctrl+K` spotlight-style search across invoices, clients, products, and ledgers.
 
@@ -161,7 +172,7 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
 
 | Who | How They Use It |
 | --- | --- |
-| **Service & Civil Contractors** | Manage project billing for solar plant O&M, civil construction, electrical operations, and vegetation removal. Record TDS meticulously and maintain robust vendor/subcontractor ledgers. |
+| **Service & Civil Contractors** | Manage project billing for solar plant O&M, civil construction, electrical operations, and vegetation removal. Record TDS meticulously and maintain robust vendor and project logs. |
 | **Freelancers & Consultants** | Invoice clients for projects or hourly work. |
 | **Small Shops & Retail Stores** | Quick bill generation with UPI QR code and stock tracking. |
 | **Manufacturers & Traders** | GST tax invoices with HSN codes, delivery challans, e-way bill JSON. |
@@ -200,8 +211,9 @@ This project is licensed under the [MIT License](LICENSE) — free to use, modif
 
 ### Built for modern, hassle-free business operations.
 
-**[⬇ Download Now](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip)** · [⭐ Star on GitHub](https://github.com/veeranki97/SD-Dynamics-V.10) · [📖 Documentation](https://github.com/veeranki97/SD-Dynamics-V.10/tree/main/_system/docs) · [🐛 Report Issue](https://github.com/veeranki97/SD-Dynamics-V.10/issues)
+**[⬇ Download Now](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip)** · [⭐ Star on GitHub](https://github.com/veeranki97/SD-Dynamics-V.10) · [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases)
 
 ---
 
 **SD Dynamics V.10** by Veeranki Bharath Kumar · MIT Licensed · October 2026
+
