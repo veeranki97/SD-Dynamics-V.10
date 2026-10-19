@@ -4,6 +4,7 @@ import { getAllProducts, saveProduct, deleteProduct, getProfile, getStockAlertSe
 import { getAllUnits, getCountryConfig, formatCurrency } from '../utils';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
+import ActionMenu from './ActionMenu';
 
 // v1.10.29 — reported: "here purchase price and selling price need".
 // Product now carries BOTH: `purchasePrice` (what we paid the supplier) and
@@ -15,7 +16,7 @@ const emptyForm = {
   name: '', hsn: '', purchasePrice: '', sellingPrice: '', taxPercent: '', unit: 'Nos', stock: '', description: '',
 };
 
-export default function InventoryView() {
+export default function InventoryView({ embedded = false } = {}) {
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -192,10 +193,11 @@ export default function InventoryView() {
   };
 
   return (
-    <div className="dashboard-container">
+    <div className={embedded ? 'master-services-embed' : 'dashboard-container'} style={embedded ? { width: '100%', maxWidth: 'none' } : undefined}>
+      {!embedded && (
       <div className="page-header">
         <div>
-          <h1 className="page-title">Products</h1>
+          <h1 className="page-title">Services</h1>
           <p className="page-subtitle">Service master — rates, SAC/HSN, units. Pick on invoice lines to auto-fill.</p>
         </div>
         <div className="flex gap-2">
@@ -208,15 +210,30 @@ export default function InventoryView() {
           </button>
         </div>
       </div>
+      )}
 
-      {/* Search */}
-      <div className="glass-panel p-4 mb-6">
-        <div className="search-box" style={{ maxWidth: '400px' }}>
+      {/* Toolbar: search + actions (full width when embedded under Master data) */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+        marginBottom: 12, width: '100%',
+      }}>
+        <div className="search-box" style={{ flex: '1 1 200px', minWidth: 160, maxWidth: embedded ? 'none' : 400 }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search by name or SAC/HSN..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />
           {search && <button className="icon-btn" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={14} /></button>}
         </div>
+        {embedded && (
+          <>
+            <input type="file" accept=".csv" ref={csvInputRef} style={{ display: 'none' }} onChange={handleCSVImport} />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => csvInputRef.current?.click()}>
+              <Upload size={14} /> Import CSV
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={openAdd}>
+              <Plus size={14} /> Add Service
+            </button>
+          </>
+        )}
       </div>
 
       {/* Add/Edit Modal */}
@@ -301,8 +318,8 @@ export default function InventoryView() {
             )}
           </div>
         ) : (
-          <div className="table-scroll">
-            <table className="data-table">
+          <div className="table-scroll" style={{ width: '100%', overflowX: 'auto' }}>
+            <table className="data-table" style={{ width: '100%', tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -331,15 +348,27 @@ export default function InventoryView() {
                         product.stock
                       )}
                     </td>
-                    <td>
-                      <div className="table-actions">
-                        <button className="icon-btn icon-btn-blue" onClick={() => openEdit(product)} title="Edit">
-                          <Edit3 size={15} />
-                        </button>
-                        <button className="icon-btn icon-btn-red" onClick={() => handleDelete(product.id)} title="Delete">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
+                    <td style={{ textAlign: 'right', width: 48 }}>
+                      <ActionMenu
+                        items={[
+                          { label: 'Edit', onClick: () => openEdit(product) },
+                          { label: 'Copy', onClick: () => {
+                            setEditingId(null);
+                            setForm({
+                              name: `${product.name || 'Service'} (copy)`,
+                              hsn: product.hsn || '',
+                              purchasePrice: product.purchasePrice ?? '',
+                              sellingPrice: product.sellingPrice ?? product.rate ?? '',
+                              taxPercent: product.taxPercent ?? '',
+                              unit: product.unit || 'Nos',
+                              stock: product.stock ?? '',
+                              description: product.description || '',
+                            });
+                            setShowForm(true);
+                          }},
+                          { label: 'Delete', onClick: () => handleDelete(product.id), danger: true },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}

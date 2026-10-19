@@ -12,20 +12,16 @@ import { toast } from './Toast';
 import { confirmAction, promptAction } from './ConfirmModal';
 import ActionMenu from './ActionMenu';
 
-const SAC_KEY = 'freegstbill_custom_sac';
-const UNIT_KEY = 'freegstbill_custom_units';
-const EXP_KEY = 'freegstbill_expense_categories';
-
-function loadJson(key, fallback = []) {
-  try {
-    const a = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(a) ? a : fallback;
-  } catch {
-    return fallback;
+/** Sequential cost-centre ids: CC-001, CC-002… (keeps existing ids unchanged). */
+function nextCcId(list) {
+  let max = 0;
+  for (const c of list || []) {
+    const m = String(c.id || '').match(/^(?:cc[_-]?|CC-?)(\d+)$/i);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
   }
-}
-function saveJson(key, arr) {
-  localStorage.setItem(key, JSON.stringify(arr));
+  // Also count non-matching rows so new ids stay unique by sequence length
+  const n = Math.max(max, (list || []).length);
+  return `CC-${String(n + 1).padStart(3, '0')}`;
 }
 
 const TABS = [
@@ -35,6 +31,9 @@ const TABS = [
   { id: 'exp', label: 'Expense categories' },
   { id: 'services', label: 'Services' },
 ];
+
+const tableWrap = { width: '100%', overflowX: 'auto' };
+const tableFull = { width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' };
 
 export default function CostCentersView() {
   const [hsnSearch, setHsnSearch] = useState('');
@@ -50,6 +49,7 @@ export default function CostCentersView() {
   useEffect(() => {
     try { sessionStorage.setItem('sd_master_tab', tab); } catch (_) {}
   }, [tab]);
+
   const [list, setList] = useState([]);
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
@@ -78,7 +78,7 @@ export default function CostCentersView() {
       toast(`Duplicate cost centre: "${name.trim()}" already exists`, 'error');
       return;
     }
-    const id = editing?.id || ('cc_' + Date.now().toString(36));
+    const id = editing?.id || nextCcId(list);
     await saveCostCenter({ id, name: name.trim(), parentId: parentId || null, active: true });
     setName(''); setParentId(''); setEditing(null);
     load();
@@ -89,6 +89,19 @@ export default function CostCentersView() {
     setEditing(c);
     setName(c.name || '');
     setParentId(c.parentId || '');
+  };
+
+  const copyCc = async (c) => {
+    const id = nextCcId(list);
+    const base = `${c.name || 'Cost centre'} (copy)`;
+    let nm = base;
+    let n = 2;
+    while (list.some(x => (x.name || '').trim().toLowerCase() === nm.toLowerCase())) {
+      nm = `${base} ${n++}`;
+    }
+    await saveCostCenter({ id, name: nm, parentId: c.parentId || null, active: true });
+    load();
+    toast(`Copied as ${nm}`, 'success');
   };
 
   const remove = async (id) => {
@@ -128,6 +141,39 @@ export default function CostCentersView() {
     toast(`HSN/SAC ${t} saved — available on Invoice, WO, PO`, 'success');
   };
 
+  const editHsn = async (code) => {
+    const v = await promptAction({
+      title: 'Edit HSN / SAC',
+      message: 'Enter 2, 4, 6 or 8 digit code',
+      placeholder: code,
+      defaultValue: code,
+      confirmLabel: 'Save',
+    });
+    if (v == null) return;
+    const t = String(v).trim();
+    if (!/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(t)) {
+      toast('HSN/SAC must be 2, 4, 6 or 8 digits', 'error');
+      return;
+    }
+    if (t === code) return;
+    removeHsnCode(code);
+    const res = addHsnCode(t);
+    if (!res?.ok) {
+      addHsnCode(code);
+      toast(res?.error || 'Duplicate HSN', 'error');
+      setHsnList(getHsnMaster());
+      return;
+    }
+    setHsnList(res.list);
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast(`Updated to ${t}`, 'success');
+  };
+
+  const copyHsn = async (code) => {
+    await navigator.clipboard?.writeText?.(String(code)).catch(() => {});
+    toast(`Copied ${code}`, 'success');
+  };
+
   const removeHsn = async (code) => {
     const ok = await confirmAction({ title: 'Remove HSN/SAC?', message: code, confirmLabel: 'Remove', tone: 'danger' });
     if (!ok) return;
@@ -147,65 +193,10 @@ export default function CostCentersView() {
     const t = String(v).trim();
     if (!t) return;
     const res = saveUnitMaster(t);
-    if (res && res.ok === false) { toast(res.error || 'Duplicate unit', 'error'); return; }
-    setUnitList(res?.list || getUnitMaster());
+    if (!res?.ok) { toast(res?.error || 'Duplicate unit', 'error'); return; }
+    setUnitList(res.list);
     try { syncMasterDataToServer(); } catch (e) {}
     toast(`Unit "${t}" saved`, 'success');
-  };
-
-  const removeUnit = async (u) => {
-    const ok = await confirmAction({ title: 'Remove unit?', message: u, confirmLabel: 'Remove', tone: 'danger' });
-    if (!ok) return;
-    setUnitList(deleteUnitMaster(u));
-    try { syncMasterDataToServer(); } catch (e) {}
-    toast('Removed', 'success');
-  };
-
-  const addExp = async () => {
-    const v = await promptAction({
-      title: 'Add expense category',
-      message: 'e.g. Direct Labor, Travel, Materials',
-      placeholder: 'Category',
-      confirmLabel: 'Save',
-    });
-    if (v == null) return;
-    const t = String(v).trim();
-    if (!t) return;
-    const res = addExpenseCategory(t);
-    if (!res?.ok) { toast(res?.error || 'Duplicate category', 'error'); return; }
-    setExpList(res.list);
-    toast(`Category "${t}" saved`, 'success');
-  };
-
-  const removeExp = async (c) => {
-    const ok = await confirmAction({ title: 'Remove category?', message: c, confirmLabel: 'Remove', tone: 'danger' });
-    if (!ok) return;
-    setExpList(removeExpenseCategory(c));
-    toast('Removed', 'success');
-  };
-
-  const editHsn = async (oldCode) => {
-    const v = await promptAction({
-      title: 'Edit HSN / SAC',
-      message: `Current: ${oldCode}`,
-      placeholder: 'New code (2/4/6/8 digits)',
-      defaultValue: oldCode,
-      confirmLabel: 'Save',
-    });
-    if (v == null) return;
-    const t = String(v).trim();
-    if (!/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(t)) {
-      toast('HSN/SAC must be 2, 4, 6 or 8 digits', 'error');
-      return;
-    }
-    if (t !== oldCode) {
-      removeHsnCode(oldCode);
-      const res = addHsnCode(t);
-      if (!res?.ok) { toast(res?.error || 'Duplicate HSN', 'error'); setHsnList(getHsnMaster()); return; }
-      setHsnList(res.list);
-      try { syncMasterDataToServer(); } catch (e) {}
-    }
-    toast(`HSN/SAC ${t} updated`, 'success');
   };
 
   const editUnit = async (oldU) => {
@@ -221,10 +212,53 @@ export default function CostCentersView() {
     if (!t) return;
     deleteUnitMaster(oldU);
     const res = saveUnitMaster(t);
-    if (res && res.ok === false) { toast(res.error || 'Duplicate unit', 'error'); setUnitList(getUnitMaster()); return; }
-    setUnitList(res?.list || getUnitMaster());
+    if (!res?.ok) {
+      saveUnitMaster(oldU);
+      toast(res?.error || 'Duplicate unit', 'error');
+      setUnitList(getUnitMaster());
+      return;
+    }
+    setUnitList(res.list);
     try { syncMasterDataToServer(); } catch (e) {}
-    toast(`Unit "${t}" updated`, 'success');
+    toast(`Unit updated to "${t}"`, 'success');
+  };
+
+  const copyUnit = async (u) => {
+    const base = `${u} (copy)`;
+    let nm = base;
+    let n = 2;
+    const lower = (unitList || []).map(x => String(x).toLowerCase());
+    while (lower.includes(nm.toLowerCase())) nm = `${base} ${n++}`;
+    const res = saveUnitMaster(nm);
+    if (!res?.ok) { toast(res?.error || 'Could not copy', 'error'); return; }
+    setUnitList(res.list);
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast(`Copied as ${nm}`, 'success');
+  };
+
+  const removeUnit = async (u) => {
+    const ok = await confirmAction({ title: 'Remove unit?', message: u, confirmLabel: 'Remove', tone: 'danger' });
+    if (!ok) return;
+    setUnitList(deleteUnitMaster(u));
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast('Removed', 'success');
+  };
+
+  const addExp = async () => {
+    const v = await promptAction({
+      title: 'Add expense category',
+      message: 'e.g. Direct Labor, Subcontract, Materials',
+      placeholder: 'Category',
+      confirmLabel: 'Save',
+    });
+    if (v == null) return;
+    const t = String(v).trim();
+    if (!t) return;
+    const res = addExpenseCategory(t);
+    if (!res?.ok) { toast(res?.error || 'Duplicate category', 'error'); return; }
+    setExpList(res.list);
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast(`Category "${t}" saved`, 'success');
   };
 
   const editExp = async (oldC) => {
@@ -240,21 +274,54 @@ export default function CostCentersView() {
     if (!t) return;
     removeExpenseCategory(oldC);
     const res = addExpenseCategory(t);
-    if (!res?.ok) { toast(res?.error || 'Duplicate category', 'error'); setExpList(getExpenseCategories()); return; }
+    if (!res?.ok) {
+      addExpenseCategory(oldC);
+      toast(res?.error || 'Duplicate category', 'error');
+      setExpList(getExpenseCategories());
+      return;
+    }
     setExpList(res.list);
+    try { syncMasterDataToServer(); } catch (e) {}
     toast(`Category "${t}" updated`, 'success');
   };
 
-  return (
-    <div className="page" style={{ maxWidth: 960 }}>
-      <h1 style={{ marginBottom: 4 }}>Master data</h1>
-      <p style={{ color: 'var(--text-muted)', marginBottom: 16, fontSize: '0.9rem' }}>
-        Cost centres, HSN/SAC, units, expense categories and the Services catalogue used on invoices, work orders, POs and expenses.
-      </p>
+  const copyExp = async (c) => {
+    const base = `${c} (copy)`;
+    let nm = base;
+    let n = 2;
+    const lower = (expList || []).map(x => String(x).toLowerCase());
+    while (lower.includes(nm.toLowerCase())) nm = `${base} ${n++}`;
+    const res = addExpenseCategory(nm);
+    if (!res?.ok) { toast(res?.error || 'Could not copy', 'error'); return; }
+    setExpList(res.list);
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast(`Copied as ${nm}`, 'success');
+  };
 
-      {/* Tab bar */}
+  const removeExp = async (c) => {
+    const ok = await confirmAction({ title: 'Remove category?', message: c, confirmLabel: 'Remove', tone: 'danger' });
+    if (!ok) return;
+    setExpList(removeExpenseCategory(c));
+    try { syncMasterDataToServer(); } catch (e) {}
+    toast('Removed', 'success');
+  };
+
+  const filteredHsn = (hsnList || []).filter(code =>
+    !hsnSearch || String(code).toLowerCase().includes(String(hsnSearch).toLowerCase())
+  );
+  const filteredUnits = (unitList || []).filter(u =>
+    !unitSearch || String(u).toLowerCase().includes(String(unitSearch).toLowerCase())
+  );
+  const filteredExp = (expList || []).filter(c =>
+    !catSearch || String(c).toLowerCase().includes(String(catSearch).toLowerCase())
+  );
+
+  return (
+    <div className="page master-data-page" style={{ width: '100%', maxWidth: 'none', padding: '0 4px' }}>
+      <h1 style={{ marginBottom: 12, fontSize: '1.35rem', fontWeight: 700 }}>Master data</h1>
+
       <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20,
+        display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16,
         borderBottom: '1px solid var(--border, #e5e7eb)', paddingBottom: 0,
       }}>
         {TABS.map(t => (
@@ -276,18 +343,15 @@ export default function CostCentersView() {
 
       {tab === 'cc' && (
         <>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-            Sites / departments for invoices, expenses, work orders, and site-wise P&amp;L.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
             <input
               className="form-input"
-              style={{ flex: '1 1 200px' }}
+              style={{ flex: '1 1 220px', minWidth: 160 }}
               placeholder="e.g. Chirala Site / Tower A"
               value={name}
               onChange={e => setName(e.target.value)}
             />
-            <select className="form-input" style={{ flex: '0 1 180px' }} value={parentId} onChange={e => setParentId(e.target.value)}>
+            <select className="form-input" style={{ flex: '0 1 200px' }} value={parentId} onChange={e => setParentId(e.target.value)}>
               <option value="">— No parent (root) —</option>
               {list.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -302,14 +366,14 @@ export default function CostCentersView() {
               </button>
             )}
           </div>
-          <div className="table-responsive">
-            <table className="data-table" style={{ width: '100%' }}>
+          <div className="table-responsive" style={tableWrap}>
+            <table className="data-table" style={tableFull}>
               <thead>
                 <tr>
-                  <th>NAME</th>
-                  <th>PARENT</th>
-                  <th>ID</th>
-                  <th></th>
+                  <th style={{ width: '36%' }}>NAME</th>
+                  <th style={{ width: '28%' }}>PARENT</th>
+                  <th style={{ width: '24%' }}>ID</th>
+                  <th style={{ width: '12%' }} />
                 </tr>
               </thead>
               <tbody>
@@ -317,11 +381,12 @@ export default function CostCentersView() {
                   <tr key={c.id}>
                     <td><strong>{c.name}</strong></td>
                     <td>{list.find(x => x.id === c.parentId)?.name || '—'}</td>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{c.id}</td>
-                    <td>
+                    <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.8rem' }}>{c.id}</td>
+                    <td style={{ textAlign: 'right' }}>
                       <ActionMenu
                         items={[
                           { label: 'Edit', onClick: () => startEdit(c) },
+                          { label: 'Copy', onClick: () => copyCc(c) },
                           { label: 'Delete', onClick: () => remove(c.id), danger: true },
                         ]}
                       />
@@ -339,21 +404,34 @@ export default function CostCentersView() {
 
       {tab === 'hsn' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Codes appear in Invoice, Work Order and Purchase Order HSN/SAC dropdowns.
-            </p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input className="search-input form-input" style={{ minWidth: 160 }} placeholder="Search HSN…"
-                value={hsnSearch || ''} onChange={e => setHsnSearch(e.target.value)} />
-              <button type="button" className="btn btn-primary btn-sm" onClick={addHsn}>＋ Add HSN / SAC</button>
-            </div>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+            marginBottom: 12, width: '100%',
+          }}>
+            <input
+              className="form-input"
+              style={{ flex: '1 1 200px', minWidth: 140 }}
+              placeholder="Search HSN…"
+              value={hsnSearch || ''}
+              onChange={e => setHsnSearch(e.target.value)}
+            />
+            <button type="button" className="btn btn-primary btn-sm" style={{ flex: '0 0 auto' }} onClick={addHsn}>
+              ＋ Add HSN / SAC
+            </button>
           </div>
-          <div className="table-responsive">
-            <table className="data-table" style={{ width: '100%' }}>
-              <thead><tr><th>CODE</th><th>TYPE</th><th>DESCRIPTION</th><th>GST %</th><th></th></tr></thead>
+          <div className="table-responsive" style={tableWrap}>
+            <table className="data-table" style={tableFull}>
+              <thead>
+                <tr>
+                  <th style={{ width: '14%' }}>CODE</th>
+                  <th style={{ width: '12%' }}>TYPE</th>
+                  <th style={{ width: '48%' }}>DESCRIPTION</th>
+                  <th style={{ width: '12%' }}>GST %</th>
+                  <th style={{ width: '14%' }} />
+                </tr>
+              </thead>
               <tbody>
-                {(hsnList || []).filter(code => !hsnSearch || String(code).toLowerCase().includes(String(hsnSearch).toLowerCase())).map(code => {
+                {filteredHsn.map(code => {
                   const info = (() => {
                     try {
                       const s = suggestGstRate(code);
@@ -362,22 +440,26 @@ export default function CostCentersView() {
                     const isService = /^99/.test(String(code));
                     return { label: isService ? 'Service (SAC)' : 'Goods (HSN)', rate: null, kind: isService ? 'service' : 'goods' };
                   })();
-                  const isService = /^99/.test(String(code)) || /service/i.test(info.label || '');
                   return (
-                  <tr key={code}>
-                    <td style={{ fontFamily: 'monospace' }}>{code}</td>
-                    <td>{isService ? 'Service' : 'Goods'}</td>
-                    <td>{info.label || '—'}</td>
-                    <td>{info.rate != null ? info.rate + '%' : '—'}</td>
-                    <td style={{ width: 80 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editHsn(code)} style={{ marginRight: 6 }}>Edit</button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeHsn(code)}>Delete</button>
-                    </td>
-                  </tr>
+                    <tr key={code}>
+                      <td style={{ fontFamily: 'ui-monospace, monospace' }}>{code}</td>
+                      <td>{info.kind === 'service' || /^99/.test(String(code)) ? 'Service' : 'Goods'}</td>
+                      <td>{info.label || '—'}</td>
+                      <td>{info.rate != null ? `${info.rate}%` : '—'}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <ActionMenu
+                          items={[
+                            { label: 'Edit', onClick: () => editHsn(code) },
+                            { label: 'Copy', onClick: () => copyHsn(code) },
+                            { label: 'Delete', onClick: () => removeHsn(code), danger: true },
+                          ]}
+                        />
+                      </td>
+                    </tr>
                   );
                 })}
-                {!hsnList.length && (
-                  <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No codes yet — click Add</td></tr>
+                {!filteredHsn.length && (
+                  <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No HSN/SAC codes yet</td></tr>
                 )}
               </tbody>
             </table>
@@ -387,26 +469,43 @@ export default function CostCentersView() {
 
       {tab === 'units' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Units for line items (Nos, Hrs, Sqft, …). Same list drives Invoice, WO and PO.
-            </p>
-            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit} style={{ marginLeft: 8 }}>＋ Add unit</button>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+            marginBottom: 12, width: '100%',
+          }}>
+            <input
+              className="form-input"
+              style={{ flex: '1 1 200px', minWidth: 140 }}
+              placeholder="Search units…"
+              value={unitSearch || ''}
+              onChange={e => setUnitSearch(e.target.value)}
+            />
+            <button type="button" className="btn btn-primary btn-sm" onClick={addUnit}>＋ Add unit</button>
           </div>
-          <div className="table-responsive">
-            <table className="data-table" style={{ width: '100%' }}>
-              <thead><tr><th>UNIT</th><th style={{ width: 100 }}></th></tr></thead>
+          <div className="table-responsive" style={tableWrap}>
+            <table className="data-table" style={tableFull}>
+              <thead>
+                <tr>
+                  <th style={{ width: '80%' }}>UNIT</th>
+                  <th style={{ width: '20%' }} />
+                </tr>
+              </thead>
               <tbody>
-                {(unitList || []).filter(u => !unitSearch || String(u).toLowerCase().includes(String(unitSearch).toLowerCase())).map(u => (
+                {filteredUnits.map(u => (
                   <tr key={u}>
-                    <td className="font-medium">{u}</td>
-                    <td>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editUnit(u)}>Edit</button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeUnit(u)}>Remove</button>
+                    <td>{u}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <ActionMenu
+                        items={[
+                          { label: 'Edit', onClick: () => editUnit(u) },
+                          { label: 'Copy', onClick: () => copyUnit(u) },
+                          { label: 'Delete', onClick: () => removeUnit(u), danger: true },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}
-                {!unitList.length && (
+                {!filteredUnits.length && (
                   <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No units yet</td></tr>
                 )}
               </tbody>
@@ -417,26 +516,43 @@ export default function CostCentersView() {
 
       {tab === 'exp' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              Categories for expense vouchers and P&amp;L grouping.
-            </p>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+            marginBottom: 12, width: '100%',
+          }}>
+            <input
+              className="form-input"
+              style={{ flex: '1 1 200px', minWidth: 140 }}
+              placeholder="Search categories…"
+              value={catSearch || ''}
+              onChange={e => setCatSearch(e.target.value)}
+            />
             <button type="button" className="btn btn-primary btn-sm" onClick={addExp}>＋ Add category</button>
           </div>
-          <div className="table-responsive">
-            <table className="data-table" style={{ width: '100%' }}>
-              <thead><tr><th>CATEGORY</th><th></th></tr></thead>
+          <div className="table-responsive" style={tableWrap}>
+            <table className="data-table" style={tableFull}>
+              <thead>
+                <tr>
+                  <th style={{ width: '80%' }}>CATEGORY</th>
+                  <th style={{ width: '20%' }} />
+                </tr>
+              </thead>
               <tbody>
-                {(expList || []).filter(c => !catSearch || String(c).toLowerCase().includes(String(catSearch).toLowerCase())).map(c => (
+                {filteredExp.map(c => (
                   <tr key={c}>
                     <td>{c}</td>
-                    <td style={{ width: 80 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => editExp(c)}>Edit</button>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeExp(c)}>Remove</button>
+                    <td style={{ textAlign: 'right' }}>
+                      <ActionMenu
+                        items={[
+                          { label: 'Edit', onClick: () => editExp(c) },
+                          { label: 'Copy', onClick: () => copyExp(c) },
+                          { label: 'Delete', onClick: () => removeExp(c), danger: true },
+                        ]}
+                      />
                     </td>
                   </tr>
                 ))}
-                {!expList.length && (
+                {!filteredExp.length && (
                   <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No categories yet</td></tr>
                 )}
               </tbody>
@@ -446,12 +562,9 @@ export default function CostCentersView() {
       )}
 
       {tab === 'services' && (
-        <div className="master-services-tab" style={{ marginTop: 4 }}>
-          <p style={{ margin: '0 0 12px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Service / product catalogue for invoice line descriptions. Same module as before — now under Master data.
-          </p>
+        <div className="master-services-tab" style={{ marginTop: 0, width: '100%' }}>
           <Suspense fallback={<div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading services…</div>}>
-            <InventoryViewLazy />
+            <InventoryViewLazy embedded />
           </Suspense>
         </div>
       )}
