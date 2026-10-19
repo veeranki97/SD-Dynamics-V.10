@@ -115,6 +115,25 @@ function navigateLedgerForWo(wo) {
   window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'generalledger' }));
 }
 
+/** True if this WO already has at least one non-cancelled Purchase Order (one WO → one PO policy, like invoice convert). */
+function woHasLinkedPo(wo, purchaseOrders) {
+  if (!wo) return false;
+  const wid = String(wo.id || '');
+  const wno = String(wo.woNumber || wo.number || '').trim();
+  return (purchaseOrders || []).some(p => {
+    if (!p) return false;
+    const st = String(p.status || '').toLowerCase();
+    if (st === 'cancelled' || p.is_deleted || p.deleted) return false;
+    const pid = String(p.workOrderId || '');
+    const pno = String(p.workOrderNumber || p.workOrderNo || '').trim();
+    if (wid && pid && (pid === wid || pid === wno)) return true;
+    if (wno && pno && pno === wno) return true;
+    if (wno && pid && pid === wno) return true;
+    return false;
+  });
+}
+
+
 export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [list, setList] = useState([]);
   const [bills, setBills] = useState([]);
@@ -654,13 +673,20 @@ const updateItem = (idx, field, value) => {
                       ...((() => {
                         const st = String(deriveWOStatus(woRow, bills)).toLowerCase();
                         const closed = st === 'cancelled' || st === 'closed';
-                        // Create PO stays available after first PO (multiple subcontract POs allowed)
-                        // and even when WO is Partially billed / completed — only hide if cancelled/closed
                         if (closed) return [];
-                        return [
-                          { label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) },
-                          { label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) },
-                        ];
+                        const items = [];
+                        // One active PO per WO (same idea as convert once) — hide Create PO if linked
+                        if (!woHasLinkedPo(woRow, purchaseOrders)) {
+                          items.push({ label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) });
+                        } else {
+                          items.push({
+                            label: 'Create PO (already linked)',
+                            disabled: true,
+                            onClick: () => toast('This work order already has a Purchase Order. Open it from the PO list or dossier → Subcontract POs.', 'info'),
+                          });
+                        }
+                        items.push({ label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) });
+                        return items;
                       })()),
                       { label: 'View ledger', onClick: () => navigateLedgerForWo(woRow) },
 
@@ -743,7 +769,11 @@ const updateItem = (idx, field, value) => {
               );
             })()}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-              <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreatePoFromWo(dossierWo)}>Create PO</button>
+              {woHasLinkedPo(dossierWo, purchaseOrders) ? (
+                <button type="button" className="btn btn-sm btn-secondary" disabled title="A Purchase Order is already linked to this work order">Create PO (linked)</button>
+              ) : (
+                <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreatePoFromWo(dossierWo)}>Create PO</button>
+              )}
               <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateCreateExpenseFromWo(dossierWo)}>Create Expense</button>
               <button type="button" className="btn btn-sm btn-primary" onClick={() => onConvertToInvoice?.(dossierWo, 'tax-invoice')}>Create Invoice</button>
               <button type="button" className="btn btn-sm btn-secondary" onClick={() => navigateLedgerForWo(dossierWo)}>View ledger</button>

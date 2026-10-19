@@ -67,14 +67,21 @@ export default function ActionMenu({ items = [] }) {
           key={i}
           type="button"
           role="menuitem"
+          disabled={!!it.disabled}
           style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '0.5rem 0.9rem',
-            border: 'none', background: 'transparent', fontSize: '0.85rem', cursor: 'pointer',
-            color: it.danger ? '#dc2626' : '#0f172a',
+            border: 'none', background: 'transparent', fontSize: '0.85rem',
+            cursor: it.disabled ? 'not-allowed' : 'pointer',
+            color: it.disabled ? '#94a3b8' : (it.danger ? '#dc2626' : '#0f172a'),
+            opacity: it.disabled ? 0.75 : 1,
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; }}
+          onMouseEnter={(e) => { if (!it.disabled) e.currentTarget.style.background = '#f1f5f9'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          onClick={() => { setOpen(false); it.onClick?.(); }}
+          onClick={() => {
+            if (it.disabled) return;
+            setOpen(false);
+            it.onClick?.();
+          }}
         >
           {it.label}
         </button>
