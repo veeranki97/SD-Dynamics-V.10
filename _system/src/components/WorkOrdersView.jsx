@@ -37,8 +37,10 @@ function navigateCreatePoFromWo(wo) {
   if (!wo) return;
   try {
     // Always call imported helper (header OR first line cost centre)
-    const cc = resolveWoCostCenter(wo) || '';
-    const site = resolveWoSite(wo) || wo.site || '';
+    let cc = '';
+    let site = wo.site || '';
+    try { cc = resolveWoCostCenter(wo) || ''; } catch (_) {}
+    try { site = resolveWoSite(wo) || wo.site || ''; } catch (_) { site = wo.site || ''; }
     // Client delivery address — never company profile
     const clientAddr = [
       wo.clientAddress || wo.billingAddress || wo.address || '',
@@ -77,6 +79,10 @@ function navigateCreatePoFromWo(wo) {
   } catch { /* */ }
   sessionStorage.setItem('gst_currentView', 'purchaseorders');
   window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchaseorders' }));
+  // If PO view is already mounted, force prefill re-read
+  setTimeout(() => {
+    try { window.dispatchEvent(new CustomEvent('sd-po-prefill')); } catch (_) {}
+  }, 50);
 }
 
 /** Prefill New Expense from Work Order. */

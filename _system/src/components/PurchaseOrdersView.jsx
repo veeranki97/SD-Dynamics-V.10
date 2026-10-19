@@ -541,17 +541,23 @@ export default function PurchaseOrdersView() {
       getAllClients().then(cs => {
         setClients(cs || []);
         const sites = new Set(['Main Site']);
+        const addSite = (s) => {
+          if (s == null || s === '') return;
+          if (typeof s === 'string') { sites.add(s.trim()); return; }
+          if (typeof s === 'object' && s.name) sites.add(String(s.name).trim());
+        };
         (cs || []).forEach(c => {
-          if (c.site) sites.add(c.site);
-          (c.sites || []).forEach(s => sites.add(s));
+          addSite(c.site);
+          (Array.isArray(c.sites) ? c.sites : []).forEach(addSite);
         });
-        setShipSites([...sites]);
-      }).catch(() => {}).catch(() => {});
+        setShipSites([...sites].filter(Boolean));
+      }).catch(() => {});
   }, []);
   useEffect(() => { load(); }, []);
 
-  // Prefill from Work Order "Create PO" action
+  // Prefill from Work Order "Create PO" action (also on sd-po-prefill if already mounted)
   useEffect(() => {
+    const applyWoPrefill = () => {
     try {
       const raw = sessionStorage.getItem('sd_po_from_wo');
       if (!raw) return;
@@ -604,7 +610,11 @@ export default function PurchaseOrdersView() {
         items: mappedWithCc,
         createdAt: new Date().toISOString(),
       });
-    } catch { /* */ }
+    } catch (e) { console.warn('sd_po_from_wo prefill', e); }
+    };
+    applyWoPrefill();
+    window.addEventListener('sd-po-prefill', applyWoPrefill);
+    return () => window.removeEventListener('sd-po-prefill', applyWoPrefill);
   }, []);
 
 
@@ -746,9 +756,10 @@ export default function PurchaseOrdersView() {
             <label className="form-label">Ship To (Site)</label>
             <select className="form-input" value={form.site || 'Main Site'}
               onChange={e => setForm({ ...form, site: e.target.value })}>
-              {(typeof shipSites !== 'undefined' ? shipSites : ['Main Site']).map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
+              {(Array.isArray(shipSites) && shipSites.length ? shipSites : ['Main Site']).map(s => {
+                const name = typeof s === 'string' ? s : (s?.name || 'Main Site');
+                return <option key={name} value={name}>{name}</option>;
+              })}
             </select>
             <datalist id="po-sites">
               {(form.site ? [form.site] : []).map(s => <option key={s} value={s} />)}

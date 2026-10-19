@@ -769,7 +769,8 @@ function App() {
     };
     const onSetView = (ev) => {
       const target = ev?.detail;
-      if (typeof target === 'string') setCurrentView(target);
+      if (typeof target === 'string' && target) setCurrentView(target);
+      else if (target && typeof target === 'object' && typeof target.view === 'string') setCurrentView(target.view);
     };
     window.addEventListener('sd-open-invoice', onOpen);
     window.addEventListener('sd-set-view', onSetView);
