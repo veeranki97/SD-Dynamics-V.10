@@ -45,6 +45,27 @@ function validateGstin(gstin, stateName) {
   return { ok: true, stateCode: r.stateCode };
 }
 
+
+function vendorHasPurchases(vendor) {
+  if (!vendor) return false;
+  const purchases = readAllFromDir('purchases') || [];
+  const vid = String(vendor.id || '');
+  const vname = String(vendor.name || '').trim().toLowerCase();
+  const vgst = String(vendor.gstin || '').trim().toUpperCase();
+  for (const p of purchases) {
+    if (p.is_deleted || p.deleted) continue;
+    const st = String(p.status || '').toLowerCase();
+    if (st === 'cancelled') continue;
+    const pid = String(p.vendorId || p.supplierId || p.data?.vendorId || '');
+    const pname = String(p.vendorName || p.supplierName || p.data?.vendor?.name || '').trim().toLowerCase();
+    const pgst = String(p.vendorGstin || p.supplierGstin || p.data?.vendor?.gstin || '').trim().toUpperCase();
+    if (vid && pid && vid === pid) return true;
+    if (vname && pname && vname === pname) return true;
+    if (vgst.length === 15 && pgst === vgst) return true;
+  }
+  return false;
+}
+
 function clientHasTaxInvoices(client) {
   if (!client) return false;
   const bills = readAllFromDir('bills') || [];
@@ -852,18 +873,54 @@ app.post('/api/clients', (req, res) => {
   if (!client.id) client.id = 'cli_' + Date.now();
   const v = validateGstin(client.gstin, client.state);
   if (!v.ok) return res.status(400).json({ error: v.error });
+  // Normalize sites: allow string or { name, address, gstin }
+  if (Array.isArray(client.sites)) {
+    client.sites = client.sites.map((s) => {
+      if (s == null || s === '') return null;
+      if (typeof s === 'string') return { name: s.trim(), address: '', gstin: '' };
+      return {
+        name: String(s.name || s.site || '').trim(),
+        address: String(s.address || '').trim(),
+        gstin: String(s.gstin || '').trim().toUpperCase(),
+        state: String(s.state || '').trim(),
+      };
+    }).filter((s) => s && s.name);
+  }
   const filePath = path.join(DATA_DIR, 'clients', safeFileName(client.id) + '.json');
   const prev = readJSON(filePath, null);
-  if (prev && clientHasTaxInvoices(prev)) {
+  const isVendor = !!(client.isVendor || client.type === 'vendor' || client.partyType === 'vendor'
+    || prev?.isVendor || prev?.type === 'vendor' || prev?.partyType === 'vendor');
+  if (prev && !isVendor && clientHasTaxInvoices(prev)) {
     const norm = (x) => String(x || '').trim().toLowerCase();
     const identityChanged =
       (prev.name && client.name && norm(prev.name) !== norm(client.name)) ||
-      (prev.gstin && client.gstin && String(prev.gstin).trim().toUpperCase() !== String(client.gstin).trim().toUpperCase()) ||
+      (String(prev.gstin || '') && String(client.gstin || '') && String(prev.gstin).trim().toUpperCase() !== String(client.gstin).trim().toUpperCase()) ||
       (prev.state && client.state && norm(prev.state) !== norm(client.state));
     if (identityChanged) {
       return res.status(403).json({
         error: 'Client has invoices — cannot change name/GSTIN/state. Create a new client or use a credit note process.',
       });
+    }
+  }
+  if (prev && isVendor && vendorHasPurchases(prev)) {
+    const norm = (x) => String(x || '').trim().toLowerCase();
+    const identityChanged =
+      (prev.name && client.name && norm(prev.name) !== norm(client.name)) ||
+      (String(prev.gstin || '') && String(client.gstin || '') && String(prev.gstin).trim().toUpperCase() !== String(client.gstin).trim().toUpperCase()) ||
+      (prev.state && client.state && norm(prev.state) !== norm(client.state));
+    if (identityChanged) {
+      return res.status(403).json({
+        error: 'Vendor has purchase bills — cannot change name/GSTIN/state. Phone, email and notes remain editable.',
+      });
+    }
+  }
+  // Optional per-site GSTIN validation (non-empty only)
+  if (Array.isArray(client.sites)) {
+    for (const s of client.sites) {
+      if (s.gstin) {
+        const sv = validateGstin(s.gstin, s.state || client.state);
+        if (!sv.ok) return res.status(400).json({ error: `Site "${s.name}": ${sv.error}` });
+      }
     }
   }
   writeJSON(filePath, client);

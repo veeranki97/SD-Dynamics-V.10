@@ -3,11 +3,42 @@ import { X } from 'lucide-react';
 import { getCountryConfig, isValidIndianGSTIN, getStateCode, getStatesForCountry, validateTaxId, detectCountryFromBrowser, getCountriesForRegion, PAPER_SIZES } from '../utils';
 import { getRegionMode } from '../store';
 
+/** Site line: "Name" or "Name | GSTIN" or "Name | GSTIN | address" */
+function parseSiteLine(line) {
+  const raw = String(line || '').trim();
+  if (!raw) return null;
+  if (raw.includes('|')) {
+    const parts = raw.split('|').map(p => p.trim()).filter(Boolean);
+    return {
+      name: parts[0] || '',
+      gstin: (parts[1] || '').toUpperCase(),
+      address: parts[2] || '',
+    };
+  }
+  return { name: raw, gstin: '', address: '' };
+}
+function formatSiteLine(s) {
+  if (s == null || s === '') return '';
+  if (typeof s === 'string') return s;
+  const bits = [s.name || s.site || ''];
+  if (s.gstin) bits.push(String(s.gstin).toUpperCase());
+  if (s.address) bits.push(s.address);
+  return bits.join(' | ');
+}
+function normalizeSites(arr) {
+  if (!Array.isArray(arr)) return [{ name: 'Main Site', gstin: '', address: '' }];
+  return arr.map(s => (typeof s === 'string' ? parseSiteLine(s) : {
+    name: String(s?.name || s?.site || '').trim(),
+    gstin: String(s?.gstin || '').trim().toUpperCase(),
+    address: String(s?.address || '').trim(),
+  })).filter(s => s && s.name);
+}
+
 export default function ClientModal({ lockedFields = false, show, onClose, onSave, client, isEditing, defaultCountry }) {
   // Country defaults: explicit prop (active business profile) → browser locale → 'India'.
   const fallbackCountry = defaultCountry || detectCountryFromBrowser();
   const emptyForm = {
-    name: '', address: '', city: '', pin: '', state: '', gstin: '', email: '', phone: '', sites: ['Main Site'], site: 'Main Site', serviceType: '', creditLimit: '', paymentTerms: 'Net 30', tdsSection: '194C', pan: '', msme: '',
+    name: '', address: '', city: '', pin: '', state: '', gstin: '', email: '', phone: '', sites: [{ name: 'Main Site', gstin: '', address: '' }], site: 'Main Site', serviceType: '', creditLimit: '', paymentTerms: 'Net 30', tdsSection: '194C', pan: '', msme: '',
     country: fallbackCountry, isSEZ: false,
     preferredPaperSize: '',
     preferredCurrency: '',
@@ -20,7 +51,7 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
     if (show && client) {
       setForm({
         name: client.name || '', address: client.address || '', city: client.city || '',
-        pin: client.pin || '', state: client.state || '', gstin: client.gstin || '', sites: client.sites || (client.site ? [client.site] : ['Main Site']), site: client.site || 'Main Site', serviceType: client.serviceType || '', creditLimit: client.creditLimit || '', paymentTerms: client.paymentTerms || 'Net 30', tdsSection: client.tdsSection || '194C', pan: client.pan || '', msme: client.msme || '',
+        pin: client.pin || '', state: client.state || '', gstin: client.gstin || '', sites: normalizeSites(client.sites || (client.site ? [client.site] : ['Main Site'])), site: client.site || (normalizeSites(client.sites || [])[0]?.name) || 'Main Site', serviceType: client.serviceType || '', creditLimit: client.creditLimit || '', paymentTerms: client.paymentTerms || 'Net 30', tdsSection: client.tdsSection || '194C', pan: client.pan || '', msme: client.msme || '',
         email: client.email || '', phone: client.phone || '', country: client.country || fallbackCountry,
         isSEZ: !!client.isSEZ,
         preferredPaperSize: client.preferredPaperSize || '',
@@ -46,7 +77,8 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
 
   const handleSave = () => {
     if (!form.name.trim()) return;
-    const payload = { ...form };
+    const payload = { ...form, sites: normalizeSites(form.sites) };
+    payload.site = payload.sites[0]?.name || payload.site || 'Main Site';
     if (lockedFields && client) {
       // Guardian: identity fields cannot change when invoices exist
       payload.name = client.name != null && client.name !== '' ? client.name : payload.name;
@@ -97,15 +129,18 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
               onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Acme Corp" />
           </div>
           <div className="form-group" style={cell}>
-            <label className="form-label">Sites </label>
-            <textarea className="form-input" rows={2}
-              value={(form.sites || []).join('\n')}
-              onChange={e => setForm(prev => ({
-                ...prev,
-                sites: e.target.value.split('\n').map(s => s.trim()).filter(Boolean),
-                site: (e.target.value.split('\n').map(s => s.trim()).filter(Boolean)[0]) || prev.site
-              }))}
-              placeholder={"Main Site\nChirala Yard\nSite B"} />
+            <label className="form-label">Sites (one per line; optional GSTIN after | )</label>
+            <textarea className="form-input" rows={3}
+              value={(form.sites || []).map(formatSiteLine).join('\n')}
+              onChange={e => {
+                const sites = e.target.value.split('\n').map(parseSiteLine).filter(Boolean);
+                setForm(prev => ({
+                  ...prev,
+                  sites,
+                  site: (sites[0] && sites[0].name) || prev.site,
+                }));
+              }}
+              placeholder={"Main Site\nChirala Yard | 36XXXXX...GSTIN\nSite B | 37XXXX | Site address"} />
           </div>
         </div>
 

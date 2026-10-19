@@ -220,7 +220,11 @@ export default function CashBookView() {
             try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
             if (tab === 'day') {
               const dayRows = rows.filter(r => r.date === dayDate);
-              exportCashPdf({ title: 'Day Book', subtitle: 'VOUCHER LOG (DAY BOOK)', company, rows: dayRows, mode: 'day', dayDate });
+              exportCashPdf({
+                title: `Day-Book-${String(dayDate || '').slice(0, 10) || 'all'}`,
+                subtitle: 'VOUCHER LOG (DAY BOOK)',
+                company, rows: dayRows, mode: 'day', dayDate,
+              });
             } else {
               exportCashPdf({ title: 'Cash Book', subtitle: 'CASHBOOK LEDGER', company, rows, mode: 'ledger', closing });
             }

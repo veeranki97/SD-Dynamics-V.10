@@ -438,35 +438,51 @@ function printPO(po, profile, fingerprint, clientsList) {
 </body></html>`;
 
   try {
+    // Suggested PDF name = PO number (Chrome uses document.title)
+    const prevTitle = document.title;
+    try { document.title = poTitle; } catch (_) {}
+    const restoreTitle = () => { try { document.title = prevTitle; } catch (_) {} };
+
     let iframe = document.getElementById('sd-po-print-frame');
-    if (iframe) iframe.remove(); 
+    if (iframe) iframe.remove();
 
     iframe = document.createElement('iframe');
     iframe.id = 'sd-po-print-frame';
-    iframe.style.cssText = 'position:absolute;width:0;height:0;left:-9999px;top:-9999px;border:none;';
+    // On-screen zero-opacity frame (off-screen frames often drop print + filename)
+    iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
     document.body.appendChild(iframe);
 
     const win = iframe.contentWindow;
     const doc = iframe.contentDocument || win.document;
-    
+    if (!doc || !win) {
+      restoreTitle();
+      alert('Print frame unavailable');
+      return;
+    }
+
     doc.open();
     doc.write(html);
     doc.close();
+    try { doc.title = poTitle; } catch (_) {}
 
-    // 800ms delay ensures DOM layout is locked and images are fully decoded
-    iframe.onload = () => {
-      setTimeout(() => {
-        try {
-          win.focus();
-          win.print();
-        } catch (err) {
-          console.error(err);
-          alert("Print dialog blocked by browser. Please allow popups/printing.");
-        }
-      }, 800); 
+    const runPrint = () => {
+      try {
+        try { win.onafterprint = restoreTitle; } catch (_) {}
+        win.focus();
+        win.print();
+      } catch (err) {
+        console.error(err);
+        restoreTitle();
+        alert('Print dialog blocked by browser. Please allow popups/printing.');
+      }
+      setTimeout(restoreTitle, 60000);
     };
+
+    // DOM + images: short delay (structure of HTML sheet unchanged)
+    setTimeout(runPrint, 500);
   } catch (e) {
     console.error('printPO failed', e);
+    try { document.title = (typeof prevTitle !== 'undefined' ? prevTitle : document.title); } catch (_) {}
     alert('Failed to generate PO print.');
   }
 }

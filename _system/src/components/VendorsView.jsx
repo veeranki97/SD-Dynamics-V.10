@@ -68,7 +68,26 @@ const emptyVendorForm = {
   partyType: 'vendor'
 };
 
+function vendorHasPurchaseBills(vendor, purchases) {
+  if (!vendor) return false;
+  const vid = String(vendor.id || '');
+  const vname = String(vendor.name || '').trim().toLowerCase();
+  const vgst = String(vendor.gstin || '').trim().toUpperCase();
+  for (const p of purchases || []) {
+    if (p.is_deleted || p.deleted) continue;
+    if (String(p.status || '').toLowerCase() === 'cancelled') continue;
+    const pid = String(p.vendorId || p.supplierId || '');
+    const pname = String(p.vendorName || p.supplierName || '').trim().toLowerCase();
+    const pgst = String(p.vendorGstin || p.supplierGstin || '').trim().toUpperCase();
+    if (vid && pid && vid === pid) return true;
+    if (vname && pname && vname === pname) return true;
+    if (vgst.length === 15 && pgst === vgst) return true;
+  }
+  return false;
+}
+
 export default function VendorsView() {
+
   const [vendors, setVendors] = useState([]);
   const [purchases, setPurchases] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -567,9 +586,11 @@ export default function VendorsView() {
   };
 
   const handleOpenEdit = (vendor) => {
-    setFormVendor({ ...emptyVendorForm, ...vendor });
+    const locked = vendorHasPurchaseBills(vendor, purchases);
+    setFormVendor({ ...emptyVendorForm, ...vendor, _identityLocked: locked });
     setEditingVendorId(vendor.id);
     setShowModal(true);
+    if (locked) toast('Name, GSTIN and State locked — this vendor has purchase bills. Phone/email/notes still editable.', 'info');
   };
 
   const handleGstinChange = (raw) => {
@@ -592,13 +613,15 @@ export default function VendorsView() {
 
     try {
       const payload = { ...formVendor, isVendor: true, type: 'vendor', partyType: 'vendor' };
+      delete payload._identityLocked;
       if (editingVendorId) payload.id = editingVendorId;
       await saveClient(payload);
       toast(editingVendorId ? 'Vendor updated' : 'Vendor added', 'success');
       setShowModal(false);
       loadData();
-    } catch {
-      toast('Failed to save vendor', 'error');
+    } catch (err) {
+      const msg = err?.message || err?.error || (typeof err === 'string' ? err : '') || 'Failed to save vendor';
+      toast(msg, 'error');
     }
   };
 
@@ -963,6 +986,11 @@ export default function VendorsView() {
             </div>
 
             <form onSubmit={handleSaveVendor}>
+              {formVendor._identityLocked && (
+                <div className="notice notice-note" style={{ marginBottom: 12, fontSize: '0.85rem' }}>
+                  Name, GSTIN and State are locked — this vendor has purchase bills. Phone, email and notes can still be updated.
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem' }}>
                 
                 {/* Row 1: Name, Contact Person, Phone */}
@@ -973,7 +1001,9 @@ export default function VendorsView() {
                     className="form-input" 
                     required 
                     placeholder="e.g. Balaji Electricals & Hardware"
-                    value={formVendor.name} 
+                    value={formVendor.name}
+                    disabled={!!formVendor._identityLocked}
+                    readOnly={!!formVendor._identityLocked}
                     onChange={e => setFormVendor({ ...formVendor, name: e.target.value })} 
                   />
                 </div>
@@ -996,7 +1026,7 @@ export default function VendorsView() {
                     className="form-input" 
                     maxLength={15} 
                     placeholder="37AAAAA0000A1Z5"
-                    value={formVendor.gstin} 
+                    value={formVendor.gstin} disabled={!!formVendor._identityLocked} readOnly={!!formVendor._identityLocked} 
                     onChange={e => handleGstinChange(e.target.value)} 
                   />
                 </div>
@@ -1039,7 +1069,8 @@ export default function VendorsView() {
                     type="text" 
                     className="form-input" 
                     placeholder="Andhra Pradesh"
-                    value={formVendor.state} 
+                    value={formVendor.state}
+                    disabled={!!formVendor._identityLocked}
                     onChange={e => setFormVendor({ ...formVendor, state: e.target.value })} 
                   />
                 </div>

@@ -734,7 +734,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [clientPickerIdx, setClientPickerIdx] = useState(-1);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [showClientModal, setShowClientModal] = useState(false);
-  const [clientModalLocked, setClientModalLocked] = useState(false);
   const [modalClient, setModalClient] = useState(null);
   const [isEditingClient, setIsEditingClient] = useState(false);
   const clientNameRef = useRef(null);
@@ -962,35 +961,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // Returns null when the invoice is fit to save, otherwise the specific
   // reason, so the user is told which field is missing rather than just
   // being refused.
-  
-  /** Pre-final checklist for Tax Invoice (warn; block only if setting requires) */
-  const runTaxInvoiceChecklist = () => {
-    const issues = [];
-    const t = String(invoiceType || details?.invoiceType || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
-    if (!(t.includes('tax') || t === 'invoice' || t === 'tax-invoice')) return [];
-    const gstin = String(client?.gstin || '').trim();
-    const isB2B = gstin.length >= 15;
-    if (isB2B && gstin.length !== 15) issues.push('B2B: GSTIN must be 15 characters');
-    if (isB2B && !(client?.gstin)) issues.push('B2B: client GSTIN missing');
-    const itemsList = items || [];
-    itemsList.forEach((it, i) => {
-      const h = String(it.hsn || it.sac || '').trim();
-      if (h && h.length < 4) issues.push(`Line ${i + 1}: HSN/SAC should be at least 4 digits`);
-      if (isB2B && !h) issues.push(`Line ${i + 1}: HSN/SAC required for B2B`);
-    });
-    try {
-      const gsp = JSON.parse(localStorage.getItem('sd_gsp_settings') || '{}');
-      if (gsp.enabled && gsp.mode === 'gsp' && isB2B && !String(details?.irn || '').trim()) {
-        issues.push('e-Invoice enabled: IRN not filled (paste from portal in Manual mode)');
-      }
-    } catch (_) {}
-    if (!(profile?.bankName || profile?.accountNumber || profile?.upiId || profile?.bankAccount)) {
-      issues.push('Bank / UPI not set on company profile (recommended for payment section)');
-    }
-    return issues;
-  };
-
-
   const validateForSave = useCallback(() => {
     if (!client?.name?.trim()) {
       return 'Add a client name before saving.';
@@ -1665,9 +1635,16 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   // Open modal to add new client (pre-fill from current invoice fields)
   const openAddClientModal = () => {
-    setModalClient(null);
+    setModalClient({ name: client.name || '', address: client.address || '', city: client.city || '', pin: client.pin || '', state: client.state || '', gstin: client.gstin || '' });
     setIsEditingClient(false);
-    setClientModalLocked(false);
+    setShowClientModal(true);
+    setShowClientSuggestions(false);
+  };
+
+  // Open modal to edit existing saved client
+  const openEditClientModal = (cli) => {
+    setModalClient(cli);
+    setIsEditingClient(true);
     setShowClientModal(true);
   };
 
@@ -1675,12 +1652,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const handleClientModalSave = async (formData) => {
     const data = { ...formData };
     if (isEditingClient && modalClient?.id) data.id = modalClient.id;
-    try {
-      await saveClient(data);
-    } catch (e) {
-      toast(e?.message || e?.body?.error || 'Could not save client', 'error');
-      return;
-    }
+    await saveClient(data);
     const updated = (await getAllClients() || []).filter(c => !c.isVendor && c.type !== 'vendor');
     setSavedClients(updated);
     // Sync the invoice form with the FULL saved record — dropping
@@ -1727,14 +1699,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (q) list = list.filter(cli => (cli.name || '').toLowerCase().includes(q));
     return list;
   }, [client.name, clientOnlyList, filterState]);
-  const clientSites = useMemo(() => {
-    const master = clientOnlyList.find(c =>
-      (c.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase()
-    );
+    const clientSites = useMemo(() => {
+    const master = clientOnlyList.find(c => (c.name || '') === (client.name || ''));
     const sites = master?.sites || (master?.site ? [master.site] : []) || (client.sites || []);
-    const arr = Array.isArray(sites) ? sites.filter(Boolean) : [];
-    if (client.site && !arr.includes(client.site)) arr.unshift(client.site);
-    return arr.length ? arr : ['Main Site'];
+    const arr = (Array.isArray(sites) ? sites : []).map(s => {
+      if (s == null || s === '') return null;
+      if (typeof s === 'string') return { name: s, gstin: '', address: '' };
+      return { name: s.name || s.site || '', gstin: s.gstin || '', address: s.address || '', state: s.state || '' };
+    }).filter(s => s && s.name);
+    return arr.length ? arr : [{ name: 'Main Site', gstin: '', address: '' }];
   }, [clientOnlyList, client.name, client.site, client.sites]);
   const stateOptionsForFilter = useMemo(() => {
     const s = new Set();
@@ -2356,7 +2329,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       if (!iframe) {
         iframe = document.createElement('iframe');
         iframe.id = 'sd-inv-print-frame';
-        iframe.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;border:0;opacity:0;z-index:-1;pointer-events:none';
+        iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
         document.body.appendChild(iframe);
       }
       iframe.setAttribute('title', invNo);
@@ -3290,11 +3263,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     // either.
     const problem = validateForSave();
     if (problem) { toast(problem, 'warning'); return; }
-    const checklist = runTaxInvoiceChecklist();
-    if (checklist.length) {
-      const msg = 'Before final Tax Invoice:\n• ' + checklist.join('\n• ');
-      if (!window.confirm(msg + '\n\nContinue save anyway?')) return;
-    }
     if (isThermalPaper()) {
       // Thermal → show the preview modal. Actual print fires from the
       // modal's Print button via executePrint. User can Cancel there
@@ -3309,37 +3277,34 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   };
 
   const generatePDF = async () => {
-    // Save & Download: persist bill first, then vector print/PDF for A4 (sharp text).
-    // Thermal still uses html2canvas path below.
+    // Save & Download always writes a real file named {invoiceNumber}.pdf (not only print dialog).
+    // Print button still uses printInvoiceViaIframe / executePrint for vector print.
     if (!printRef.current) return;
+    // v1.10.58 (#47) — same gate as Save: printing persists the bill and
+    // reserves an invoice number, so a blank one must not get through here
+    // either.
     const problem = validateForSave();
     if (problem) { toast(problem, 'warning'); return; }
-    const checklist = runTaxInvoiceChecklist();
-    if (checklist.length) {
-      const msg = 'Before final Tax Invoice:\n• ' + checklist.join('\n• ');
-      if (!window.confirm(msg + '\n\nContinue save anyway?')) return;
-    }
     try {
       setSaving(true);
-      const prevPrinted = Number(editingBill?.printedCount) || 0;
-      await saveInvoiceToDB(false, {
-        printedCount: prevPrinted + 1,
-        lastPrintedAt: new Date().toISOString(),
-      });
-      clearDraft();
-      const paperKind = (typeof getPaperSize === 'function')
-        ? getPaperSize(invoiceOptions.paperSize, invoiceOptions).kind
-        : '';
-      const thermal = paperKind === 'thermal' || !!(printSettings?.thermal);
-      if (!thermal) {
-        printInvoiceViaIframe();
-        toast('Saved. Print dialog: choose Save as PDF, Headers/footers OFF. File name follows invoice number.', 'success', 8000);
-        return;
-      }
-      // Thermal / legacy canvas path
+      // v1.10.26 — force preview on-screen so html2canvas can snapshot it.
+      // Wrapped around buildPDF only (the rest of the flow can happen with
+      // preview back to collapsed state).
       const pdf = await withPreviewOnScreen(() => buildPDF());
       const fileName = `${String(details.invoiceNumber || typeConfig.prefix || 'invoice').replace(/[/\\:*?"<>|]+/g, '-')}.pdf`;
       pdf.save(fileName);
+
+      // v1.9.0 — bump print history + save. Both the local bill record and
+      // the server copy get updated so the reprint indicator + history
+      // views stay accurate. printedCount defaults to 0 and increments
+      // once per PDF generated.
+      const prevPrinted = Number(editingBill?.printedCount) || 0;
+      const printedPatch = {
+        printedCount: prevPrinted + 1,
+        lastPrintedAt: new Date().toISOString(),
+      };
+      await saveInvoiceToDB(false, printedPatch);
+      clearDraft();
 
       const pdfBlob = pdf.output('blob');
 
@@ -4114,7 +4079,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Client Modal */}
-          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} lockedFields={clientModalLocked} />
+          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
 
           {/* Client Details */}
           <div className="glass-panel ig-panel">
@@ -4144,7 +4109,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                       name: c.name || '', address: c.address || '', city: c.city || '', pin: c.pin || '',
                       state: c.state || '', gstin: c.gstin || '', country: c.country || client.country || '',
                       email: c.email || '', phone: c.phone || '', isSEZ: !!c.isSEZ,
-                      site: c.site || (c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
+                      site: typeof (c.sites && c.sites[0]) === 'object' ? (c.sites[0].name || c.site) : (c.site || (c.sites && c.sites[0]) || 'Main Site'), sites: c.sites || [],
                     });
                     if (c.state) setFilterState(c.state);
                   }}>
@@ -4159,10 +4124,13 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <select className="form-input" value={client.site || details.site || ''}
                   onChange={e => {
                     const site = e.target.value;
-                    setClient(prev => ({ ...prev, site }));
-                    setDetails(prev => ({ ...prev, site }));
+                    const meta = (clientSites || []).find(s => (typeof s === 'string' ? s : (s.name || '')) === site);
+                    const siteGstin = (meta && typeof meta === 'object' && meta.gstin) ? String(meta.gstin).toUpperCase() : '';
+                    const siteAddr = (meta && typeof meta === 'object' && meta.address) ? String(meta.address) : '';
+                    setClient(prev => ({ ...prev, site, siteGstin: siteGstin || '', siteAddress: siteAddr || prev.siteAddress || '' }));
+                    setDetails(prev => ({ ...prev, site, siteGstin: siteGstin || '' }));
                   }}>
-                  {clientSites.map(s => <option key={s} value={s}>{s}</option>)}
+                  {clientSites.map(s => { const n = typeof s === 'string' ? s : (s.name || ''); return <option key={n} value={n}>{n}{typeof s === 'object' && s.gstin ? ` · ${String(s.gstin).slice(0, 5)}…` : ''}</option>; })}
                 </select>
               </div>
             </div>
