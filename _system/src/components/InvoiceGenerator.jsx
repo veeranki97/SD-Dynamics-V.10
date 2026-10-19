@@ -962,6 +962,35 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // Returns null when the invoice is fit to save, otherwise the specific
   // reason, so the user is told which field is missing rather than just
   // being refused.
+  
+  /** Pre-final checklist for Tax Invoice (warn; block only if setting requires) */
+  const runTaxInvoiceChecklist = () => {
+    const issues = [];
+    const t = String(invoiceType || details?.invoiceType || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+    if (!(t.includes('tax') || t === 'invoice' || t === 'tax-invoice')) return [];
+    const gstin = String(client?.gstin || '').trim();
+    const isB2B = gstin.length >= 15;
+    if (isB2B && gstin.length !== 15) issues.push('B2B: GSTIN must be 15 characters');
+    if (isB2B && !(client?.gstin)) issues.push('B2B: client GSTIN missing');
+    const itemsList = items || [];
+    itemsList.forEach((it, i) => {
+      const h = String(it.hsn || it.sac || '').trim();
+      if (h && h.length < 4) issues.push(`Line ${i + 1}: HSN/SAC should be at least 4 digits`);
+      if (isB2B && !h) issues.push(`Line ${i + 1}: HSN/SAC required for B2B`);
+    });
+    try {
+      const gsp = JSON.parse(localStorage.getItem('sd_gsp_settings') || '{}');
+      if (gsp.enabled && gsp.mode === 'gsp' && isB2B && !String(details?.irn || '').trim()) {
+        issues.push('e-Invoice enabled: IRN not filled (paste from portal in Manual mode)');
+      }
+    } catch (_) {}
+    if (!(profile?.bankName || profile?.accountNumber || profile?.upiId || profile?.bankAccount)) {
+      issues.push('Bank / UPI not set on company profile (recommended for payment section)');
+    }
+    return issues;
+  };
+
+
   const validateForSave = useCallback(() => {
     if (!client?.name?.trim()) {
       return 'Add a client name before saving.';
@@ -3261,6 +3290,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     // either.
     const problem = validateForSave();
     if (problem) { toast(problem, 'warning'); return; }
+    const checklist = runTaxInvoiceChecklist();
+    if (checklist.length) {
+      const msg = 'Before final Tax Invoice:\n• ' + checklist.join('\n• ');
+      if (!window.confirm(msg + '\n\nContinue save anyway?')) return;
+    }
     if (isThermalPaper()) {
       // Thermal → show the preview modal. Actual print fires from the
       // modal's Print button via executePrint. User can Cancel there
@@ -3280,6 +3314,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (!printRef.current) return;
     const problem = validateForSave();
     if (problem) { toast(problem, 'warning'); return; }
+    const checklist = runTaxInvoiceChecklist();
+    if (checklist.length) {
+      const msg = 'Before final Tax Invoice:\n• ' + checklist.join('\n• ');
+      if (!window.confirm(msg + '\n\nContinue save anyway?')) return;
+    }
     try {
       setSaving(true);
       const prevPrinted = Number(editingBill?.printedCount) || 0;

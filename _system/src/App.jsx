@@ -707,7 +707,7 @@ function App() {
       const raw = localStorage.getItem('fgsb_nav_groups');
       if (raw) return JSON.parse(raw);
     } catch {}
-    return { Sales: true, Orders: true, Parties: true, Money: true, Purchases: true, Books: true, Compliance: true, System: true, Home: true };
+    return { Dashboard: true, Sales: true, Purchase: true, Projects: true, Books: true, GST: true, HR: true, System: true };
   });
   const toggleNavGroup = (g) => {
     setExpandedGroups(prev => {
@@ -894,41 +894,40 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, JSON.stringify(enabledModules)]);
 
-  // P1: Grouped navigation (Sales / Orders / Parties / Money / Books / Compliance)
+  // Grouped navigation (sa-erp style groups — all routes preserved)
   const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
+    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Dashboard' },
     // Sales
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
     { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
     { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring', group: 'Sales', parent: 'invoices' },
     { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
-    // Orders
-    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Orders' },
-    { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Orders' },
-    // Parties
-      { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Parties' },
-    { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Parties' },
-    // Money (contiguous — no duplicate MONEY section)
-    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Money' },
-    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Money' },
-    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Money' },
-    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Money' },
-    { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses', group: 'Money' },
-    // Purchases
-    { id: 'purchases', icon: ShoppingCart, label: 'Purchases', module: 'purchases', group: 'Purchases' },
-    // Books (contiguous)
+    { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Sales' },
+    // Purchase
+    { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Purchase' },
+    { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Purchase' },
+    { id: 'purchases', icon: ShoppingCart, label: 'Purchases', module: 'purchases', group: 'Purchase' },
+    { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses', group: 'Purchase' },
+    // Projects
+    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Projects' },
+    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Projects' },
+    // Money → under Books for continuity but keep receipts accessible
+    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Books' },
+    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Books' },
+    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Books' },
+    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Books' },
     { id: 'vouchers', icon: BookOpen, label: 'Vouchers', module: 'reports', group: 'Books' },
     { id: 'coa', icon: BookOpen, label: 'Chart of Accounts', module: 'reports', group: 'Books' },
     { id: 'generalledger', icon: BookOpen, label: 'General Ledger', module: 'reports', group: 'Books' },
     { id: 'finbooks', icon: BookOpen, label: 'Trial Balance / BS', module: 'reports', group: 'Books' },
     { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
-    // Compliance
-    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
-    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
-    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
-    // System — Notifications, Dark Mode, Control Panel, Settings (as in product UI)
-    // HR — above Settings in the side menu
+    // GST
+    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'GST' },
+    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'GST' },
+    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'GST' },
+    // HR
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
+    // System
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
@@ -936,10 +935,10 @@ function App() {
     { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
     { id: 'einvoice', icon: FileText, label: 'E-Invoice / GSP', module: 'settings', group: 'System' },
     { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
-    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'System' },
     { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'System' },
     { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard', group: 'System' },
   ].filter(item => showIfModule(item.module));
+
 
   // Command palette actions — declared here (not earlier) because the deps
   // array references `navItems` and `handleNewInvoice`, which are consts.

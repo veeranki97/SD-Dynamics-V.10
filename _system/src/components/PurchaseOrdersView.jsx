@@ -18,6 +18,28 @@ import ActionMenu from './ActionMenu';
 import { sendMailSmart } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 import { getPrintSettings } from '../utils/printSettings';
+
+async function appendApprovalLog({ type, docNo, amount, userName }) {
+  try {
+    const threshold = Number(localStorage.getItem('sd_po_approval_threshold') || 100000);
+    if (Number(amount) < threshold && type !== 'credit-note') return;
+    await fetch('/api/meta/approvalLog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        entry: {
+          type,
+          docNo,
+          amount: Number(amount) || 0,
+          userName: userName || 'User',
+          at: new Date().toISOString(),
+        },
+      }),
+    });
+  } catch (e) { console.warn('approvalLog', e); }
+}
+
 function downloadRowsCsv(filename, rows, cols) {
   const esc = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const headers = cols.map(c => c.label);
@@ -632,6 +654,13 @@ export default function PurchaseOrdersView() {
     }
 
       await savePurchaseOrder(payload, { overwrite: true });
+      try {
+        await appendApprovalLog({
+          type: 'PO',
+          docNo: payload.poNumber || payload.id,
+          amount: Number(payload.total || payload.grandTotal || 0),
+        });
+      } catch (_) {}
       toast(`PO ${payload.poNumber} saved`, 'success');
       setForm(null);
       load();

@@ -1421,6 +1421,33 @@ app.post('/api/meta/freezeDays', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+app.get('/api/meta/approvalLog', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    res.json({ entries: meta.approvalLog || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/meta/approvalLog', (req, res) => {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    const entry = req.body?.entry || req.body;
+    if (!entry || typeof entry !== 'object') return res.status(400).json({ error: 'entry required' });
+    meta.approvalLog = Array.isArray(meta.approvalLog) ? meta.approvalLog : [];
+    meta.approvalLog.push({
+      type: String(entry.type || ''),
+      docNo: String(entry.docNo || ''),
+      amount: Number(entry.amount) || 0,
+      userName: String(entry.userName || 'User'),
+      at: entry.at || new Date().toISOString(),
+    });
+    // keep last 500
+    if (meta.approvalLog.length > 500) meta.approvalLog = meta.approvalLog.slice(-500);
+    writeJSON(META_PATH, meta);
+    res.json({ ok: true, count: meta.approvalLog.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/meta/printSettings', (req, res) => {
   try {
     const meta = readJSON(META_PATH, {}) || {};

@@ -1,4 +1,5 @@
 import ChartSettingsPanel from './ChartSettingsPanel';
+import EinvoiceSettingsPanel from './EinvoiceSettingsPanel';
 import { useState, useEffect, useRef } from 'react';
 import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules, getStockAlertSettings, saveStockAlertSettings, getInvoiceDisplayOptions, saveInvoiceDisplayOptions } from '../store';
 // runUpdateNow optional — defined in store if present
@@ -23,22 +24,18 @@ import { getBackupsList, restoreBackup, triggerBackup, deleteBackup, getTrashedB
 // v1.10.36 — Section order for the jump-nav pill bar. Keeping this at
 // module scope so the scroll-spy effect below can reference it without
 // re-computing on every render.
-const JUMP_NAV_SECTIONS = [
-  ['section-company', 'Company'],
-  ['section-profiles', 'Profiles'],
-  ['section-email-tpl', 'Email templates'],
-  ['section-terms', 'Terms'],
-  ['section-print', 'Print & PDF'],
-  ['section-charts', 'Chart aesthetics'],
-  ['section-modules', 'Features'],
-  ['section-stock', 'Stock'],
-  ['section-region', 'Region'],
-  ['section-backups', 'Backup & Trash'],
-  ['section-cloud', 'Google Drive'],
-  ['section-data', 'Import/Export'],
-  ['section-applock', 'App lock'],
-  ['section-updates', 'Updates'],
+const SETTINGS_TABS = [
+  { id: 'company', label: 'Company profile', sections: ['section-company', 'section-profiles'] },
+  { id: 'gst', label: 'GST & e-Invoice', sections: ['section-einvoice'] },
+  { id: 'print', label: 'Invoice & print', sections: ['section-print', 'section-terms'] },
+  { id: 'mail', label: 'Mail & templates', sections: ['section-email-tpl'] },
+  { id: 'charts', label: 'Dashboard charts', sections: ['section-charts'] },
+  { id: 'backup', label: 'Backup & trash', sections: ['section-backups', 'section-cloud', 'section-data'] },
+  { id: 'security', label: 'Security', sections: ['section-applock', 'section-updates'] },
+  { id: 'modules', label: 'Modules & region', sections: ['section-modules', 'section-stock', 'section-region'] },
 ];
+const JUMP_NAV_SECTIONS = SETTINGS_TABS.flatMap((t) => t.sections.map((id) => [id, t.label]));
+
 
 
 
@@ -341,7 +338,19 @@ export default function SettingsView({ onSaved }) {
   // so the corresponding pill lights up as the user scrolls. Cheap
   // IntersectionObserver — a single observer watching all 11 sections;
   // fires when any crosses the top-of-viewport band.
-  const [activeSection, setActiveSection] = useState(JUMP_NAV_SECTIONS[0][0]);
+  const [activeSection, setActiveSection] = useState(JUMP_NAV_SECTIONS[0]?.[0] || 'section-company');
+  const [settingsTab, setSettingsTab] = useState('company');
+
+  // Tab filter: show only sections for active settings tab
+  useEffect(() => {
+    const tab = SETTINGS_TABS.find((t) => t.id === settingsTab);
+    const allow = new Set(tab?.sections || []);
+    document.querySelectorAll('[data-settings-section]').forEach((el) => {
+      const id = el.getAttribute('data-settings-section') || el.id;
+      el.style.display = allow.has(id) || allow.has(el.id) ? '' : 'none';
+    });
+  }, [settingsTab]);
+
 
   // v1.10.55 — reported (#43, @sangwanmail-eng): "Some time details not save
   // after update in setting tab", and the title said there was no save button
@@ -1181,44 +1190,34 @@ export default function SettingsView({ onSaved }) {
         maskImage: 'linear-gradient(90deg, transparent 0, #000 12px, #000 calc(100% - 24px), transparent 100%)',
       }}>
         <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: '0.35rem' }}>Jump to</span>
-        {JUMP_NAV_SECTIONS.map(([id, label]) => {
-          const active = activeSection === id;
+        {SETTINGS_TABS.map((tab) => {
+          const active = settingsTab === tab.id;
           return (
-            <a key={id} href={`#${id}`}
-              onClick={(e) => {
-                e.preventDefault();
-                const el = document.getElementById(id);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => {
+                setSettingsTab(tab.id);
+                const first = tab.sections[0];
+                if (first) {
+                  setActiveSection(first);
+                  const el = document.getElementById(first);
+                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
               }}
               style={{
-                fontSize: '0.76rem',
-                fontWeight: active ? 700 : 600,
-                padding: '0.38rem 0.8rem',
+                fontSize: '0.78rem',
+                padding: '0.4rem 0.75rem',
                 borderRadius: 999,
-                background: active
-                  ? 'linear-gradient(135deg, var(--primary), var(--primary-darker))'
-                  : 'var(--bg-secondary)',
+                fontWeight: active ? 700 : 500,
+                cursor: 'pointer',
+                background: active ? 'var(--primary)' : 'var(--bg-secondary)',
                 color: active ? '#fff' : 'var(--text)',
-                textDecoration: 'none',
                 border: active ? '1px solid transparent' : '1px solid var(--border)',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-                boxShadow: active ? '0 4px 12px rgba(var(--primary-rgb), 0.4)' : 'none',
               }}
-              onMouseEnter={(e) => {
-                if (!active) {
-                  e.currentTarget.style.background = 'var(--primary-light, rgba(30,64,175,0.08))';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!active) {
-                  e.currentTarget.style.background = 'var(--bg-secondary)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }
-              }}>
-              {label}
-            </a>
+            >
+              {tab.label}
+            </button>
           );
         })}
       </nav>
@@ -1244,7 +1243,7 @@ export default function SettingsView({ onSaved }) {
            input so users can pick a common value in one click, then a
            number field for fine-tuning. Save button gets a subtle live
            status text next to it. */}
-      <div id="section-stock" className="glass-panel p-6 mb-6" style={{ order: 6 }}>
+      <div id="section-stock" data-settings-section="section-stock" className="glass-panel p-6 mb-6" style={{ order: 6 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.9rem', marginBottom: '0.9rem' }}>
           <div style={{
             width: 40, height: 40, flexShrink: 0,
@@ -1353,13 +1352,13 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Thermal Printer Settings ---- */}
-      <div id="section-print" style={{ order: 4 }}><PrintSettings /></div>
+      <div id="section-print" data-settings-section="section-print" style={{ order: 4 }}><PrintSettings /></div>
 
       {/* v1.9.5 — Backup Management + Trash Bin */}
-      <div id="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>
+      <div id="section-backups" data-settings-section="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>
 
       {/* ---- Modules / Features ---- */}
-      <div id="section-modules" className="glass-panel p-6 mb-6" style={{ order: 5 }}>
+      <div id="section-modules" data-settings-section="section-modules" className="glass-panel p-6 mb-6" style={{ order: 5 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
             <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>Modules</h3>
@@ -1402,7 +1401,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Region Preference ---- */}
-      <div id="section-region" className="glass-panel p-6 mb-6" style={{ order: 7 }}>
+      <div id="section-region" data-settings-section="section-region" className="glass-panel p-6 mb-6" style={{ order: 7 }}>
         <h3 className="section-title" style={{ marginTop: 0 }}>Region Preference</h3>
         <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.85rem' }}>
           Choose how the app behaves. You can change this any time without losing data.
@@ -1426,7 +1425,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Business Profile ---- */}
-      <form id="section-company" data-setup-anchor="1" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1, opacity: profileLoaded ? 1 : 0.65, pointerEvents: profileLoaded ? 'auto' : 'none' }}>
+      <form id="section-company" data-settings-section="section-company" data-setup-anchor="1" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1, opacity: profileLoaded ? 1 : 0.65, pointerEvents: profileLoaded ? 'auto' : 'none' }}>
         {!profileLoaded && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
             Loading company details… fields unlock when ready (prevents overwrite on slow PCs).
@@ -1890,7 +1889,7 @@ export default function SettingsView({ onSaved }) {
            flow: fill Company Details → Save as Profile → see it in the
            switcher below. Prior placement forced users to scroll past
            9 sections to find the switcher. */}
-      <div id="section-profiles" className="glass-panel p-6 mb-6" style={{ order: 2 }}>
+      <div id="section-profiles" data-settings-section="section-profiles" className="glass-panel p-6 mb-6" style={{ order: 2 }}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="section-title" style={{ margin: 0 }}>Business Profiles</h3>
           <div className="flex gap-2">
@@ -1942,10 +1941,10 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Dashboard Chart Aesthetics (above Cloud Backup) ---- */}
-      <div id="section-charts" style={{ order: 4.5 }}><ChartSettingsPanel /></div>
+      <div id="section-charts" data-settings-section="section-charts" style={{ order: 4.5 }}><ChartSettingsPanel /></div>
 
       {/* ---- Cloud Backup ---- */}
-      <div id="section-cloud" className="glass-panel p-6 mb-6" style={{ order: 9 }}>
+      <div id="section-cloud" data-settings-section="section-cloud" className="glass-panel p-6 mb-6" style={{ order: 9 }}>
         <h3 className="section-title">Cloud Backup (Google Drive)</h3>
         <p className="page-subtitle mb-4">
           Auto-sync your invoices to Google Drive — no coding or API setup needed.
@@ -2020,8 +2019,15 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Terms Templates ---- */}
+      <div id="section-einvoice" data-settings-section="section-einvoice" style={{ order: 2.5 }} className="glass-panel p-4 mb-6">
+        <h3 className="section-title" style={{ marginTop: 0 }}>GST &amp; e-Invoice</h3>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+          Manual IRN paste is always available on the invoice. GSP API stays disabled until partner credentials + IP whitelist work. Secrets are not returned on export.
+        </p>
+        <EinvoiceSettingsPanel />
+      </div>
       <EmailTemplatesPanel />
-      <div id="section-terms" className="glass-panel p-6 mb-6" style={{ order: 3 }}>
+      <div id="section-terms" data-settings-section="section-terms" className="glass-panel p-6 mb-6" style={{ order: 3 }}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="section-title" style={{ margin: 0 }}>Terms & Conditions Templates</h3>
           <button type="button" className="btn btn-secondary" onClick={() => setEditingTemplate({ id: '', name: '', content: '' })}>
@@ -2102,7 +2108,7 @@ export default function SettingsView({ onSaved }) {
 
 
       {/* ---- App lock (screen PIN) ---- */}
-      <div id="section-applock" className="glass-panel p-6 mb-6" style={{ order: 10.5 }}>
+      <div id="section-applock" data-settings-section="section-applock" className="glass-panel p-6 mb-6" style={{ order: 10.5 }}>
         <h3 className="section-title">App lock</h3>
         <p className="page-subtitle mb-3">
           Optional screen PIN when the app opens or after idle time.
@@ -2114,7 +2120,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- App Updates ---- */}
-      <div id="section-updates" className="glass-panel p-6 mb-6" style={{ order: 11 }}>
+      <div id="section-updates" data-settings-section="section-updates" className="glass-panel p-6 mb-6" style={{ order: 11 }}>
         <h3 className="section-title">App Updates</h3>
         <p className="page-subtitle mb-4">Check if a newer version is available.</p>
         <div className="flex gap-4 items-center">
@@ -2155,7 +2161,7 @@ export default function SettingsView({ onSaved }) {
         )}
       </div>
 
-      <div id="section-data" className="glass-panel p-6 mb-6" style={{ order: 10 }}>
+      <div id="section-data" data-settings-section="section-data" className="glass-panel p-6 mb-6" style={{ order: 10 }}>
         <h3 className="section-title">Data Management</h3>
 
         {/* Privacy notice — uses the global .notice .notice-info utility so dark/light look identical to every other info card. */}
@@ -2320,7 +2326,7 @@ function EmailTemplatesPanel() {
     } catch (e) { toast(e.message || 'Save failed', 'error'); }
   };
   return (
-    <div id="section-email-tpl" className="glass-panel p-6 mb-6" style={{ order: 3.5 }}>
+    <div id="section-email-tpl" data-settings-section="section-email-tpl" className="glass-panel p-6 mb-6" style={{ order: 3.5 }}>
       <h3 className="section-title" style={{ marginTop: 0 }}>Email templates</h3>
       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
         Placeholders: {'{{clientName}} {{invoiceNumber}} {{amount}} {{dueDate}} {{companyName}} {{woNumber}} {{poNumber}}'}. SMTP from Mail settings; otherwise mailto fallback.

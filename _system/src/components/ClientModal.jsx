@@ -7,7 +7,7 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
   // Country defaults: explicit prop (active business profile) → browser locale → 'India'.
   const fallbackCountry = defaultCountry || detectCountryFromBrowser();
   const emptyForm = {
-    name: '', address: '', city: '', pin: '', state: '', gstin: '', email: '', phone: '', sites: ['Main Site'], site: 'Main Site', serviceType: '', creditLimit: '', paymentTerms: 'Net 30', tdsSection: '194C',
+    name: '', address: '', city: '', pin: '', state: '', gstin: '', email: '', phone: '', sites: ['Main Site'], site: 'Main Site', serviceType: '', creditLimit: '', paymentTerms: 'Net 30', tdsSection: '194C', pan: '', msme: '',
     country: fallbackCountry, isSEZ: false,
     preferredPaperSize: '',
     preferredCurrency: '',
@@ -20,7 +20,7 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
     if (show && client) {
       setForm({
         name: client.name || '', address: client.address || '', city: client.city || '',
-        pin: client.pin || '', state: client.state || '', gstin: client.gstin || '', sites: client.sites || (client.site ? [client.site] : ['Main Site']), site: client.site || 'Main Site', serviceType: client.serviceType || '', creditLimit: client.creditLimit || '', paymentTerms: client.paymentTerms || 'Net 30', tdsSection: client.tdsSection || '194C',
+        pin: client.pin || '', state: client.state || '', gstin: client.gstin || '', sites: client.sites || (client.site ? [client.site] : ['Main Site']), site: client.site || 'Main Site', serviceType: client.serviceType || '', creditLimit: client.creditLimit || '', paymentTerms: client.paymentTerms || 'Net 30', tdsSection: client.tdsSection || '194C', pan: client.pan || '', msme: client.msme || '',
         email: client.email || '', phone: client.phone || '', country: client.country || fallbackCountry,
         isSEZ: !!client.isSEZ,
         preferredPaperSize: client.preferredPaperSize || '',
@@ -89,7 +89,7 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
           </p>
         )}
 
-        {/* Row 1: Name + Sites side-by-side */}
+        {/* Row 1: Name + Sites (one per line; optional GSTIN after | ) side-by-side */}
         <div style={grid2}>
           <div className="form-group" style={cell}>
             <label className="form-label">Client / Business Name *</label>
@@ -190,6 +190,18 @@ export default function ClientModal({ lockedFields = false, show, onClose, onSav
             <input type="number" className="form-input" value={form.creditLimit || ''}
               onChange={e => setForm(prev => ({ ...prev, creditLimit: e.target.value }))}
               placeholder="Optional" min="0" step="1" />
+          </div>
+          <div className="form-group" style={cell}>
+            <label className="form-label">PAN (optional)</label>
+            <input type="text" className="form-input" value={form.pan || ''} maxLength={10}
+              onChange={e => setForm(prev => ({ ...prev, pan: e.target.value.toUpperCase() }))}
+              placeholder="ABCDE1234F" />
+          </div>
+          <div className="form-group" style={cell}>
+            <label className="form-label">MSME / Udyam (optional)</label>
+            <input type="text" className="form-input" value={form.msme || ''}
+              onChange={e => setForm(prev => ({ ...prev, msme: e.target.value }))}
+              placeholder="UDYAM-XX-00-0000000" />
           </div>
           <div className="form-group" style={cell}>
             <label className="form-label">Phone</label>

@@ -8,7 +8,10 @@ const KEY = 'sd_gsp_settings';
 
 const empty = () => ({
   enabled: false,
+  /** manual = paste IRN on invoice; gsp = future live API (UI disabled until ready) */
+  mode: 'manual',
   gspName: '',
+  gsp_provider: '',
   apiBaseUrl: '',
   clientId: '',
   clientSecret: '',
@@ -17,6 +20,8 @@ const empty = () => ({
   username: '',
   password: '',
   autoIrnOnSave: false,
+  show_irn_on_pdf: true,
+  show_qr_on_pdf: true,
   /** When true (default), sandbox calls do not hit the network — safe for demos */
   simulateSandbox: true,
   notes: '',
@@ -269,6 +274,18 @@ export default function EinvoiceSettingsPanel() {
             alignItems: 'center',
           }}
         >
+          
+        <div style={{ display: 'grid', gap: '0.65rem', margin: '0.75rem 0', padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <label style={{ fontSize: '0.82rem', fontWeight: 600 }}>IRN mode</label>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '0.8rem' }}><input type="radio" name="irn-mode" checked={(cfg.mode || 'manual') === 'manual'} onChange={() => patch('mode', 'manual')} /> Manual paste IRN (default)</label>
+            <label style={{ fontSize: '0.8rem', opacity: 0.75 }}><input type="radio" name="irn-mode" checked={cfg.mode === 'gsp'} onChange={() => patch('mode', 'gsp')} /> GSP API (requires partner + IP whitelist)</label>
+          </div>
+          <label style={{ fontSize: '0.8rem' }}><input type="checkbox" checked={!!cfg.show_irn_on_pdf} onChange={(e) => patch('show_irn_on_pdf', e.target.checked)} /> Show IRN on PDF</label>
+          <label style={{ fontSize: '0.8rem' }}><input type="checkbox" checked={!!cfg.show_qr_on_pdf} onChange={(e) => patch('show_qr_on_pdf', e.target.checked)} /> Show QR on PDF when IRN present</label>
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>Live IRN generation is not claimed until a real GSP/NIC integration is tested. Manual IRN fields stay on the invoice form.</p>
+        </div>
+
           <button type="button" className="btn btn-primary" onClick={save} disabled={!dirty && savedSnap !== null}>
             <Save size={16} /> Save GSP settings
           </button>
