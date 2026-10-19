@@ -675,8 +675,10 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       paidAmount: totalPaid,
       status: totalPaid >= billTotal ? 'paid' : 'partial',
     };
-    await saveBill(updatedBill, { overwrite: true });
-
+    // CRITICAL: save receipt WHILE bill still has pre-payment paidAmount.
+    // If saveBill runs first, store.js ceiling sees outstanding ≈ 0 and rejects the receipt
+    // (status becomes paid but Money → Payment Receipts stays empty).
+    let receiptSaved = false;
     try {
       await saveReceipt({
         id: paymentEntry.id,
@@ -696,7 +698,34 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         ownerName: profile?.businessName || '',
         profileId: profile?.id || '',
       });
-    } catch { /* non-fatal */ }
+      receiptSaved = true;
+    } catch (e) {
+      console.warn('[receipt] save failed', e);
+      toast(e?.message || 'Payment receipt could not be saved — check Money → Payment Receipts', 'warning');
+    }
+
+    await saveBill(updatedBill, { overwrite: true });
+    if (!receiptSaved) {
+      try {
+        await saveReceipt({
+          id: paymentEntry.id,
+          date: paymentEntry.date,
+          receiptNo: paymentEntry.receiptNo,
+          clientName: bill.data?.client?.name || bill.clientName || '',
+          amount: paymentEntry.amount,
+          paymentMode: paymentEntry.mode,
+          againstInvoice: bill.invoiceNumber || bill.id || '',
+          note: (paymentEntry.note || '') + ' (retry after bill update)',
+          currency: bill.currency || 'INR',
+          source,
+          billId: bill.id,
+          advanceCredit: true,
+        });
+        receiptSaved = true;
+      } catch (e2) {
+        console.warn('[receipt] retry failed', e2);
+      }
+    }
 
     try {
       const isAdvanceApply = /advance\s*apply|from convert|_fromConvert/i.test(String(paymentEntry.note || ''))

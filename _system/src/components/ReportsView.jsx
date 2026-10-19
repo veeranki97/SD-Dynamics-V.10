@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, P
 import { getAllBills, getAllExpenses, getProfile, getAllWorkOrders } from '../store';
 import { formatCurrency, getFYOptions, belongsToProfile } from '../utils';
 import { toast } from './Toast';
+import { downloadCsv } from '../utils/exportData';
 import AuditReportView from './AuditReportView';
 import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTaxable, revenueSignedTax } from '../utils/revenueFilter';
 
@@ -427,7 +428,20 @@ export default function ReportsView() {
 
           {/* Aging Table */}
           <div className="glass-panel">
-            <div className="table-header"><h3>Outstanding Receivables (tax invoices only)</h3></div>
+            <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3>Outstanding Receivables (tax invoices only)</h3>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                const rows = (agingRows || overdueBills || bills || []).filter(Boolean);
+                downloadCsv('Outstanding-Aging-Export.csv', rows, [
+                  { key: 'invoiceNumber', label: 'Invoice', get: b => b.invoiceNumber || b.id },
+                  { key: 'clientName', label: 'Client', get: b => b.clientName || '' },
+                  { key: 'invoiceDate', label: 'Date', get: b => b.invoiceDate || b.data?.details?.invoiceDate || '' },
+                  { key: 'totalAmount', label: 'Total', get: b => b.totalAmount || 0 },
+                  { key: 'paidAmount', label: 'Paid', get: b => b.paidAmount || 0 },
+                  { key: 'due', label: 'Outstanding', get: b => (b.totalAmount || 0) - (b.paidAmount || 0) },
+                ]);
+              }}>Export CSV</button>
+            </div>
             {agingSorted.length === 0 ? (
               <div className="empty-state">
                 <Wallet size={48} />

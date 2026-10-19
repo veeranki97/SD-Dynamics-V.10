@@ -8,6 +8,7 @@ import { formatCurrency, numberToWords, belongsToProfile, isUnassignedToBusiness
 import { planBulkAllocation } from '../utils/bulkPayment';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
+import { downloadCsv } from '../utils/exportData';
 import { confirmAction } from './ConfirmModal';
 
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
@@ -472,7 +473,15 @@ export default function ReceiptVoucher() {
           <h1 className="page-title">Receipts</h1>
           <p className="page-subtitle">Generate payment receipts for clients</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary" onClick={() => downloadCsv('Payment-Receipts-Export.csv', receipts || [], [
+            { key: 'receiptNo', label: 'Receipt No', get: r => r.receiptNo || r.id },
+            { key: 'date', label: 'Date', get: r => r.date || '' },
+            { key: 'clientName', label: 'Client', get: r => r.clientName || '' },
+            { key: 'amount', label: 'Amount', get: r => r.amount || 0 },
+            { key: 'paymentMode', label: 'Mode', get: r => r.paymentMode || r.mode || '' },
+            { key: 'againstInvoice', label: 'Against Invoice', get: r => r.againstInvoice || '' },
+          ])}>Export CSV</button>
           <button className="btn btn-secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>
             <Layers size={18} /> Bulk FIFO Allocate
           </button>

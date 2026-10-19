@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getAllBills, getAllReceipts, saveBill } from '../store';
 import { formatCurrency } from '../utils';
+import { isReceivableDocument } from '../utils/revenueFilter';
+import { downloadCsv } from '../utils/exportData';
 import { toast } from './Toast';
 
 /**
@@ -50,11 +52,12 @@ export default function PaymentReconView() {
   }, [mine, receipts, client]);
 
   const open = useMemo(() => mine.filter(b => {
-    const t = (b.invoiceType || '').toLowerCase();
-    if (t.includes('proforma') || t.includes('quotation')) return false;
+    // CA: only tax-invoice AR — exclude DC, QUO, PI, CN, cancelled, converted
+    if (!isReceivableDocument(b)) return false;
     const due = (b.totalAmount || 0) - (b.paidAmount || 0);
-    return due > 0.01 && (b.status === 'unpaid' || b.status === 'partial' || b.status === 'overdue');
-  }).sort((a, b) => String(a.data?.details?.invoiceDate || '').localeCompare(String(b.data?.details?.invoiceDate || ''))), [mine]);
+    const st = String(b.status || '').toLowerCase();
+    return due > 0.01 && (st === 'unpaid' || st === 'partial' || st === 'overdue' || st === '');
+  }).sort((a, b) => String(a.data?.details?.invoiceDate || a.invoiceDate || '').localeCompare(String(b.data?.details?.invoiceDate || b.invoiceDate || ''))), [mine]);
 
   const applyCredit = async (creditRow, openBill) => {
     const due = (openBill.totalAmount || 0) - (openBill.paidAmount || 0);
@@ -91,11 +94,31 @@ export default function PaymentReconView() {
   return (
     <div className="page">
       <h2>Payment Reconciliation</h2>
-      <p className="page-subtitle">Match unapplied advances & overpayments to open invoices (not a dashboard bug-fix).</p>
-      <select className="form-input" style={{ maxWidth: 320, marginBottom: 16 }} value={client} onChange={e => setClient(e.target.value)}>
+      <p className="page-subtitle">Match unapplied advances & overpayments to open tax invoices only (DC / QUO / PI excluded).</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+        <select className="form-input" style={{ maxWidth: 320 }} value={client} onChange={e => setClient(e.target.value)}>
         <option value="">All clients</option>
         {names.map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
+        </select>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+          downloadCsv('Payment-Recon-Open-Invoices.csv', open, [
+            { key: 'invoiceNumber', label: 'Invoice' },
+            { key: 'clientName', label: 'Client' },
+            { key: 'status', label: 'Status' },
+            { key: 'totalAmount', label: 'Total' },
+            { key: 'paidAmount', label: 'Paid' },
+            { key: 'due', label: 'Due', get: (b) => (b.totalAmount || 0) - (b.paidAmount || 0) },
+          ]);
+        }}>Export open CSV</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+          downloadCsv('Payment-Recon-Unapplied-Credit.csv', advances, [
+            { key: 'label', label: 'Ref' },
+            { key: 'clientName', label: 'Client' },
+            { key: 'kind', label: 'Kind' },
+            { key: 'credit', label: 'Credit' },
+          ]);
+        }}>Export credit CSV</button>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div className="glass-panel p-4">
           <h3>Unapplied credit</h3>

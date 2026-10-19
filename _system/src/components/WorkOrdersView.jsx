@@ -7,6 +7,7 @@ import {
 import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency } from '../utils';
 import { toast } from './Toast';
+import { downloadCsv } from '../utils/exportData';
 import { confirmAction } from './ConfirmModal';
 import ActionMenu from './ActionMenu';
 import { sendMailSmart } from '../utils/openMail';
@@ -357,6 +358,14 @@ const updateItem = (idx, field, value) => {
           <h2 style={{ margin: 0 }}>{form.woNumber ? `Edit ${form.woNumber}` : 'New Work Order'}</h2>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="btn btn-secondary" onClick={() => setForm(null)}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={() => downloadCsv('Work-Orders-Export.csv', list || [], [
+            { key: 'woNumber', label: 'WO Number', get: w => w.woNumber || w.number || w.id },
+            { key: 'clientName', label: 'Client', get: w => w.clientName || w.client || '' },
+            { key: 'site', label: 'Site', get: w => w.site || '' },
+            { key: 'status', label: 'Status', get: w => w.status || '' },
+            { key: 'title', label: 'Title', get: w => w.title || w.workTitle || '' },
+            { key: 'budget', label: 'Budget', get: w => w.approvedBudget || w.budget || w.totalAmount || '' },
+          ])}>Export CSV</button>
             <button type="button" className="btn btn-primary" onClick={save}>Save Work Order</button>
           </div>
         </div>

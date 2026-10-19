@@ -8,6 +8,7 @@ import { getPrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction } from './ConfirmModal';
 import { toast } from './Toast';
+import { downloadCsv } from '../utils/exportData';
 import ActionMenu from './ActionMenu';
 
 // v1.10.31 — UI-C3: Shared helper to resolve the user's accent color as an
@@ -768,6 +769,14 @@ Regards`;
           <button className="btn btn-secondary" onClick={() => csvInputRef.current?.click()}>
             <Upload size={16} /> Import CSV
           </button>
+          <button type="button" className="btn btn-secondary" onClick={() => downloadCsv('Clients-Export.csv', clients || [], [
+            { key: 'name', label: 'Name', get: c => c.name || c.businessName || '' },
+            { key: 'gstin', label: 'GSTIN', get: c => c.gstin || '' },
+            { key: 'state', label: 'State', get: c => c.state || '' },
+            { key: 'email', label: 'Email', get: c => c.email || '' },
+            { key: 'phone', label: 'Phone', get: c => c.phone || c.mobile || '' },
+            { key: 'address', label: 'Address', get: c => c.address || c.billingAddress || '' },
+          ])}>Export CSV</button>
           <button className="btn btn-secondary" onClick={openAddClient}>
             <Plus size={18} /> Add Client
           </button>
