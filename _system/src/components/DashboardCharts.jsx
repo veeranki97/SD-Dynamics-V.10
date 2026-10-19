@@ -286,7 +286,7 @@ export default function DashboardCharts({ stats }) {
   );
 
   return (
-    <div style={{
+    <div className="dashboard-charts-inner" style={{
       display: 'grid',
       gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
       gap: '1rem',

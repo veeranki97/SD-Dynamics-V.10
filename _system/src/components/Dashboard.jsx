@@ -1544,7 +1544,7 @@ const openPaymentModal = (bill) => {
   const overdueStr = Object.entries(overdueByCurrency).map(([cur, amt]) => formatCurrency(amt, cur)).join(' + ');
 
   return (
-    <div className="dashboard-container">
+    <div className={`dashboard-container${listMode ? " dashboard-list-mode" : " dashboard-home"}`}>
       <PageHeader
         icon={listMode ? "📄" : "📊"}
         title={listMode ? "Invoices" : "Dashboard"}
@@ -1644,8 +1644,9 @@ const openPaymentModal = (bill) => {
       )}
 
       {listMode ? null : (
-<div className="stats-grid stats-grid-kpi-4"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.55rem', marginBottom: '1rem' }}>
+      <div className="dashboard-kpi-block">
+<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
@@ -1695,10 +1696,9 @@ const openPaymentModal = (bill) => {
           </div>
         </div>
       </div>
-)}
-      
+
       {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4" style={{ marginTop: 10, marginBottom: 8 }}>
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
@@ -1754,10 +1754,14 @@ const openPaymentModal = (bill) => {
           <p className="stat-value">{secondaryKpis.openInv}</p>
         </div>
       </div>
+      </div>
+      )}
 
       {/* KPI charts (home only) */}
       {!listMode && (
+        <div className="dashboard-charts-wrap">
         <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} />
+        </div>
       )}
 
       {/* Low Stock Alerts */}
@@ -1819,7 +1823,7 @@ const openPaymentModal = (bill) => {
 {listMode && (
 <div className="glass-panel invoice-list-panel" data-testid="invoice-list">
         <div className="table-header"><h3>Invoices</h3></div>
-        <div className="filters-bar">
+        <div className="filters-bar invoice-list-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search client or invoice..." data-list-anchor="1" value={search}
@@ -1830,7 +1834,7 @@ const openPaymentModal = (bill) => {
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
           
-          <div className="type-quick-tabs filters-sticky" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 10 }}>
+          <div className="type-quick-tabs filters-sticky invoice-type-tabs" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, width: '100%', marginBottom: 10 }}>
             {[
               { id: 'all', label: 'All' },
               { id: 'tax-invoice', label: 'Tax Invoice' },
@@ -1998,7 +2002,7 @@ const openPaymentModal = (bill) => {
         ) : (
           <div className="table-scroll">
             <div className="invoice-list-scroll" style={{ maxHeight: 'calc(100vh - 220px)', overflow: 'auto', position: 'relative' }}>
-            <table className="data-table invoice-list-table">
+            <table className="data-table invoice-dense-table invoice-list-table">
               <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--surface, #fff)', boxShadow: '0 1px 0 rgba(0,0,0,0.08)' }}>
                 <tr>
                   <th style={{ width: '32px', padding: '0.5rem 0.25rem 0.5rem 0.75rem' }}>
