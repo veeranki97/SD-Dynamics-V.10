@@ -10,6 +10,7 @@ import { toast } from './Toast';
 import { downloadCsv, printHtmlTable } from '../utils/exportData';
 
 export default function FinancialBooksView() {
+  /* Sidebar label: Financial Books — tabs: TB, BS, P&L, Site, WO, Cost Center, Period Lock */
   const [journals, setJournals] = useState([]);
   const [billRows, setBillRows] = useState([]);
   const [expRows, setExpRows] = useState([]);
@@ -120,8 +121,102 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
       profit: Math.round((s.income - s.expense) * 100) / 100,
     }));
   }, [journals, from, asOf, billRows, expRows]);
-  const wos = useMemo(() => (typeof woWisePnL === 'function' ? woWisePnL(scopedJournals, from, asOf) : []), [scopedJournals, from, asOf]);
-  const ccs = useMemo(() => (typeof costCenterWisePnL === 'function' ? costCenterWisePnL(scopedJournals, from, asOf) : []), [scopedJournals, from, asOf]);
+  const wos = useMemo(() => {
+    const fromJ = (typeof woWisePnL === 'function' ? woWisePnL(scopedJournals, from, asOf) : []) || [];
+    const hasReal = fromJ.some(r => r.workOrderId && r.workOrderId !== 'Unassigned' && ((r.income || 0) + (r.expense || 0) > 0.01));
+    const labelWo = (id) => {
+      if (!id || id === 'Unassigned') return 'Unassigned';
+      const w = (woRows || []).find(x => x.id === id || x.woNumber === id || x.number === id);
+      if (w) return w.woNumber || w.number || w.title || id;
+      return id;
+    };
+    if (hasReal) {
+      return fromJ.map(r => ({ ...r, workOrderLabel: labelWo(r.workOrderId) }));
+    }
+    // Fallback: invoices + expenses tagged with WO (journals often lack workOrderId)
+    const map = {};
+    const isRev = (b) => {
+      const st = String(b.status || '').toLowerCase();
+      if (st === 'cancelled' || b.is_deleted) return false;
+      const t = String(b.invoiceType || b.type || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+      if (t.includes('quotation') || t === 'delivery-challan' || t === 'dc' || t.includes('proforma')) return false;
+      return true;
+    };
+    (billRows || []).forEach(b => {
+      if (!isRev(b)) return;
+      const d = String(b.invoiceDate || b.date || '').slice(0, 10);
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const wo = b.workOrderId || b.data?.workOrderId || b.data?.details?.workOrderId
+        || b.workOrderNo || b.data?.details?.workOrderNo || b.woNumber || 'Unassigned';
+      const key = String(wo || 'Unassigned');
+      if (!map[key]) map[key] = { workOrderId: key, income: 0, expense: 0, net: 0 };
+      const tot = Number(b.grandTotal ?? b.total ?? b.data?.totals?.total ?? 0) || 0;
+      const t = String(b.invoiceType || b.type || '').toLowerCase();
+      if (t.includes('credit')) map[key].income -= tot;
+      else map[key].income += tot;
+    });
+    (expRows || []).forEach(e => {
+      const d = String(e.date || e.expenseDate || '').slice(0, 10);
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const wo = e.workOrderId || e.woNumber || e.workOrderNo || 'Unassigned';
+      const key = String(wo || 'Unassigned');
+      if (!map[key]) map[key] = { workOrderId: key, income: 0, expense: 0, net: 0 };
+      map[key].expense += Number(e.amount || e.total || 0) || 0;
+    });
+    return Object.values(map).map(r => ({
+      ...r,
+      income: Math.round(r.income * 100) / 100,
+      expense: Math.round(r.expense * 100) / 100,
+      net: Math.round((r.income - r.expense) * 100) / 100,
+      workOrderLabel: labelWo(r.workOrderId),
+    })).sort((a, b) => b.net - a.net);
+  }, [scopedJournals, from, asOf, billRows, expRows, woRows]);
+
+  const ccs = useMemo(() => {
+    const fromJ = (typeof costCenterWisePnL === 'function' ? costCenterWisePnL(scopedJournals, from, asOf) : []) || [];
+    const hasReal = fromJ.some(r => r.costCenter && r.costCenter !== 'Unassigned' && ((r.income || 0) + (r.expense || 0) > 0.01));
+    if (hasReal) return fromJ;
+    const map = {};
+    const isRev = (b) => {
+      const st = String(b.status || '').toLowerCase();
+      if (st === 'cancelled' || b.is_deleted) return false;
+      const t = String(b.invoiceType || b.type || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+      if (t.includes('quotation') || t === 'delivery-challan' || t === 'dc' || t.includes('proforma')) return false;
+      return true;
+    };
+    (billRows || []).forEach(b => {
+      if (!isRev(b)) return;
+      const d = String(b.invoiceDate || b.date || '').slice(0, 10);
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const cc = b.costCenterId || b.data?.costCenterId || b.costCenter
+        || (Array.isArray(b.data?.items) && b.data.items.find(i => i.costCenterId)?.costCenterId)
+        || 'Unassigned';
+      const key = String(cc || 'Unassigned');
+      if (!map[key]) map[key] = { costCenter: key, income: 0, expense: 0 };
+      const tot = Number(b.grandTotal ?? b.total ?? b.data?.totals?.total ?? 0) || 0;
+      const t = String(b.invoiceType || b.type || '').toLowerCase();
+      if (t.includes('credit')) map[key].income -= tot;
+      else map[key].income += tot;
+    });
+    (expRows || []).forEach(e => {
+      const d = String(e.date || e.expenseDate || '').slice(0, 10);
+      if (from && d && d < from) return;
+      if (asOf && d && d > asOf) return;
+      const cc = e.costCenterId || e.costCenter || 'Unassigned';
+      const key = String(cc || 'Unassigned');
+      if (!map[key]) map[key] = { costCenter: key, income: 0, expense: 0 };
+      map[key].expense += Number(e.amount || e.total || 0) || 0;
+    });
+    return Object.values(map).map(s => ({
+      ...s,
+      income: Math.round(s.income * 100) / 100,
+      expense: Math.round(s.expense * 100) / 100,
+      profit: Math.round((s.income - s.expense) * 100) / 100,
+    }));
+  }, [scopedJournals, from, asOf, billRows, expRows]);
   const bank = useMemo(() => bankBalance(scopedJournals, 'Bank') + bankBalance(scopedJournals, 'Cash'), [scopedJournals]);
 
   const runPeriodClose = async () => {
@@ -137,6 +232,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
     }
   };
 
+    // Display name: Financial Books (TB, BS, P&L, dimensions, period lock)
   const tabs = [
     { id: 'tb', label: 'Trial Balance' },
     { id: 'bs', label: 'Balance Sheet' },
@@ -320,11 +416,15 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
           </thead>
           <tbody>
             {wos.map(s => {
-              const woObj = woRows.find(w => w.id === s.workOrderId);
-              const displayWo = woObj ? (woObj.woNumber || woObj.id) : s.workOrderId;
+              const woObj = woRows.find(w =>
+                w.id === s.workOrderId || w.woNumber === s.workOrderId || w.number === s.workOrderId
+              );
+              const displayWo = s.workOrderLabel
+                || (woObj ? (woObj.woNumber || woObj.number || woObj.id) : null)
+                || s.workOrderId;
               return (
               <tr key={String(s.workOrderId)}>
-                <td>{displayWo}</td>
+                <td title={String(s.workOrderId)}>{displayWo}</td>
                 <td className="text-end">{formatCurrency(s.income)}</td>
                 <td className="text-end">{formatCurrency(s.expense)}</td>
                 <td className="text-end" style={{ color: (s.net ?? 0) >= 0 ? '#059669' : '#dc2626', fontWeight: 600 }}>

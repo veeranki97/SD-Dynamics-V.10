@@ -23,11 +23,12 @@
      dynamic tints that used to be color-mix now use rgba(var(--primary-rgb), α). */
   --primary-rgb: 37, 99, 235;
   --primary-darker: #1e3a8a;
-  --bg: #f0f2f5;
-  --bg-primary: #f0f2f5;
-  --bg-secondary: #f8fafc;       /* card / inset surface — light grey on light, dark slate on dark */
-  --bg-tertiary: #f1f5f9;        /* hover / selected inset */
-  --card-bg: rgba(255, 255, 255, 0.92);
+  --bg: #F5F7FB;                 /* app canvas — light gray everywhere except pure-white panels */
+  --bg-primary: #F5F7FB;
+  --bg-secondary: #FFFFFF;       /* cards / glass panels — pure white */
+  --bg-tertiary: #EEF2F7;        /* hover / selected inset */
+  --card-bg: #FFFFFF;            /* no translucent mix — avoids gray-on-gray mottling */
+  --surface: #FFFFFF;
   --text: #111827;
   --text-primary: #111827;       /* alias used by newer components */
   --text-secondary: #6b7280;
@@ -672,11 +673,14 @@ body {
 
 /* ========= Glass Panels ========= */
 .glass-panel {
-  background: var(--card-bg);
-  backdrop-filter: blur(20px);
+  background: #FFFFFF;
+  /* no backdrop blur — blur made nested panels look muddy gray */
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
+}
+[data-theme="dark"] .glass-panel {
+  background: var(--card-bg);
 }
 
 /* ========= Page Headers ========= */
@@ -886,7 +890,7 @@ textarea.form-input { resize: vertical; min-height: 60px; }
    ~950px to render without horizontal scroll, so 1100 gives comfortable
    margin. Existing form grids inside were already `grid-cols-2` and
    scale naturally. */
-.settings-container { max-width: 1100px; margin: 0 auto; width: 100%; }
+.settings-container { max-width: none; margin: 0; width: 100%; box-sizing: border-box; padding: 0 0.5rem; }
 
 .stats-grid {
   display: grid;
@@ -3908,103 +3912,31 @@ table.dossier-dense-table th {
 }
 
 
-/* Light theme sidebar — readable navy-free surface (dark theme unchanged) */
-[data-theme="light"] .sidebar,
-html:not([data-theme="dark"]) .sidebar {
-  background: #f1f5f9 !important;
-  color: #0f172a !important;
-  border-right: 1px solid #e2e8f0;
+/* ========== SD surface rules: gray canvas, white work surfaces ========== */
+.main-content {
+  background: var(--bg) !important;
 }
-[data-theme="light"] .sidebar-title,
-html:not([data-theme="dark"]) .sidebar-title {
-  color: #0f172a !important;
+.page {
+  background: transparent;
 }
-[data-theme="light"] .sidebar-subtitle,
-html:not([data-theme="dark"]) .sidebar-subtitle {
-  color: #64748b !important;
+/* Invoice create/edit: pure white workspace on gray shell */
+.sd-inv-form,
+.invoice-form-compact,
+.invoice-workspace,
+.main-content:has(.sd-inv-form),
+.main-content:has(.invoice-form-compact) {
+  background: #FFFFFF;
 }
-[data-theme="light"] .sidebar .nav-btn,
-[data-theme="light"] .sidebar .nav-group-header,
-html:not([data-theme="dark"]) .sidebar .nav-btn,
-html:not([data-theme="dark"]) .sidebar .nav-group-header {
-  color: #334155 !important;
+.main-content:has(.sd-inv-form) .glass-panel,
+.main-content:has(.invoice-form-compact) .glass-panel {
+  background: #FFFFFF;
+  box-shadow: none;
+  border-color: #E2E8F0;
 }
-[data-theme="light"] .sidebar .nav-btn:hover,
-html:not([data-theme="dark"]) .sidebar .nav-btn:hover {
-  background: #e2e8f0 !important;
-  color: #0f172a !important;
+/* Lists / reports / GST / books stay on gray canvas with white cards */
+.data-table {
+  background: #FFFFFF;
 }
-[data-theme="light"] .sidebar .nav-btn.active,
-html:not([data-theme="dark"]) .sidebar .nav-btn.active {
-  background: #e0e7ff !important;
-  color: #3730a3 !important;
-}
-[data-theme="dark"] .sidebar {
-  /* keep existing dark navy */
-}
-
-
-/* ---- Light theme sidebar (not navy) ---- */
-[data-theme="light"] .sidebar,
-html:not([data-theme="dark"]) .sidebar {
-  background: #f1f5f9 !important;
-  color: #0f172a !important;
-  border-right: 1px solid #e2e8f0;
-}
-[data-theme="light"] .sidebar a,
-[data-theme="light"] .sidebar .nav-item,
-[data-theme="light"] .sidebar button,
-html:not([data-theme="dark"]) .sidebar .nav-item {
-  color: #334155 !important;
-}
-[data-theme="light"] .sidebar .nav-item:hover,
-[data-theme="light"] .sidebar a:hover,
-html:not([data-theme="dark"]) .sidebar .nav-item:hover {
-  background: #e2e8f0 !important;
-  color: #0f172a !important;
-}
-[data-theme="light"] .sidebar .nav-item.active,
-html:not([data-theme="dark"]) .sidebar .nav-item.active {
-  background: #4f46e5 !important;
-  color: #fff !important;
-}
-[data-theme="dark"] .sidebar {
-  /* keep dark navy */
-}
-
-/* Mobile: read-only tables as cards */
-@media (max-width: 768px) {
-  .data-table.mobile-cards thead { display: none; }
-  .data-table.mobile-cards tbody tr {
-    display: block;
-    margin-bottom: 0.75rem;
-    border: 1px solid var(--border, #e2e8f0);
-    border-radius: 8px;
-    padding: 0.5rem 0.75rem;
-    background: var(--surface, #fff);
-  }
-  .data-table.mobile-cards tbody td {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
-    border: none;
-    padding: 0.35rem 0;
-  }
-  .data-table.mobile-cards tbody td::before {
-    content: attr(data-label);
-    font-weight: 600;
-    color: var(--text-muted, #64748b);
-    font-size: 0.75rem;
-  }
-  /* Entry grids with inputs: keep horizontal scroll */
-  .table-responsive.entry-table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-}
-
-
-/* Action menu must not clip inside cards/tables */
-.glass-panel, .client-card, .data-table, .table-responsive, .client-actions-bar {
-  overflow: visible !important;
-}
-.main-content, .page-body {
-  overflow-x: visible;
+.stat-card {
+  background: #FFFFFF;
 }

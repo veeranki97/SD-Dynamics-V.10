@@ -922,7 +922,7 @@ function App() {
     { id: 'vouchers', icon: BookOpen, label: 'Vouchers', module: 'reports', group: 'Books' },
     { id: 'coa', icon: BookOpen, label: 'Chart of Accounts', module: 'reports', group: 'Books' },
     { id: 'generalledger', icon: BookOpen, label: 'General Ledger', module: 'reports', group: 'Books' },
-    { id: 'finbooks', icon: BookOpen, label: 'Trial Balance / BS', module: 'reports', group: 'Books' },
+    { id: 'finbooks', icon: BookOpen, label: 'Financial Books', module: 'reports', group: 'Books' },
     { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
     // Compliance
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },

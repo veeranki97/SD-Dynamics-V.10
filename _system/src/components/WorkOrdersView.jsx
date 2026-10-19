@@ -645,8 +645,17 @@ const updateItem = (idx, field, value) => {
                         if (r?.ok) toast('Mail opened/sent', 'success');
                         else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
                       } },
-                      { label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) },
-                      { label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) },
+                      ...((() => {
+                        const st = String(deriveWOStatus(woRow, bills)).toLowerCase();
+                        const closed = st === 'cancelled' || st === 'closed';
+                        // Create PO stays available after first PO (multiple subcontract POs allowed)
+                        // and even when WO is Partially billed / completed — only hide if cancelled/closed
+                        if (closed) return [];
+                        return [
+                          { label: 'Create PO', onClick: () => navigateCreatePoFromWo(woRow) },
+                          { label: 'Create Expense', onClick: () => navigateCreateExpenseFromWo(woRow) },
+                        ];
+                      })()),
                       { label: 'View ledger', onClick: () => navigateLedgerForWo(woRow) },
 
                       ...((() => {

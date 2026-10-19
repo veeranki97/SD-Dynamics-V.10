@@ -1641,18 +1641,48 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     setShowClientSuggestions(false);
   };
 
-  // Open modal to edit existing saved client
-  const openEditClientModal = (cli) => {
-    setModalClient(cli);
+  // Open modal to edit existing saved client (lock identity if invoices exist)
+  const openEditClientModal = async (cli) => {
+    if (!cli) return;
+    let locked = false;
+    try {
+      const bills = await getAllBills();
+      const cid = String(cli.id || '');
+      const cname = String(cli.name || '').trim().toLowerCase();
+      const cgst = String(cli.gstin || '').trim().toUpperCase();
+      locked = (bills || []).some(b => {
+        if (b.is_deleted || b.deleted) return false;
+        if (String(b.status || '').toLowerCase() === 'cancelled') return false;
+        const t = String(b.invoiceType || b.type || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
+        if (t.includes('quotation') || t === 'delivery-challan' || t === 'dc') return false;
+        const bid = String(b.clientId || b.data?.clientId || b.data?.client?.id || '');
+        const bname = String(b.clientName || b.data?.client?.name || b.data?.clientName || '').trim().toLowerCase();
+        const bgst = String(b.clientGstin || b.data?.client?.gstin || b.data?.gstin || '').trim().toUpperCase();
+        if (cid && bid && cid === bid) return true;
+        if (cname && bname && cname === bname) return true;
+        if (cgst.length === 15 && bgst === cgst) return true;
+        return false;
+      });
+    } catch (_) { locked = false; }
+    setModalClient({ ...cli, _locked: locked });
     setIsEditingClient(true);
     setShowClientModal(true);
+    if (locked) {
+      try { toast('Name, GSTIN and State locked — this client has invoices. Phone/email still editable.', 'info'); } catch (_) {}
+    }
   };
 
   // Save from modal (add or update)
   const handleClientModalSave = async (formData) => {
     const data = { ...formData };
     if (isEditingClient && modalClient?.id) data.id = modalClient.id;
-    await saveClient(data);
+    try {
+      await saveClient(data);
+    } catch (err) {
+      const msg = err?.message || err?.error || String(err || '');
+      toast(msg.includes('cannot change') || msg.includes('403') ? msg : (msg || 'Failed to save client'), 'error');
+      return;
+    }
     const updated = (await getAllClients() || []).filter(c => !c.isVendor && c.type !== 'vendor');
     setSavedClients(updated);
     // Sync the invoice form with the FULL saved record — dropping
@@ -4079,7 +4109,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Client Modal */}
-          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
+          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} lockedFields={!!modalClient?._locked} />
 
           {/* Client Details */}
           <div className="glass-panel ig-panel">
