@@ -629,6 +629,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       try { sessionStorage.removeItem('sd_convert_wo'); } catch {}
       return;
     }
+    try {
     const wo = workOrders.find(w => w.id === p.workOrderId)
       || workOrders.find(w => (w.woNumber || '') === (p.woNumber || ''));
     const t = String(p.targetType || 'tax-invoice').toLowerCase();
@@ -676,24 +677,42 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         site: wo.site || p.site || prev.site || '',
       }));
       if (wo.items && wo.items.length) {
-        const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
-        if (mapped && mapped.length) setItems(mapped);
-        else {
-          setItems(wo.items.map((it, idx) => ({
-            id: 'item_' + Date.now().toString(36) + '_' + idx,
-            name: it.description || it.name || '',
-            hsn: it.hsn || '',
-            quantity: Number(it.qty) || Number(it.quantity) || 1,
-            unit: it.unit || 'Nos',
-            rate: Number(it.rate) || 0,
-            discount: 0,
-            taxPercent: Number(it.taxPercent) || 18,
-            cessPercent: 0,
-            costCenterId: it.costCenterId || it.costHead || p.costCenterId || '',
-          })));
+        try {
+          const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
+          if (mapped && mapped.length) setItems(mapped);
+          else {
+            setItems(wo.items.map((it, idx) => ({
+              id: 'item_' + Date.now().toString(36) + '_' + idx,
+              name: it.description || it.name || '',
+              hsn: it.hsn || it.sac || '',
+              quantity: Number(it.qty) || Number(it.quantity) || 1,
+              unit: it.unit || 'Nos',
+              rate: Number(it.rate) || 0,
+              discount: 0,
+              taxPercent: Number(it.taxPercent) || Number(it.taxRate) || 18,
+              cessPercent: 0,
+              costCenterId: it.costCenterId || it.costHead || p.costCenterId || '',
+            })));
+          }
+        } catch (woFillErr) {
+          console.warn('[WO convert fill]', woFillErr);
+          try {
+            setItems(wo.items.map((it, idx) => ({
+              id: 'item_' + Date.now().toString(36) + '_' + idx,
+              name: it.description || it.name || '',
+              hsn: it.hsn || it.sac || '',
+              quantity: Number(it.qty) || Number(it.quantity) || 1,
+              unit: it.unit || 'Nos',
+              rate: Number(it.rate) || 0,
+              discount: 0,
+              taxPercent: Number(it.taxPercent) || 18,
+              cessPercent: 0,
+              costCenterId: it.costCenterId || it.costHead || '',
+            })));
+          } catch (_) { /* keep existing items */ }
         }
       }
-      toast(`Filled from Work Order ${wo.woNumber || wo.id} → ${invType}`, 'success');
+      toast('Filled from Work Order ' + (wo.woNumber || wo.id) + ' → ' + invType, 'success');
     } else {
       // WO list loaded but id not found — still apply payload basics
       setClient(prev => ({ ...prev, name: p.clientName || prev.name, site: p.site || prev.site || '' }));
@@ -706,6 +725,11 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       toast('Work Order id not in list — partial prefill only', 'warning');
     }
     try { sessionStorage.removeItem('sd_convert_wo'); } catch {}
+    } catch (convertErr) {
+      console.warn('[sd_convert_wo]', convertErr);
+      try { sessionStorage.removeItem('sd_convert_wo'); } catch {}
+      try { toast('Work Order convert prefill failed — link WO manually', 'warning'); } catch (_) {}
+    }
   }, [editingBill, workOrders]);
 
   const [units, setUnits] = useState(getAllUnits());
@@ -4200,30 +4224,36 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 value={
                   selectedWorkOrderId
                     ? ((workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
-                    : ''
+                    : (details.workOrderNo || '')
                 }
                 onChange={(e) => {
-                  const q = e.target.value.trim();
+                  const raw = e.target.value;
+                  const q = raw.trim();
+                  // Always keep typed text visible / storable (manual WO no.)
+                  setDetails(prev => ({ ...prev, workOrderNo: raw }));
                   if (!q) {
                     setSelectedWorkOrderId('');
-                    setDetails(prev => ({ ...prev, workOrderNo: '', workDetails: prev.workDetails }));
                     return;
                   }
-                  const id = (() => {
-                    const exact = workOrders.find(w => w.id === q || w.woNumber === q);
-                    if (exact) return exact.id;
+                  // Prefer exact WO number / id only while typing (avoid soft-match crash mid-type)
+                  let match = (workOrders || []).find(w => w.id === q || String(w.woNumber || '') === q);
+                  if (!match && q.length >= 4) {
                     const ql = q.toLowerCase();
-                    const soft = workOrders.find(w =>
+                    const softHits = (workOrders || []).filter(w =>
                       String(w.woNumber || '').toLowerCase().includes(ql) ||
-                      String(w.clientName || '').toLowerCase().includes(ql) ||
-                      String(w.title || '').toLowerCase().includes(ql) ||
-                      String(w.site || '').toLowerCase().includes(ql)
+                      String(w.clientName || '').toLowerCase().includes(ql)
                     );
-                    return soft ? soft.id : '';
-                  })();
-                  if (!id) return; // still typing — don't clear selection mid-type if partial
+                    if (softHits.length === 1) match = softHits[0];
+                  }
+                  if (!match) {
+                    // Free-typed number not in list yet — do not crash; keep selection empty
+                    setSelectedWorkOrderId('');
+                    return;
+                  }
+                  try {
+                  const id = match.id;
                   setSelectedWorkOrderId(id);
-                  const wo = workOrders.find(w => w.id === id);
+                  const wo = match;
                   if (!wo) return;
                   const master = (savedClients || []).find(c =>
                     (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
@@ -4257,24 +4287,32 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                     site: wo.site || prev.site || '',
                   }));
                   if (wo.items && wo.items.length) {
-                    const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit, wo);
-                    if (mapped.length) setItems(mapped);
-                    else {
-                      setItems(wo.items.map((it, idx) => ({
-                        id: 'item_' + Date.now().toString(36) + '_' + idx,
-                        name: it.description || it.name || '',
-                        hsn: it.hsn || '',
-                        quantity: Number(it.qty) || Number(it.quantity) || 1,
-                        unit: it.unit || 'Nos',
-                        rate: Number(it.rate) || 0,
-                        discount: 0,
-                        taxPercent: Number(it.taxPercent) || 18,
-                        cessPercent: 0,
-                        costCenterId: it.costCenterId || it.costHead || '',
-                      })));
+                    try {
+                      const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
+                      if (mapped && mapped.length) setItems(mapped);
+                      else {
+                        setItems(wo.items.map((it, idx) => ({
+                          id: 'item_' + Date.now().toString(36) + '_' + idx,
+                          name: it.description || it.name || '',
+                          hsn: it.hsn || it.sac || '',
+                          quantity: Number(it.qty) || Number(it.quantity) || 1,
+                          unit: it.unit || 'Nos',
+                          rate: Number(it.rate) || 0,
+                          discount: 0,
+                          taxPercent: Number(it.taxPercent) || Number(it.taxRate) || 18,
+                          cessPercent: 0,
+                          costCenterId: it.costCenterId || it.costHead || '',
+                        })));
+                      }
+                    } catch (mapErr) {
+                      console.warn('[WO link fill items]', mapErr);
                     }
                   }
-                  toast(`Filled from Work Order ${wo.woNumber || id}`, 'success');
+                  toast('Filled from Work Order ' + (wo.woNumber || id), 'success');
+                  } catch (fillErr) {
+                    console.warn('[WO link fill]', fillErr);
+                    toast('Could not fully load Work Order — check fields manually', 'warning');
+                  }
                 }}
               />
               <datalist id="inv-wo-typeahead">
