@@ -612,6 +612,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [creditToApply, setCreditToApply] = useState(0);
   // Work Order link (custom addition)
   const [workOrders, setWorkOrders] = useState([]);
+  const workOrderList = Array.isArray(workOrders) ? workOrders : [];
   const [collapsedSections, setCollapsedSections] = useState({ terms: true, extras: true, options: true, billingFrom: true });
   const toggleSection = (key) => setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
@@ -1009,7 +1010,6 @@ const validateForSave = useCallback(() => {
     if (!hasRealItem) {
       return 'Add at least one item with a quantity and rate before saving.';
     }
-    // Invoice date vs bill period (new + edit): date >= periodStart and >= periodEnd
     const invD = (details?.invoiceDate || '').slice(0, 10);
     const ps = (details?.periodStart || '').slice(0, 10);
     const pe = (details?.periodEnd || '').slice(0, 10);
@@ -1019,8 +1019,25 @@ const validateForSave = useCallback(() => {
     if (invD && pe && invD < pe) {
       return 'Invoice Date must be on or after Bill Period End (service complete before / on invoice date).';
     }
+    // HSN/SAC: if entered must be 2/4/6/8 digits; B2B tax invoice needs 4/6/8 on every active line
+    const invT = String(invoiceType || '').toLowerCase();
+    const isTax = invT.includes('tax') && !invT.includes('credit');
+    const gstin = String(client?.gstin || '').replace(/\s/g, '');
+    const isB2B = gstin.length >= 15;
+    for (const item of items) {
+      const qty = Number(item.quantity) || Number(item.qty) || 0;
+      if (qty <= 0) continue;
+      const h = String(item.hsn || item.sac || '').replace(/\D/g, '');
+      if (h && !/^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(h)) {
+        return 'HSN/SAC must be 2, 4, 6 or 8 digits (invalid: ' + (item.hsn || item.sac) + ').';
+      }
+      if (isTax && isB2B && !/^\d{4}$|^\d{6}$|^\d{8}$/.test(h)) {
+        return 'B2B tax invoice: every line needs HSN/SAC of 4, 6 or 8 digits.';
+      }
+    }
     return null;
-  }, [client?.name, items, details?.invoiceDate, details?.periodStart, details?.periodEnd]);
+  }, [client?.name, client?.gstin, items, details?.invoiceDate, details?.periodStart, details?.periodEnd, invoiceType]);
+
 
   // Debounced auto-save (2s after last change), gated on meaningful content.
   //
@@ -1177,7 +1194,9 @@ const validateForSave = useCallback(() => {
     // current when the same session creates multiple invoices for one client.
     getAllBills().then(setAllBillsForCredit).catch(() => {});
     // Load Work Orders for the link dropdown (custom)
-    getAllWorkOrders().then(setWorkOrders).catch(() => {});
+    getAllWorkOrders().then((list) => {
+      setWorkOrders(Array.isArray(list) ? list : (list && list.items) ? list.items : []);
+    }).catch(() => setWorkOrders([]));
   }, []);
 
   // Initialize from editing bill or generate new number (skip if restoring from draft)
@@ -1390,26 +1409,94 @@ const validateForSave = useCallback(() => {
     const invT = String(invoiceType || '').toLowerCase();
     const isTax = invT.includes('tax') && !invT.includes('credit');
     if (!isTax) return [];
+
     const gstin = String(client?.gstin || '').replace(/\s/g, '');
     const isB2B = gstin.length >= 15;
     const itemsList = items || [];
-    const badHsn = itemsList.filter(it => {
-      const h = String(it.hsn || it.sac || '').replace(/\D/g, '');
-      return (Number(it.quantity) || Number(it.qty) || 0) > 0 && h.length > 0 && h.length < 4;
+    const gstOn = showGST !== false;
+
+    const hsnDigits = (it) => String(it.hsn || it.sac || '').replace(/\D/g, '');
+    const hsnOkLen = (h) => !h || /^\d{2}$|^\d{4}$|^\d{6}$|^\d{8}$/.test(h);
+    const lineActive = (it) => (Number(it.quantity) || Number(it.qty) || 0) > 0;
+
+    // Invalid length when HSN entered (must be 2/4/6/8 digits)
+    const badHsnFormat = itemsList.some(it => {
+      if (!lineActive(it)) return false;
+      const h = hsnDigits(it);
+      if (!h) return false;
+      return !hsnOkLen(h);
     });
-    const missingHsn = isB2B && itemsList.some(it => {
-      const h = String(it.hsn || it.sac || '').replace(/\D/g, '');
-      return (Number(it.quantity) || Number(it.qty) || 0) > 0 && h.length < 4;
+    // B2B: every active line needs 4, 6 or 8 digit HSN/SAC (2-digit only not enough for B2B)
+    const b2bHsnMissing = isB2B && itemsList.some(it => {
+      if (!lineActive(it)) return false;
+      const h = hsnDigits(it);
+      return !/^\d{4}$|^\d{6}$|^\d{8}$/.test(h);
     });
+    const hsnOk = !badHsnFormat && !b2bHsnMissing;
+
+    const sellerState = String(profile?.state || profile?.businessState || '').trim();
+    const sellerStateOk = !gstOn || !!sellerState || String(profile?.country || '').toLowerCase() !== 'india';
+
+    const pos = String(details?.placeOfSupply || details?.place_of_supply || client?.state || '').trim();
+    const clientStateOrPosOk = !gstOn || !!pos;
+
+    const bankOk = !!(
+      profile?.bankName || profile?.bankAccount || profile?.accountNumber ||
+      profile?.accountNo || profile?.upiId || profile?.upi || profile?.ifsc
+    );
+
+    let irnOk = true;
+    let irnLabel = 'IRN N/A';
+    try {
+      let gsp = null;
+      try {
+        gsp = JSON.parse(localStorage.getItem('sd_gsp_settings') || localStorage.getItem('fgsb_gsp_settings') || 'null');
+      } catch { gsp = null; }
+      const einvOn = !!(gsp && (gsp.enabled || gsp.eInvoiceEnabled || gsp.requireIrn));
+      if (einvOn && isB2B) {
+        const irn = String(details?.irn || details?.IRN || details?.einvoiceIrn || '').trim();
+        irnOk = irn.length > 0;
+        irnLabel = irnOk ? 'IRN filled (e-Invoice)' : 'IRN filled (e-Invoice enabled for B2B)';
+      }
+    } catch { /* ignore */ }
+
+    const invD = String(details?.invoiceDate || '').slice(0, 10);
+    const ps = String(details?.periodStart || '').slice(0, 10);
+    const pe = String(details?.periodEnd || '').slice(0, 10);
+    let periodOk = true;
+    if (invD && ps && invD < ps) periodOk = false;
+    if (invD && pe && invD < pe) periodOk = false;
+
+    let periodLockOk = true;
+    try {
+      const raw = localStorage.getItem('sd_locked_months') || localStorage.getItem('fgsb_locked_months');
+      if (raw && invD) {
+        const locked = JSON.parse(raw);
+        const ym = invD.slice(0, 7);
+        if (Array.isArray(locked) && locked.some(m => String(m).startsWith(ym) || String(m) === ym)) {
+          periodLockOk = false;
+        }
+      }
+    } catch { /* cannot detect → ok */ }
+
     const rows = [
-      { id: 'client', ok: !!(client?.name || '').trim(), label: 'Client name present' },
-      { id: 'gstin', ok: !isB2B || gstin.length === 15, label: isB2B ? 'B2B GSTIN (15 chars)' : 'B2C (GSTIN optional)' },
-      { id: 'hsn', ok: !missingHsn, label: isB2B ? 'HSN/SAC ≥ 4 digits on every line' : 'HSN/SAC where entered ≥ 4 digits' },
-      { id: 'items', ok: itemsList.some(it => (Number(it.quantity)||Number(it.qty)||0) > 0 && (Number(it.rate)||0) >= 0), label: 'At least one line item' },
-      { id: 'totals', ok: (Number(totals?.total) || Number(totals?.grandTotal) || 0) > 0, label: 'Grand total > 0' },
+      { id: 'client', ok: !!(client?.name || '').trim(), label: 'Client name present', severity: 'block' },
+      { id: 'gstin', ok: !isB2B || gstin.length === 15, label: isB2B ? 'B2B GSTIN (15 chars)' : 'B2C (GSTIN optional)', severity: 'warn' },
+      { id: 'hsn', ok: hsnOk, label: isB2B
+          ? 'HSN/SAC 4/6/8 digits on every line (B2B)'
+          : 'HSN/SAC if entered must be 2/4/6/8 digits', severity: isB2B ? 'block' : 'warn' },
+      { id: 'items', ok: itemsList.some(it => lineActive(it) && (Number(it.rate) || 0) >= 0), label: 'At least one line item', severity: 'block' },
+      { id: 'totals', ok: (Number(totals?.total) || Number(totals?.grandTotal) || 0) > 0, label: 'Grand total > 0', severity: 'warn' },
+      { id: 'seller_state', ok: sellerStateOk, label: 'Business state set (Settings) — needed for CGST/SGST vs IGST', severity: 'warn' },
+      { id: 'client_state_or_pos', ok: clientStateOrPosOk, label: 'Client state or Place of supply set', severity: 'warn' },
+      { id: 'bank_upi', ok: bankOk, label: 'Bank or UPI on company profile (payment section on PDF)', severity: 'warn' },
+      { id: 'irn_einvoice', ok: irnOk, label: irnLabel, severity: 'warn' },
+      { id: 'invoice_date_period', ok: periodOk, label: 'Invoice date consistent with bill period', severity: 'warn' },
+      { id: 'period_lock', ok: periodLockOk, label: 'Period not locked for invoice date', severity: 'warn' },
     ];
     return rows;
-  }, [invoiceType, client, items, totals]);
+  }, [invoiceType, client, items, totals, showGST, profile, details]);
+
 
 
   // v1.10.24 — Compute available client credit from prior overpayments.
@@ -2046,7 +2133,8 @@ const validateForSave = useCallback(() => {
     // ===== WORK ORDER BUDGET CEILING CHECK (custom) =====
     if (bill.workOrderId) {
       try {
-        const allWOs = await getAllWorkOrders();
+        const allWOsRaw = await getAllWorkOrders();
+        const allWOs = Array.isArray(allWOsRaw) ? allWOsRaw : (allWOsRaw && allWOsRaw.items) || [];
         const allBillsNow = await getAllBills();
         const wo = allWOs.find(w => w.id === bill.workOrderId);
         if (wo) {
@@ -4284,106 +4372,118 @@ const validateForSave = useCallback(() => {
                 placeholder="Type WO no. / client / site…"
                 value={
                   selectedWorkOrderId
-                    ? ((workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
+                    ? ((workOrderList.find(w => w && w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
                     : (details.workOrderNo || '')
                 }
                 onChange={(e) => {
                   const raw = e.target.value;
-                  const q = raw.trim();
-                  // Always keep typed text visible / storable (manual WO no.)
-                  setDetails(prev => ({ ...prev, workOrderNo: raw }));
+                  const q = String(raw || '').trim();
+                  try {
+                    setDetails(prev => ({ ...prev, workOrderNo: raw }));
+                  } catch (_) { /* */ }
                   if (!q) {
                     setSelectedWorkOrderId('');
                     return;
                   }
-                  // Prefer exact WO number / id only while typing (avoid soft-match crash mid-type)
-                  let match = (workOrders || []).find(w => w.id === q || String(w.woNumber || '') === q);
-                  if (!match && q.length >= 4) {
-                    const ql = q.toLowerCase();
-                    const softHits = (workOrders || []).filter(w =>
-                      String(w.woNumber || '').toLowerCase().includes(ql) ||
-                      String(w.clientName || '').toLowerCase().includes(ql)
-                    );
-                    if (softHits.length === 1) match = softHits[0];
-                  }
-                  if (!match) {
-                    // Free-typed number not in list yet — do not crash; keep selection empty
-                    setSelectedWorkOrderId('');
-                    return;
-                  }
                   try {
-                  const id = match.id;
-                  setSelectedWorkOrderId(id);
-                  const wo = match;
-                  if (!wo) return;
-                  const master = (savedClients || []).find(c =>
-                    (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
-                  );
-                  if (wo.clientName) {
-                    setClient(prev => ({
-                      ...prev,
-                      name: wo.clientName || prev.name,
-                      site: wo.site || prev.site,
-                      address: master?.address || prev.address,
-                      city: master?.city || prev.city,
-                      pin: master?.pin || prev.pin,
-                      state: master?.state || prev.state,
-                      gstin: master?.gstin || prev.gstin,
-                      phone: master?.phone || prev.phone,
-                      email: master?.email || prev.email,
-                    }));
-                    if (master?.state) {
-                      setDetails(d => ({ ...d, placeOfSupply: master.state }));
-                      setFilterState(master.state);
+                    const list = workOrderList;
+                    let match = list.find(w => w && (w.id === q || String(w.woNumber || '') === q));
+                    if (!match && q.length >= 4) {
+                      const ql = q.toLowerCase();
+                      const softHits = list.filter(w =>
+                        w && (
+                          String(w.woNumber || '').toLowerCase().includes(ql) ||
+                          String(w.clientName || '').toLowerCase().includes(ql)
+                        )
+                      );
+                      if (softHits.length === 1) match = softHits[0];
                     }
-                  } else if (wo.site) {
-                    setClient(prev => ({ ...prev, site: wo.site }));
-                  }
-                  setDetails(prev => ({
-                    ...prev,
-                    periodStart: wo.periodStart || prev.periodStart || '',
-                    periodEnd: wo.periodEnd || prev.periodEnd || '',
-                    workDetails: wo.title || wo.workDescription || wo.notes || prev.workDetails || '',
-                    workOrderNo: wo.woNumber || prev.workOrderNo || '',
-                    site: wo.site || prev.site || '',
-                  }));
-                  if (wo.items && wo.items.length) {
-                    try {
-                      const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
-                      if (mapped && mapped.length) setItems(mapped);
-                      else {
-                        setItems(wo.items.map((it, idx) => ({
-                          id: 'item_' + Date.now().toString(36) + '_' + idx,
-                          name: it.description || it.name || '',
-                          hsn: it.hsn || it.sac || '',
-                          quantity: Number(it.qty) || Number(it.quantity) || 1,
-                          unit: it.unit || 'Nos',
-                          rate: Number(it.rate) || 0,
-                          discount: 0,
-                          taxPercent: Number(it.taxPercent) || Number(it.taxRate) || 18,
-                          cessPercent: 0,
-                          costCenterId: it.costCenterId || it.costHead || '',
-                        })));
+                    if (!match) {
+                      setSelectedWorkOrderId('');
+                      return;
+                    }
+                    const id = match.id;
+                    setSelectedWorkOrderId(id || '');
+                    const wo = match;
+                    const master = (savedClients || []).find(c =>
+                      c && (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
+                    );
+                    if (wo.clientName) {
+                      setClient(prev => ({
+                        ...prev,
+                        name: wo.clientName || prev.name,
+                        site: wo.site || prev.site,
+                        address: master?.address || prev.address,
+                        city: master?.city || prev.city,
+                        pin: master?.pin || prev.pin,
+                        state: master?.state || prev.state,
+                        gstin: master?.gstin || prev.gstin,
+                        phone: master?.phone || prev.phone,
+                        email: master?.email || prev.email,
+                      }));
+                      if (master?.state) {
+                        setDetails(d => ({ ...d, placeOfSupply: master.state, workOrderNo: wo.woNumber || d.workOrderNo || '' }));
+                        try { setFilterState(master.state); } catch (_) { /* filter not ready */ }
                       }
-                    } catch (mapErr) {
-                      console.warn('[WO link fill items]', mapErr);
+                    } else if (wo.site) {
+                      setClient(prev => ({ ...prev, site: wo.site }));
                     }
-                  }
-                  toast('Filled from Work Order ' + (wo.woNumber || id), 'success');
+                    setDetails(prev => ({
+                      ...prev,
+                      periodStart: wo.periodStart || prev.periodStart || '',
+                      periodEnd: wo.periodEnd || prev.periodEnd || '',
+                      workDetails: wo.title || wo.workDescription || wo.notes || prev.workDetails || '',
+                      workOrderNo: wo.woNumber || prev.workOrderNo || '',
+                      site: wo.site || prev.site || '',
+                    }));
+                    if (wo.items && Array.isArray(wo.items) && wo.items.length) {
+                      let filled = false;
+                      try {
+                        if (typeof woItemsToInvoiceItems === 'function') {
+                          const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
+                          if (mapped && mapped.length) {
+                            setItems(mapped);
+                            filled = true;
+                          }
+                        }
+                      } catch (mapErr) {
+                        console.warn('[WO link fill items]', mapErr);
+                      }
+                      if (!filled) {
+                        try {
+                          setItems(wo.items.map((it, idx) => ({
+                            id: 'item_' + Date.now().toString(36) + '_' + idx,
+                            name: (it && (it.description || it.name)) || '',
+                            hsn: (it && (it.hsn || it.sac)) || '',
+                            quantity: Number(it?.qty) || Number(it?.quantity) || 1,
+                            unit: (it && it.unit) || 'Nos',
+                            rate: Number(it?.rate) || 0,
+                            discount: 0,
+                            taxPercent: Number(it?.taxPercent) || Number(it?.taxRate) || 18,
+                            cessPercent: 0,
+                            costCenterId: (it && (it.costCenterId || it.costHead)) || '',
+                          })));
+                        } catch (map2) {
+                          console.warn('[WO link fill fallback]', map2);
+                        }
+                      }
+                    }
+                    toast('Filled from Work Order ' + (wo.woNumber || id), 'success');
                   } catch (fillErr) {
                     console.warn('[WO link fill]', fillErr);
-                    toast('Could not fully load Work Order — check fields manually', 'warning');
+                    try { toast('Could not fully load Work Order — check fields manually', 'warning'); } catch (_) {}
                   }
                 }}
               />
               <datalist id="inv-wo-typeahead">
-                {workOrders
+                {workOrderList
                   .filter(wo => {
+                    if (!wo) return false;
                     const st = (wo.status || '').toLowerCase();
                     return !(st === 'cancelled' || st === 'canceled' || st === 'void');
                   })
                   .map(wo => (
-                    <option key={wo.id} value={wo.woNumber || wo.id}>
+                    <option key={wo.id || wo.woNumber} value={wo.woNumber || wo.id || ''}>
                       {(wo.clientName || '') + (wo.title ? ` · ${wo.title}` : '') + (wo.site ? ` · ${wo.site}` : '') + ` · ₹${Number(wo.approvedBudget || wo.total || 0).toLocaleString('en-IN')}`}
                     </option>
                   ))}
@@ -4396,13 +4496,13 @@ const validateForSave = useCallback(() => {
                   onClick={() => {
                     try {
                       sessionStorage.setItem('sd_focus_wo', selectedWorkOrderId);
-                      const wo = workOrders.find(w => w.id === selectedWorkOrderId);
+                      const wo = workOrderList.find(w => w && w.id === selectedWorkOrderId);
                       if (wo) sessionStorage.setItem('sd_ledger_wo_filter', JSON.stringify({ workOrderId: wo.id, woNumber: wo.woNumber || '' }));
                     } catch { /* */ }
                     sessionStorage.setItem('gst_currentView', 'workorders');
                     window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'workorders' }));
                   }}>
-                  Linked WO · {(workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId}
+                  Linked WO · {(workOrderList.find(w => w && w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId}
                 </button>
               )}
             </div>
@@ -5109,9 +5209,12 @@ const validateForSave = useCallback(() => {
               <button type="button" className="btn btn-primary" disabled={saving} onClick={async () => {
                 const fails = buildTaxInvoiceChecklist().filter(r => !r.ok);
                 if (fails.length) {
-                  const block = fails.some(f => f.id === 'client' || f.id === 'items');
-                  if (block) { toast('Fix required checklist items first', 'warning'); return; }
-                  toast('Some checklist warnings remain — saving anyway', 'warning');
+                  const block = fails.some(f => f.severity === 'block' || f.id === 'client' || f.id === 'items' || f.id === 'hsn');
+                  if (block) {
+                    toast('Fix required checklist items first: ' + fails.filter(f => f.severity === 'block' || f.id === 'client' || f.id === 'items' || f.id === 'hsn').map(f => f.label).slice(0, 3).join('; '), 'warning');
+                    return;
+                  }
+                  toast('Checklist warnings remain — saving anyway', 'warning');
                 }
                 setShowChecklist(false);
                 try {
