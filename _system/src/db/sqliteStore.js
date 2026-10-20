@@ -15,7 +15,13 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 
-/** Collections with folder under data/ or logical names for singletons / special paths. */
+/**
+ * Collections with folder under data/ or logical names for singletons / special paths.
+ * CoA (Phase A): collection "accounts" — tree of chart rows (code, type, isGroup, isSystem…).
+ * GL spine (Phase B): collection "journals" — batches with entries[]; when meta.useGlEngine
+ * is true, postDocument writes journals with accountId + account name on each line.
+ * No separate gl_lines table: same hybrid records + payload_json path as other masters.
+ */
 export const COLLECTIONS = [
   'bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts',
   'profiles', 'purchases', 'workorders', 'journals', 'purchaseorders', 'costcenters',
@@ -25,7 +31,9 @@ export const COLLECTIONS = [
   'hrm/employees', 'hrm/attendance', 'hrm/payroll', 'hrm/minwages', 'hrm/settings',
 ];
 
-const SCHEMA_VERSION = 2;
+/** Schema version 3 documents CoA+GL engine readiness (no physical ALTER required —
+ *  payload_json already stores arbitrary account / journal fields). */
+const SCHEMA_VERSION = 3;
 
 let _db = null;
 let _ready = false;
