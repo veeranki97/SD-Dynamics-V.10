@@ -195,13 +195,21 @@ export function afterTaxInvoiceSaved(ctx, bill) {
     return { skipped: true, reason: 'non_revenue_doc' };
   }
   if (bill.status === 'cancelled' || bill.cancelled) return { skipped: true, reason: 'cancelled' };
+  // Payment-only updates should not rewrite sales GL — postDocument hash-skip handles
+  // same lines; still require stable sourceId = internal bill.id only.
+  const sourceId = String(bill.id || '').trim();
+  if (!sourceId) return { skipped: true, reason: 'no_bill_id' };
   const lines = linesTaxInvoice(bill, meta);
   if (!lines) return { skipped: true };
+  const invNo = bill.invoiceNumber || bill.id;
+  const party = bill.clientName || bill.data?.client?.name || '';
   return safePost(ctx, {
     sourceType: 'tax_invoice',
-    sourceId: bill.id || bill.invoiceNumber,
+    sourceId: sourceId,
+    refId: invNo,
+    refLabel: invNo,
     date: bill.invoiceDate || bill.data?.details?.invoiceDate || new Date().toISOString().slice(0, 10),
-    narration: 'Tax invoice ' + (bill.invoiceNumber || bill.id),
+    narration: 'Tax invoice ' + invNo + (party ? ' — ' + party : ''),
     lines,
   });
 }
@@ -210,11 +218,24 @@ export function afterReceiptSaved(ctx, receipt, bill) {
   const meta = ctx.getMeta();
   const lines = linesReceipt({ ...receipt, clientName: receipt.clientName || bill?.clientName }, meta);
   if (!lines) return { skipped: true };
+  // Prefer internal id as sourceId (stable); human number in narration/ref
+  const sourceId = String(receipt.id || receipt.paymentId || '').trim();
+  if (!sourceId) return { skipped: true, reason: 'no_receipt_id' };
+  const recNo = receipt.receiptNumber || receipt.receiptNo || sourceId;
+  const invNo = bill?.invoiceNumber || receipt.invoiceNumber || receipt.againstInvoice || '';
+  const party = receipt.clientName || bill?.clientName || receipt.party || '';
+  const narr =
+    'Receipt ' +
+    recNo +
+    (invNo ? ' against ' + invNo : '') +
+    (party ? ' — ' + party : '');
   return safePost(ctx, {
     sourceType: 'receipt',
-    sourceId: receipt.id || receipt.receiptNo || receipt.paymentId,
+    sourceId: sourceId,
+    refId: recNo,
+    refLabel: recNo,
     date: receipt.date || receipt.paymentDate || new Date().toISOString().slice(0, 10),
-    narration: 'Receipt ' + (receipt.receiptNo || receipt.id) + (bill?.invoiceNumber ? ' vs ' + bill.invoiceNumber : ''),
+    narration: narr,
     lines,
   });
 }

@@ -30,6 +30,16 @@ export function fromPaise(p) {
   return Math.round(Number(p) || 0) / 100;
 }
 
+/** Stable hash of normalised lines (accountId|account + debit/credit paise). */
+export function hashGlLines(lines) {
+  const parts = (lines || []).map((e) => {
+    const id = String(e.accountId || e.account || '').trim().toLowerCase();
+    return id + ':' + toPaise(e.debit) + ':' + toPaise(e.credit);
+  });
+  parts.sort();
+  return parts.join('|');
+}
+
 /**
  * @typedef {object} PostLine
  * @property {string} [accountId]
@@ -245,10 +255,47 @@ export function createGlEngine(deps) {
     }
     assertBalanced(lines);
 
-    // Idempotency: reverse prior active posts for same source
+    const lineHash = hashGlLines(lines);
     const priors = priorActivePosts(payload.sourceType, payload.sourceId);
+
+    // SAME normalised lines already posted → skip (no reverse spam on re-save)
+    const identical = priors.find((p) => p.lineHash && p.lineHash === lineHash);
+    if (identical) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'unchanged',
+        journal: identical,
+        reversedPrior: [],
+      };
+    }
+    // Also compare live lines if older posts lack lineHash
+    if (!identical && priors.length) {
+      const sameLive = priors.find((p) => hashGlLines(p.entries || []) === lineHash);
+      if (sameLive) {
+        // Backfill hash on existing post for next time
+        try {
+          deps.saveJournal({ ...sameLive, lineHash: lineHash, updatedAt: new Date().toISOString() });
+        } catch (_) { /* */ }
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'unchanged',
+          journal: sameLive,
+          reversedPrior: [],
+        };
+      }
+    }
+
+    // Real change: reverse prior active posts, then append new
+    const reversedIds = [];
     for (const p of priors) {
-      reverseJournal(p, 'idempotent repost of ' + payload.sourceType + '/' + payload.sourceId);
+      const invLabel = payload.refLabel || payload.narration || payload.sourceId;
+      reverseJournal(
+        p,
+        'amount/account change for ' + payload.sourceType + ' ' + invLabel
+      );
+      reversedIds.push(p.id);
     }
 
     const now = new Date().toISOString();
@@ -256,20 +303,22 @@ export function createGlEngine(deps) {
       'jnl_gl_' +
       String(payload.sourceType).replace(/[^a-z0-9_]/gi, '_') +
       '_' +
-      String(payload.sourceId).replace(/[^a-z0-9_-]/gi, '_').slice(0, 48) +
-      '_' +
-      Date.now().toString(36);
+      String(payload.sourceId).replace(/[^a-z0-9_-]/gi, '_').slice(0, 48);
 
+    // Stable id per source — overwrite only the active batch file when needed;
+    // reversals use separate jnl_rev_* ids from reverseJournal.
     const journal = {
-      id,
+      id: id + (reversedIds.length ? '_' + Date.now().toString(36) : ''),
       date,
       narration: payload.narration || (payload.sourceType + ' ' + payload.sourceId),
       sourceType: payload.sourceType,
       sourceId: String(payload.sourceId),
       refType: payload.sourceType,
-      refId: String(payload.sourceId),
+      refId: payload.refId || String(payload.sourceId),
+      refLabel: payload.refLabel || null,
       companyId: payload.companyId || 'default',
       entries: lines,
+      lineHash: lineHash,
       glEngine: true,
       isReversed: false,
       IsReversed: false,
@@ -277,7 +326,7 @@ export function createGlEngine(deps) {
       createdAt: now,
     };
     deps.saveJournal(journal);
-    return { ok: true, journal, reversedPrior: priors.map((p) => p.id) };
+    return { ok: true, journal, reversedPrior: reversedIds, skipped: false };
   }
 
   /**

@@ -764,7 +764,8 @@ app.post('/api/bills', (req, res) => {
   // GL spine: post tax invoice (skips QUO/PI/DC/cancelled when engine on)
   try {
     const glRes = afterTaxInvoiceSaved(glCtx, bill);
-    if (glRes && glRes.ok) console.log('[gl] tax_invoice posted', bill.invoiceNumber || bill.id);
+    if (glRes && glRes.ok && !glRes.skipped) console.log('[gl] tax_invoice posted', bill.invoiceNumber || bill.id);
+    else if (glRes && glRes.skipped) console.log('[gl] tax_invoice skip', glRes.reason, bill.invoiceNumber || bill.id);
     // PI → TI advance: if client sent advanceApplied / convertedFromPi with amount
     const adv = Number(bill.advanceApplied || bill.data?.advanceApplied || 0);
     const fromPi = bill.convertedFrom || bill.data?.convertedFrom || bill.data?.details?.convertedFromPi;
@@ -1148,6 +1149,20 @@ app.post('/api/receipts', (req, res) => {
   } catch (e) {
     console.warn('[receipt ceiling]', e.message);
   }
+  // Human sequential receipt number (REC/FY/###) — internal id stays pay_*/rcpt_*
+  if (!receipt.id) receipt.id = 'rcpt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  if (!receipt.receiptNumber && !receipt.receiptNo) {
+    try {
+      receipt.receiptNumber = nextReceiptNumber(receipt.date || receipt.paymentDate);
+      receipt.receiptNo = receipt.receiptNumber;
+    } catch (ne) {
+      console.warn('[receipt number]', ne.message);
+    }
+  } else if (receipt.receiptNumber && !receipt.receiptNo) {
+    receipt.receiptNo = receipt.receiptNumber;
+  } else if (receipt.receiptNo && !receipt.receiptNumber) {
+    receipt.receiptNumber = receipt.receiptNo;
+  }
   const filePath = path.join(DATA_DIR, 'receipts', safeFileName(receipt.id) + '.json');
   writeJSON(filePath, receipt);
   try {
@@ -1163,7 +1178,7 @@ app.post('/api/receipts', (req, res) => {
   } catch (ge) {
     console.warn('[gl] afterReceiptSaved', ge.message);
   }
-  res.json({ success: true, id: receipt.id });
+  res.json({ success: true, id: receipt.id, receiptNumber: receipt.receiptNumber || receipt.receiptNo || null });
 });
 
 app.delete('/api/receipts/:id', (req, res) => {
@@ -3886,6 +3901,28 @@ function advanceDate(dateStr, frequency, interval) {
   else if (frequency === 'yearly') d.setFullYear(d.getFullYear() + n);
   else d.setMonth(d.getMonth() + n); // default: monthly
   return d.toISOString().split('T')[0];
+}
+
+function indianFinYearLabel(d = new Date()) {
+  const dt = d instanceof Date ? d : new Date(String(d).slice(0, 10) || Date.now());
+  const y = dt.getFullYear();
+  const m = dt.getMonth(); // 0-based
+  // FY starts April
+  if (m >= 3) return y + '-' + String(y + 1).slice(-2);
+  return (y - 1) + '-' + String(y).slice(-2);
+}
+
+/** Sequential receipt numbers: REC/2026-27/001 — meta.receiptSeq_{FY} */
+function nextReceiptNumber(dateStr) {
+  const fy = indianFinYearLabel(dateStr ? new Date(String(dateStr).slice(0, 10)) : new Date());
+  const metaPath = typeof META_PATH !== 'undefined' ? META_PATH : path.join(DATA_DIR, 'meta.json');
+  const meta = readJSON(metaPath, {}) || {};
+  const key = 'receiptSeq_' + fy;
+  const next = (Number(meta[key]) || 0) + 1;
+  meta[key] = next;
+  writeJSON(metaPath, meta);
+  const padded = String(next).padStart(3, '0');
+  return 'REC/' + fy + '/' + padded;
 }
 
 function nextInvoiceNumber(prefix, settings = {}) {
