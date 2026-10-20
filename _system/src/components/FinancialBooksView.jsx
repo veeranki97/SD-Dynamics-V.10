@@ -243,12 +243,55 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
   const bank = useMemo(() => bankBalance(scopedJournals, 'Bank') + bankBalance(scopedJournals, 'Cash'), [scopedJournals]);
 
   const runPeriodClose = async () => {
-    const j = periodCloseJournal(scopedJournals, asOf);
-    if (!j) return toast('Nothing to close (P&L ~ 0)', 'info');
-    if (!confirm(`Post period-close journal for ${asOf}? Net P&L: ${j.entries.debit || j.entries.credit}`)) return;
+    const closeMsg = 'Post period-close for ' + asOf + ' to Retained Earnings and lock month?';
+    if (!window.confirm(closeMsg)) return;
     try {
-      await saveJournal(j);
-      toast('Period close posted to Retained Earnings', 'success');
+      if (useGlEngine) {
+        // Build TB-like rows with types from CoA for income/expense close
+        const tbRows = trialBalanceFromJournals(scopedJournals, asOf).map((r) => {
+          const acc = (accounts || []).find((a) => a.id === r.accountId || a.name === r.account);
+          return { ...r, type: acc ? acc.type : '' };
+        });
+        const lines = linesPeriodClose(tbRows, {});
+        if (!lines || !lines.length) {
+          toast('Nothing to close (P&L ~ 0)', 'info');
+          return;
+        }
+        const res = await fetch('/api/gl/post', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceType: 'period_close',
+            sourceId: 'close_' + String(asOf).slice(0, 7),
+            date: asOf,
+            narration: 'Period close ' + asOf + ' → Retained Earnings',
+            lines,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || data.error || 'GL close failed');
+      } else {
+        const j = periodCloseJournal(scopedJournals, asOf);
+        if (!j) {
+          toast('Nothing to close (P&L ~ 0)', 'info');
+          return;
+        }
+        await saveJournal(j);
+      }
+      // Lock month via existing period lock (server meta preferred)
+      const yyyymm = String(asOf).slice(0, 7);
+      try {
+        await fetch('/api/period-lock', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ month: yyyymm, action: 'lock' }),
+        });
+      } catch (_) {
+        lockMonth(yyyymm);
+      }
+      toast('Period close posted; month ' + yyyymm + ' locked', 'success');
       load();
     } catch (e) {
       toast(e.message || 'Close failed', 'error');

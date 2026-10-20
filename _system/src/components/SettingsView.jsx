@@ -1,5 +1,6 @@
 import ChartSettingsPanel from './ChartSettingsPanel';
 import EinvoiceSettingsPanel from './EinvoiceSettingsPanel';
+import GlMappingPanel from './GlMappingPanel';
 import { useState, useEffect, useRef } from 'react';
 import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getInvoiceNumberSettings, saveInvoiceNumberSettings, getRegionMode, setRegionMode, getEnabledModules, setEnabledModules, getStockAlertSettings, saveStockAlertSettings, getInvoiceDisplayOptions, saveInvoiceDisplayOptions } from '../store';
 // runUpdateNow optional — defined in store if present
@@ -30,6 +31,7 @@ const SETTINGS_TABS = [
   { id: 'print', label: 'Invoice & print', sections: ['section-print', 'section-terms'] },
   { id: 'mail', label: 'Mail & templates', sections: ['section-email-tpl'] },
   { id: 'charts', label: 'Dashboard charts', sections: ['section-charts'] },
+  { id: 'glmap', label: 'GL mapping', sections: ['section-gl-map'] },
   { id: 'backup', label: 'Backup & trash', sections: ['section-backups', 'section-cloud', 'section-data'] },
   { id: 'security', label: 'Security', sections: ['section-applock', 'section-updates'] },
   { id: 'modules', label: 'Modules & region', sections: ['section-modules', 'section-stock', 'section-region'] },
@@ -2025,6 +2027,9 @@ export default function SettingsView({ onSaved }) {
           Manual IRN paste is always available on the invoice. GSP API stays disabled until partner credentials + IP whitelist work. Secrets are not returned on export.
         </p>
         <EinvoiceSettingsPanel />
+      </div>
+      <div id="section-gl-map" data-settings-section="section-gl-map" style={{ order: 2.6 }} className="mb-6">
+        <GlMappingPanel />
       </div>
       <EmailTemplatesPanel />
       <div id="section-terms" data-settings-section="section-terms" className="glass-panel p-6 mb-6" style={{ order: 3 }}>

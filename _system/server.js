@@ -20,6 +20,17 @@ import {
 } from './src/db/sqliteStore.js';
 import { filterActiveRecords, softDeleteRecord, isSoftDeleted, isSubmitted } from './src/utils/softDelete.js';
 import { auditChange, auditMiddleware } from './src/middleware/auditLog.js';
+import {
+  createServerGlContext,
+  ensureCoaOnBoot,
+  migrateLegacyCoaIfEmptyish,
+  registerGlMetaRoutes,
+  afterTaxInvoiceSaved,
+  afterReceiptSaved,
+  afterExpenseSaved,
+  afterPurchaseSaved,
+  afterPiToTiAdvance,
+} from './src/utils/glServerBridge.js';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -538,6 +549,35 @@ function validateBillPayments(bill) {
   return { ok: true };
 }
 
+// ========== GL ENGINE (fresh app: default ON) ==========
+const META_PATH_GL = path.join(DATA_DIR, 'meta.json');
+const glCtx = createServerGlContext({
+  DATA_DIR,
+  readJSON,
+  writeJSON,
+  readAllFromDir,
+  META_PATH: META_PATH_GL,
+  safeFileName,
+  path,
+  fs,
+});
+ensureCoaOnBoot(glCtx);
+migrateLegacyCoaIfEmptyish(glCtx);
+try {
+  const _metaGl = readJSON(META_PATH_GL, {}) || {};
+  // Fresh install mindset: enable engine unless explicitly turned off
+  if (_metaGl.useGlEngine === undefined || _metaGl.useGlEngine === null) {
+    _metaGl.useGlEngine = true;
+    writeJSON(META_PATH_GL, _metaGl);
+    console.log('[gl] Fresh install: meta.useGlEngine = true');
+  } else {
+    console.log('[gl] useGlEngine =', !!_metaGl.useGlEngine);
+  }
+} catch (e) {
+  console.warn('[gl] meta bootstrap', e.message);
+}
+registerGlMetaRoutes(app, glCtx);
+// ========== end GL bootstrap ==========
 
 app.get('/api/bills', (req, res) => {
   try {
@@ -720,6 +760,27 @@ app.post('/api/bills', (req, res) => {
       baseDir: path.join(DATA_DIR, 'activity-logs'),
     });
   } catch { /* ignore audit failures */ };
+
+  // GL spine: post tax invoice (skips QUO/PI/DC/cancelled when engine on)
+  try {
+    const glRes = afterTaxInvoiceSaved(glCtx, bill);
+    if (glRes && glRes.ok) console.log('[gl] tax_invoice posted', bill.invoiceNumber || bill.id);
+    // PI → TI advance: if client sent advanceApplied / convertedFromPi with amount
+    const adv = Number(bill.advanceApplied || bill.data?.advanceApplied || 0);
+    const fromPi = bill.convertedFrom || bill.data?.convertedFrom || bill.data?.details?.convertedFromPi;
+    if (adv > 0 && fromPi) {
+      afterPiToTiAdvance(
+        glCtx,
+        adv,
+        bill.clientName || bill.data?.client?.name || '',
+        String(bill.id || bill.invoiceNumber) + '_adv',
+        bill.invoiceDate || bill.data?.details?.invoiceDate
+      );
+    }
+  } catch (ge) {
+    console.warn('[gl] afterTaxInvoiceSaved', ge.message);
+  }
+
   res.json({ success: true, taxWarnings });
 });
 
@@ -1009,6 +1070,7 @@ app.post('/api/expenses', (req, res) => {
   if (!expense.id) expense.id = 'exp_' + Date.now();
   const filePath = path.join(DATA_DIR, 'expenses', safeFileName(expense.id) + '.json');
   writeJSON(filePath, expense);
+  try { afterExpenseSaved(glCtx, expense); } catch (ge) { console.warn('[gl] afterExpenseSaved', ge.message); }
   res.json({ success: true, id: expense.id });
 });
 
@@ -1088,6 +1150,19 @@ app.post('/api/receipts', (req, res) => {
   }
   const filePath = path.join(DATA_DIR, 'receipts', safeFileName(receipt.id) + '.json');
   writeJSON(filePath, receipt);
+  try {
+    let bill = null;
+    const invNo = receipt.invoiceNumber || receipt.againstInvoice || receipt.billId;
+    if (invNo) {
+      const bills = readAllFromDir('bills') || [];
+      bill = bills.find(b =>
+        String(b.invoiceNumber || '') === String(invNo) || String(b.id || '') === String(invNo)
+      ) || null;
+    }
+    afterReceiptSaved(glCtx, receipt, bill);
+  } catch (ge) {
+    console.warn('[gl] afterReceiptSaved', ge.message);
+  }
   res.json({ success: true, id: receipt.id });
 });
 
@@ -1117,6 +1192,7 @@ app.post('/api/purchases', (req, res) => {
   if (!purchase.id) purchase.id = 'pur_' + Date.now();
   const filePath = path.join(DATA_DIR, 'purchases', safeFileName(purchase.id) + '.json');
   writeJSON(filePath, purchase);
+  try { afterPurchaseSaved(glCtx, purchase); } catch (ge) { console.warn('[gl] afterPurchaseSaved', ge.message); }
   res.json({ success: true, id: purchase.id });
 });
 
@@ -1202,6 +1278,29 @@ app.post('/api/journals', (req, res) => {
   try {
     const j = req.body || {};
     if (!assertPeriodNotLocked(j.date || j.createdAt, res)) return;
+
+    // When GL engine on and client sends sourceType+lines, use postDocument
+    try {
+      const meta = readJSON(META_PATH_GL, {}) || {};
+      if (meta.useGlEngine && j.sourceType && Array.isArray(j.lines) && j.lines.length) {
+        const result = glCtx.engine.postDocument({
+          sourceType: j.sourceType,
+          sourceId: j.sourceId || j.id || ('jnl_' + Date.now()),
+          date: j.date || j.entryDate,
+          narration: j.narration || '',
+          lines: j.lines,
+          companyId: j.companyId || 'default',
+        });
+        if (result.skipped) {
+          /* fall through to legacy */
+        } else if (result.ok) {
+          return res.json({ success: true, id: result.journal && result.journal.id, glEngine: true });
+        }
+      }
+    } catch (ge) {
+      return res.status(400).json({ error: ge.code || 'gl_error', message: ge.message });
+    }
+
     // P0: reject unbalanced journals
     {
       const entries = j.entries || [];

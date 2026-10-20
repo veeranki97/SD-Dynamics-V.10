@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Banknote } from 'lucide-react';
-import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals } from '../store';
+import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals, getAllAccounts } from '../store';
+import { activeGlJournals } from '../utils/glPosting';
 import { formatCurrency, belongsToProfile } from '../utils';
 import { toast } from './Toast';
 
@@ -129,6 +130,7 @@ export default function CashBookView() {
   const [expenses, setExpenses] = useState([]);
   const [bills, setBills] = useState([]);
   const [journals, setJournals] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [profile, setProfile] = useState({});
   const [ob, setOb] = useState(() => {
     try { return Number(localStorage.getItem('freegstbill_cashbook_ob') || 0); } catch { return 0; }
@@ -142,14 +144,16 @@ export default function CashBookView() {
   useEffect(() => {
     (async () => {
       try {
-        const [r, e, b, p, j] = await Promise.all([
-          getAllReceipts(), getAllExpenses(), getAllBills(), getProfile(), getAllJournals().catch(() => [])
+        const [r, e, b, p, j, acc] = await Promise.all([
+          getAllReceipts(), getAllExpenses(), getAllBills(), getProfile(), getAllJournals().catch(() => []),
+          getAllAccounts().catch(() => [])
         ]);
         setProfile(p || {});
         setReceipts((r || []).filter(x => belongsToProfile(x, p)));
         setExpenses((e || []).filter(x => belongsToProfile(x, p)));
         setBills((b || []).filter(x => belongsToProfile(x, p)));
         setJournals(j || []);
+        setAccounts(Array.isArray(acc) ? acc : []);
       } catch {
         toast('Failed to load cash book data', 'error');
       }
@@ -160,14 +164,24 @@ export default function CashBookView() {
     // Single source of truth: Journal only (same as General Ledger).
     // Receipts/expenses without a journal no longer appear here — prevents
     // "cash book shows payment, ledger does not" drift.
+    // Cash/Bank source of truth: journal lines on cash|bank accounts
+    // (name match OR accountId mapped to CoA accountType cash/bank).
+    const cashBankIds = new Set();
+    (accounts || []).forEach(a => {
+      const t = String(a.accountType || '').toLowerCase();
+      if (t === 'cash' || t === 'bank') cashBankIds.add(a.id);
+      if (a.code === '1100' || a.code === '1210') cashBankIds.add(a.id);
+    });
+    const isCashBankLine = (e) => {
+      if (e.accountId && cashBankIds.has(e.accountId)) return true;
+      const acc = String(e.account || '').toLowerCase();
+      return /bank|cash/.test(acc);
+    };
     const entries = [];
-    (journals || []).forEach(j => {
-      if (j.IsReversed || j.isReversed || j.reversed) return;
-      // Show BOTH original receipt AND its reversal so cash book nets to zero
-      // (hiding the original left only the outflow — negative impossible cash).
+    activeGlJournals(journals || []).forEach(j => {
+      // activeGlJournals already drops reversed originals that have a reverse batch
       (j.entries || []).forEach(e => {
-        const acc = (e.account || '').toLowerCase();
-        if (!/bank|cash/.test(acc)) return;
+        if (!isCashBankLine(e)) return;
         const dr = Math.round((Number(e.debit) || 0) * 100) / 100;
         const cr = Math.round((Number(e.credit) || 0) * 100) / 100;
         if (dr < 0.005 && cr < 0.005) return;
@@ -197,7 +211,7 @@ export default function CashBookView() {
         bal = bal + e.inflow - e.outflow;
         return { ...e, balance: bal };
       });
-  }, [journals, ob, obDate]);
+  }, [journals, accounts, ob, obDate]);
 
   const saveOb = () => {
     localStorage.setItem('freegstbill_cashbook_ob', String(ob));

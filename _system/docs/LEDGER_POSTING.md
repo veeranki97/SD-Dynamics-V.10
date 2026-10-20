@@ -1,41 +1,18 @@
-# LEDGER_POSTING.md — CoA, GL spine, document wiring (Phases A–E)
+# LEDGER_POSTING — Fresh app (engine ON by default)
 
-## Kill-switch
+## Behaviour
+- On first boot, if `meta.useGlEngine` is unset → **true**.
+- Explicit `false` still disables engine (legacy writers only).
+- server.js calls afterTaxInvoiceSaved, afterReceiptSaved, afterExpenseSaved, afterPurchaseSaved, afterPiToTiAdvance when applicable.
+- POST /api/journals with sourceType+lines uses postDocument when engine on.
+- CoA seeded via ensureCoaOnBoot + migrateLegacyCoaIfEmptyish.
 
-| meta.useGlEngine | Behaviour |
-|------------------|-----------|
-| false / absent (default) | Legacy journals only. postDocument / after* hooks skip. |
-| true | Balanced postDocument + period lock; document hooks when server wired. |
+## Cash book (next response)
+Cash/bank lines from postDocument are source of truth when engine ON.
+CashBookView should read GL — not dual-write receipts.
 
-Rollback: set useGlEngine false. No data wipe.
+## Source types posted
+tax_invoice, receipt, expense, purchase, pi_to_ti_advance (if advanceApplied+convertedFrom), manual_journal via /api/gl/post or journals with lines.
 
-## Cash book rule
-
-Engine ON: cash/bank lines from postDocument are source of truth.
-Engine OFF: existing cash book / receipt writers unchanged.
-
-## Source types
-
-| sourceType | Status |
-|------------|--------|
-| manual_journal | Wired — Books Manual Journal + /api/gl/post |
-| tax_invoice | Wired when afterTaxInvoiceSaved installed |
-| receipt | Wired when afterReceiptSaved installed |
-| pi_to_ti_advance | Wired when afterPiToTiAdvance installed |
-| expense / purchase | Wired when after* installed |
-| vendor_payment | Recipe ready |
-| opening_balance | UI + /api/gl/post |
-| period_close | linesPeriodClose recipe; existing P&L close + Period Lock tab |
-
-## Install
-
-See SERVER_GL_INSTALL.md
-
-## Test checklist
-
-- CoA seeds; system accounts protected
-- Engine off = legacy OK
-- Engine on = unbalanced MJ rejected; balanced MJ on TB + ledger
-- Payment ceiling / period lock / PI-TI no double bank
-- npm run build
-- Toggle off restores legacy
+## Rollback
+POST /api/meta/useGlEngine { "value": false }
