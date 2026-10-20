@@ -178,7 +178,11 @@ export default function CashBookView() {
       return /bank|cash/.test(acc);
     };
     const entries = [];
-    activeGlJournals(journals || []).forEach(j => {
+    const allActive = activeGlJournals(journals || []);
+    // When GL engine has posted, ignore legacy free-text journals (prevents double Bank inflow)
+    const hasEnginePosts = allActive.some(j => j.glEngine === true);
+    const journalList = hasEnginePosts ? allActive.filter(j => j.glEngine === true) : allActive;
+    journalList.forEach(j => {
       // activeGlJournals already drops reversed originals that have a reverse batch
       (j.entries || []).forEach(e => {
         if (!isCashBankLine(e)) return;

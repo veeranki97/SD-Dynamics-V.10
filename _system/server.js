@@ -1294,10 +1294,32 @@ app.post('/api/journals', (req, res) => {
     const j = req.body || {};
     if (!assertPeriodNotLocked(j.date || j.createdAt, res)) return;
 
+    // Single writer: when engine ON, do not accept legacy auto payment/invoice/expense journals
+    // from the browser (they duplicate afterReceiptSaved / afterTaxInvoiceSaved).
+    try {
+      const metaGate = { ...(readJSON(META_PATH, {}) || {}), ...(readJSON(typeof META_PATH_GL !== 'undefined' ? META_PATH_GL : META_PATH, {}) || {}) };
+      const engineOn = metaGate.useGlEngine === true || metaGate.useGlEngine === 'true' || metaGate.useGlEngine === 1;
+      if (engineOn && !j.glEngine && !j.sourceType) {
+        const rt = String(j.refType || j.type || '').toLowerCase();
+        const id = String(j.id || '');
+        const narr = String(j.narration || '').toLowerCase();
+        const isAuto =
+          ['payment', 'receipt', 'advance', 'invoice', 'expense', 'purchase', 'payment-reversal'].includes(rt) ||
+          id.startsWith('jnl_pay_') || id.startsWith('jnl_inv_') || id.startsWith('jnl_exp_') ||
+          id.startsWith('jnl_rcp') || id.startsWith('jnl_rec') ||
+          (narr.includes('receipt against') && !j.glEngine);
+        if (isAuto) {
+          return res.json({ success: true, skipped: true, reason: 'gl_engine_owns_posting' });
+        }
+      }
+    } catch (gateErr) {
+      console.warn('[gl] journal gate', gateErr.message);
+    }
+
     // When GL engine on and client sends sourceType+lines, use postDocument
     try {
-      const meta = readJSON(META_PATH_GL, {}) || {};
-      if (meta.useGlEngine && j.sourceType && Array.isArray(j.lines) && j.lines.length) {
+      const meta = readJSON(typeof META_PATH_GL !== 'undefined' ? META_PATH_GL : META_PATH, {}) || {};
+      if ((meta.useGlEngine === true || meta.useGlEngine === 'true' || meta.useGlEngine === 1) && j.sourceType && Array.isArray(j.lines) && j.lines.length) {
         const result = glCtx.engine.postDocument({
           sourceType: j.sourceType,
           sourceId: j.sourceId || j.id || ('jnl_' + Date.now()),

@@ -848,6 +848,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // decide whether subsequent saves need overwrite: true (they do — same
   // invoice number, otherwise the server 409s).
   const hasBeenSaved = useRef(!!editingBill);
+  // After final save: lock editor until user clicks Edit (prevents silent re-saves)
+  const [formLocked, setFormLocked] = useState(() => {
+    if (!editingBill || editingBill._isDuplicate || editingBill._convertToType) return false;
+    const ds = Number(editingBill.docstatus);
+    if (ds === 1) return true;
+    // Existing saved bill opened from list → start locked; Edit unlocks
+    if (editingBill.id && !editingBill._isDuplicate) return true;
+    return false;
+  });
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [pendingSaveKind, setPendingSaveKind] = useState(null); // 'save' | 'pdf' | 'print'
+
 
   const typeConfig = INVOICE_TYPES[invoiceType];
   // CRITICAL FIX: GST% column must follow DOCUMENT TYPE, not sticky localStorage/server options.
@@ -986,7 +998,8 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // Returns null when the invoice is fit to save, otherwise the specific
   // reason, so the user is told which field is missing rather than just
   // being refused.
-  const validateForSave = useCallback(() => {
+  
+const validateForSave = useCallback(() => {
     if (!client?.name?.trim()) {
       return 'Add a client name before saving.';
     }
@@ -1372,6 +1385,32 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     items, profile, client, details, showGST, taxInclusive,
     invoiceOptions: { ...invoiceOptions, showDiscount: false, invoiceDiscountValue: 0 },
   }), [items, client.state, client?.country, client?.gstin, client?.isSEZ, profile?.state, profile?.country, profile?.gstin, showGST, taxInclusive, invoiceOptions.showRoundOff, invoiceOptions.showTDS, invoiceOptions.tdsRate, invoiceOptions.tdsCumulativeThisYear, invoiceOptions.showTCS, invoiceOptions.tcsRate, invoiceOptions.tcsCumulativeThisYear, invoiceOptions.reverseCharge, invoiceOptions.invoiceDiscountValue, invoiceOptions.invoiceDiscountType, details?.placeOfSupply]);
+
+  const buildTaxInvoiceChecklist = useCallback(() => {
+    const invT = String(invoiceType || '').toLowerCase();
+    const isTax = invT.includes('tax') && !invT.includes('credit');
+    if (!isTax) return [];
+    const gstin = String(client?.gstin || '').replace(/\s/g, '');
+    const isB2B = gstin.length >= 15;
+    const itemsList = items || [];
+    const badHsn = itemsList.filter(it => {
+      const h = String(it.hsn || it.sac || '').replace(/\D/g, '');
+      return (Number(it.quantity) || Number(it.qty) || 0) > 0 && h.length > 0 && h.length < 4;
+    });
+    const missingHsn = isB2B && itemsList.some(it => {
+      const h = String(it.hsn || it.sac || '').replace(/\D/g, '');
+      return (Number(it.quantity) || Number(it.qty) || 0) > 0 && h.length < 4;
+    });
+    const rows = [
+      { id: 'client', ok: !!(client?.name || '').trim(), label: 'Client name present' },
+      { id: 'gstin', ok: !isB2B || gstin.length === 15, label: isB2B ? 'B2B GSTIN (15 chars)' : 'B2C (GSTIN optional)' },
+      { id: 'hsn', ok: !missingHsn, label: isB2B ? 'HSN/SAC ≥ 4 digits on every line' : 'HSN/SAC where entered ≥ 4 digits' },
+      { id: 'items', ok: itemsList.some(it => (Number(it.quantity)||Number(it.qty)||0) > 0 && (Number(it.rate)||0) >= 0), label: 'At least one line item' },
+      { id: 'totals', ok: (Number(totals?.total) || Number(totals?.grandTotal) || 0) > 0, label: 'Grand total > 0' },
+    ];
+    return rows;
+  }, [invoiceType, client, items, totals]);
+
 
   // v1.10.24 — Compute available client credit from prior overpayments.
   // Excludes the bill we're editing (that would double-count our own
@@ -3403,6 +3442,15 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 .ig-billing-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:10px;font-size:0.82rem;}
 
 .ig-panel{padding:10px 12px!important;margin-bottom:10px!important;}
+.ig-form-locked{opacity:0.72;pointer-events:none;user-select:none;}
+.ig-form-locked .ig-wo-badge{pointer-events:auto;}
+      {formLocked && (
+        <div style={{ margin: '0 0 10px', padding: '8px 12px', borderRadius: 8, background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>This invoice is saved. Click <strong>Edit</strong> to change details, then Save again.</span>
+          <button type="button" className="btn btn-sm btn-secondary" onClick={() => setFormLocked(false)}>Edit</button>
+        </div>
+      )}
+
 .editor-pane .form-group{margin-bottom:0.5rem!important;}
 `}</style>
       <div className="generator-toolbar ig-fixed-savebar">
@@ -3490,30 +3538,43 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               also fires the same "save to Saved Invoices/ folder"
               + auto-print + Drive sync side effects that generatePDF
               does — minus the PDF file. */}
+          {formLocked ? (
+            <button type="button" className="btn btn-secondary" onClick={() => { setFormLocked(false); toast('Editing unlocked — save again when done', 'info'); }}
+              title="Unlock fields to edit this saved invoice">
+              <Pencil size={18} /> Edit
+            </button>
+          ) : null}
           <button className="btn btn-primary" onClick={async () => {
-            // v1.10.58 (#47) — refuse a blank invoice. Saving reserves an
-            // invoice number, so an empty save leaves a permanent gap in a
-            // sequence GST expects to be gapless.
+            if (formLocked) { toast('Click Edit first to change a saved invoice', 'warning'); return; }
             const problem = validateForSave();
             if (problem) { toast(problem, 'warning'); return; }
+            const invT = String(invoiceType || '').toLowerCase();
+            const isTax = invT.includes('tax') && !invT.includes('credit');
+            if (isTax) {
+              setPendingSaveKind('save');
+              setShowChecklist(true);
+              return;
+            }
             try {
               setSaving(true);
               await saveInvoiceToDB();
               clearDraft();
+              setFormLocked(true);
+              hasBeenSaved.current = true;
               toast('Invoice saved', 'success');
             } catch (err) {
-              if (err?.status !== 409) {  // 409 already handled by retry inside saveInvoiceToDB
+              if (err?.status !== 409) {
                 console.error('Save failed', err);
                 toast((err && (err.message || err.error)) ? `Save failed: ${err.message || err.error}` : 'Save failed — try again', 'error');
               }
             } finally {
               setSaving(false);
             }
-          }} disabled={saving}
-          title="Save the invoice without downloading (Ctrl+S)">
+          }} disabled={saving || formLocked}
+          title={formLocked ? 'Click Edit to unlock' : 'Save the invoice without downloading (Ctrl+S)'}>
             <Check size={18} /> {saving ? 'Saving…' : 'Save'}
           </button>
-          <button className="btn btn-secondary" onClick={generatePDF} disabled={saving}
+          <button className="btn btn-secondary" onClick={generatePDF} disabled={saving || formLocked}
             title="Save + download the PDF">
             <Download size={18} /> {saving ? 'Generating...' : 'Save & Download'}
           </button>
@@ -3548,7 +3609,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       </div>
 
       <div className={`split-view ${previewCollapsed ? 'split-view-focus' : ''}`}>
-        <div className="editor-pane">
+        <div className={"editor-pane" + (formLocked ? " ig-form-locked" : "")}>
           {/* Business Profile Selector — shown only if multiple profiles saved */}
           {allProfiles.length > 1 && (
             <div className="glass-panel ig-panel">
@@ -5029,6 +5090,50 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           (the on-screen preview), so what the user sees IS what the
           printer receives. See PrintPreviewModal.jsx for the "why not
           re-serialize" rationale. */}
+      {showChecklist && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => { setShowChecklist(false); setPendingSaveKind(null); }}>
+          <div className="glass-panel" style={{ maxWidth: 440, width: '100%', padding: '1.25rem', background: 'var(--surface,#fff)', borderRadius: 12 }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.05rem' }}>Document checklist</h3>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: '#64748b' }}>Review before finalizing this tax invoice.</p>
+            <ul style={{ margin: '0 0 1rem', paddingLeft: '1.1rem', fontSize: '0.88rem' }}>
+              {buildTaxInvoiceChecklist().map(row => (
+                <li key={row.id} style={{ color: row.ok ? '#15803d' : '#b91c1c', marginBottom: 4 }}>
+                  {row.ok ? '✓' : '✗'} {row.label}
+                </li>
+              ))}
+            </ul>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => { setShowChecklist(false); setPendingSaveKind(null); }}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={async () => {
+                const fails = buildTaxInvoiceChecklist().filter(r => !r.ok);
+                if (fails.length) {
+                  const block = fails.some(f => f.id === 'client' || f.id === 'items');
+                  if (block) { toast('Fix required checklist items first', 'warning'); return; }
+                  toast('Some checklist warnings remain — saving anyway', 'warning');
+                }
+                setShowChecklist(false);
+                try {
+                  setSaving(true);
+                  await saveInvoiceToDB();
+                  clearDraft();
+                  setFormLocked(true);
+                  hasBeenSaved.current = true;
+                  toast('Invoice saved', 'success');
+                } catch (err) {
+                  if (err?.status !== 409) toast((err && err.message) || 'Save failed', 'error');
+                } finally {
+                  setSaving(false);
+                  setPendingSaveKind(null);
+                }
+              }}>Confirm & Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v1.10.36 — Portal print preview modal for thermal invoices. */}
       <PrintPreviewModal
         isOpen={showPrintPreview}
         onClose={() => setShowPrintPreview(false)}
@@ -5046,8 +5151,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         invoiceOptions={invoiceOptions}
       />
 
-      {/* P2 #32 — 3-option leave modal. Replaces the previous confusing
-          browser confirm() where OK=save was counterintuitive. */}
       {leaveModal && (
         <div className="modal-overlay" onClick={leaveActions.cancel}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>

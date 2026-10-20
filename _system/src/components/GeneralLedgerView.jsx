@@ -27,7 +27,9 @@ export default function GeneralLedgerView() {
     getAllJournals().then(js => {
       const flat = [];
       // Active only — hide reversed originals and pure reverse batches from audit list
-      const active = activeGlJournals(js || []);
+      const activeRaw = activeGlJournals(js || []);
+      const hasEngine = activeRaw.some(j => j.glEngine === true);
+      const active = hasEngine ? activeRaw.filter(j => j.glEngine === true) : activeRaw;
       active.forEach(j => {
         if (j.isReversed || j.IsReversed) return;
         (j.entries || []).forEach(e => {
