@@ -1299,15 +1299,19 @@ app.post('/api/journals', (req, res) => {
     try {
       const metaGate = { ...(readJSON(META_PATH, {}) || {}), ...(readJSON(typeof META_PATH_GL !== 'undefined' ? META_PATH_GL : META_PATH, {}) || {}) };
       const engineOn = metaGate.useGlEngine === true || metaGate.useGlEngine === 'true' || metaGate.useGlEngine === 1;
-      if (engineOn && !j.glEngine && !j.sourceType) {
-        const rt = String(j.refType || j.type || '').toLowerCase();
+      if (engineOn && !j.glEngine) {
+        const rt = String(j.refType || j.type || j.voucherType || '').toLowerCase();
         const id = String(j.id || '');
         const narr = String(j.narration || '').toLowerCase();
+        const st = String(j.sourceType || '').toLowerCase();
+        // Auto mirrors from invoice/receipt/expense UI — spine owns these
         const isAuto =
-          ['payment', 'receipt', 'advance', 'invoice', 'expense', 'purchase', 'payment-reversal'].includes(rt) ||
+          ['payment', 'receipt', 'advance', 'invoice', 'tax_invoice', 'expense', 'purchase', 'payment-reversal', 'bill'].includes(rt) ||
+          ['tax_invoice', 'receipt', 'expense', 'purchase', 'payment', 'vendor_payment'].includes(st) ||
           id.startsWith('jnl_pay_') || id.startsWith('jnl_inv_') || id.startsWith('jnl_exp_') ||
-          id.startsWith('jnl_rcp') || id.startsWith('jnl_rec') ||
-          (narr.includes('receipt against') && !j.glEngine);
+          id.startsWith('jnl_rcp') || id.startsWith('jnl_rec') || id.startsWith('jnl_bill_') ||
+          narr.includes('receipt against') || narr.includes('tax invoice') ||
+          narr.includes('advance received') || narr.includes('expense ');
         if (isAuto) {
           return res.json({ success: true, skipped: true, reason: 'gl_engine_owns_posting' });
         }

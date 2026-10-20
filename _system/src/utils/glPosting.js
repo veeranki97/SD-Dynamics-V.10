@@ -30,10 +30,12 @@ export function fromPaise(p) {
   return Math.round(Number(p) || 0) / 100;
 }
 
-/** Stable hash of normalised lines (accountId|account + debit/credit paise). */
+/** Stable hash: accountId only + debit/credit paise (ignore display name). */
 export function hashGlLines(lines) {
   const parts = (lines || []).map((e) => {
-    const id = String(e.accountId || e.account || '').trim().toLowerCase();
+    // Prefer resolved CoA id; fall back to name only if id missing (legacy rows)
+    const id = String(e.accountId || '').trim().toLowerCase()
+      || String(e.account || e.accountName || '').trim().toLowerCase();
     return id + ':' + toPaise(e.debit) + ':' + toPaise(e.credit);
   });
   parts.sort();
@@ -118,10 +120,13 @@ export function createGlEngine(deps) {
       if (debit === 0 && credit === 0) continue;
       let accountId = raw.accountId || null;
       let account = raw.account || raw.accountName || '';
-      const found = findAccount(accounts || [], accountId || account);
+      // Resolve by id, then code, then name so hash is always on stable CoA id
+      const found = findAccount(accounts || [], accountId || account)
+        || findAccount(accounts || [], account)
+        || (accountId ? findAccount(accounts || [], String(accountId).replace(/^acc_/, '')) : null);
       if (found) {
-        accountId = found.id;
-        account = found.name;
+        accountId = found.id || found.code || accountId;
+        account = found.name || account;
       }
       if (!account && !accountId) {
         const err = new Error('Each GL line needs accountId or account name');
@@ -174,7 +179,9 @@ export function createGlEngine(deps) {
         j.sourceType === sourceType &&
         String(j.sourceId) === String(sourceId) &&
         !j.isReversed &&
-        !j.IsReversed
+        !j.IsReversed &&
+        !j.isReversal && // reversal batches share sourceId — never treat as active prior
+        !j.reversesId
     );
   }
 
@@ -271,7 +278,14 @@ export function createGlEngine(deps) {
     }
     // Also compare live lines if older posts lack lineHash
     if (!identical && priors.length) {
-      const sameLive = priors.find((p) => hashGlLines(p.entries || []) === lineHash);
+      const sameLive = priors.find((p) => {
+        try {
+          const renorm = normalizeLines(p.entries || [], accounts);
+          return hashGlLines(renorm) === lineHash;
+        } catch (_) {
+          return hashGlLines(p.entries || []) === lineHash;
+        }
+      });
       if (sameLive) {
         // Backfill hash on existing post for next time
         try {

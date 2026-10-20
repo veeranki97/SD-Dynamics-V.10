@@ -100,21 +100,32 @@ export function linesExpense(exp, meta) {
   }
   const totalDr = lines.reduce((s, e) => s + e.debit, 0);
   // Paid now (Bank/Cash/UPI) → Cr Bank/Cash. Unpaid credit → Cr Creditors.
-  const mode = String(exp.paymentMode || exp.mode || exp.payMode || '').toLowerCase();
-  const status = String(exp.status || exp.paymentStatus || '').toLowerCase();
-  const paidFlag = exp.paid === true || exp.isPaid === true || Number(exp.paidAmount || 0) >= totalDr - 0.01;
-  const isCashLike = /cash|petty/.test(mode);
-  const isBankLike = /bank|upi|neft|rtgs|imps|card|cheque|online|transfer/.test(mode);
-  const isPaidNow = paidFlag || status === 'paid' || isCashLike || isBankLike || (!exp.vendorName && !exp.vendorId);
+  // Align field names from ExpenseTracker / imports (paymentMode, mode, method, …)
+  const mode = String(
+    exp.paymentMode || exp.mode || exp.payMode || exp.payment_method || exp.paymentMethod ||
+    exp.method || exp.paidVia || exp.payVia || ''
+  ).toLowerCase().replace(/[_-]+/g, ' ');
+  const status = String(exp.status || exp.paymentStatus || exp.payStatus || '').toLowerCase();
+  const paidFlag = exp.paid === true || exp.isPaid === true || exp.paidNow === true
+    || Number(exp.paidAmount || 0) >= totalDr - 0.01;
+  const isCashLike = /\bcash\b|petty/.test(mode);
+  const isBankLike = /bank|upi|neft|rtgs|imps|card|cheque|check|online|transfer|wallet|razorpay|paytm/.test(mode);
+  const isPaidNow = paidFlag || status === 'paid' || status === 'settled' || isCashLike || isBankLike
+    || (!exp.vendorName && !exp.vendorId && !exp.supplierName);
   let creditAcc;
   let partyType = null;
   let partyId = '';
   if (isPaidNow) {
     creditAcc = isCashLike ? mapId(meta, 'cash') : mapId(meta, 'operatingBank');
-  } else if (exp.vendorName || exp.vendorId) {
+  } else if (exp.vendorName || exp.vendorId || exp.supplierName) {
     creditAcc = mapId(meta, 'payables');
     partyType = 'vendor';
-    partyId = exp.vendorName || exp.vendorId || '';
+    partyId = exp.vendorName || exp.supplierName || exp.vendorId || '';
+    try {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[gl] expense Cr creditors (not bank) id=' + (exp.id || '') + ' mode=' + mode + ' status=' + status);
+      }
+    } catch (_) { /* */ }
   } else {
     creditAcc = mapId(meta, 'operatingBank');
   }
