@@ -27,12 +27,20 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // alpha lets the underlying row bg show through and works in both
 // themes.
 const isPaymentDocType = (t) => {
-  // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
+  // Tax invoice: receipt vs Sundry Debtors.
+  // Proforma / PI: advance receipt (allowed; GL uses Advance from Customers).
+  // Quotation, Delivery Challan, Credit/Debit note: no payment from this menu.
   const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
   if (!s || s === 'invoice') return true;
-  if (s.includes('proforma') || s.includes('quotation') || s.includes('estimate') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
+  if (s.includes('proforma')) return true;
+  if (s.includes('quotation') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
+  // bare "estimate" without proforma → treat as quotation-like
+  if (s.includes('estimate') && !s.includes('proforma')) return false;
   return s === 'tax-invoice' || s.includes('tax-invoice') || (s.includes('tax') && !s.includes('credit'));
 };
+
+const isProformaDocType = (t) => String(t || '').toLowerCase().includes('proforma');
+
 
 const STATUS_CONFIG = {
   unpaid:  { label: 'Unpaid',  icon: Clock,          color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)' },
@@ -2184,7 +2192,7 @@ const openPaymentModal = (bill) => {
                             && !bill.data?.convertedLocked
                             && (!(String(bill.invoiceType||'').includes('quot')) || String(bill.status||'').toLowerCase() === 'accepted')
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
-                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: isProformaDocType(bill.invoiceType) ? 'Record Advance' : 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
                           (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Draft', onClick: () => handleStatusChange(bill, 'draft') } : null,
