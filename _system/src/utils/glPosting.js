@@ -407,6 +407,8 @@ export function activeGlJournals(journals) {
   return list.filter((j) => {
     if (!j) return false;
     if (j.isReversed || j.IsReversed || j.reversed) return false;
+    if (j.isReversal) return false;
+    if (j.reversesId) return false;
     if (reversedIds.has(j.id)) return false;
     return true;
   });

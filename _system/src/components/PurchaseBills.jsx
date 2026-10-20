@@ -2,7 +2,7 @@ import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
 import HelpButton from './HelpButton';
-import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBudgets } from '../store';
+import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBudgets, getNextInvoiceNumber } from '../store';
 import { getAllWorkOrders as fetchWOs, getAllCostCenters as fetchCCs } from '../store';
 import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode, getFinancialYearLabel } from '../utils';
 import { ACCOUNTS } from '../utils/ledger';
@@ -42,6 +42,7 @@ const PAYMENT_STATUSES = ['Unpaid', 'Paid', 'Partial'];
 const emptyItem = { name: '', hsn: '', quantity: 1, rate: 0, taxPercent: 18, cessPercent: 0 };
 
 const emptyForm = {
+  purchaseNumber: '',
   date: (function(){const d=new Date();const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());})(),
   supplierName: '',
   // v1.10.29 — supplier address for the PDF header. Optional; blank
@@ -257,14 +258,21 @@ export default function PurchaseBills() {
     return { taxable: acc.taxable + t.taxable, tax: acc.tax + t.tax, total: acc.total + t.finalTotal };
   }, { taxable: 0, tax: 0, total: 0 });
 
-  const openAdd = () => {
-    setForm({ ...emptyForm, items: [{ ...emptyItem }] });
+  const openAdd = async () => {
     setEditingId(null);
+    setForm({ ...emptyForm, items: [{ ...emptyItem }] });
     setShowForm(true);
+    try {
+      const num = await getNextInvoiceNumber('PUR', { explicitPrefix: true });
+      setForm(prev => ({ ...prev, purchaseNumber: num || prev.purchaseNumber || '' }));
+    } catch (e) {
+      console.warn('[purchase] next PUR number', e);
+    }
   };
 
   const openEdit = (purchase) => {
     setForm({
+      purchaseNumber: purchase.purchaseNumber || purchase.voucherNo || purchase.billNumber || '',
       date: purchase.date || '',
       supplierName: purchase.supplierName || '',
       supplierAddress: purchase.supplierAddress || '',
@@ -458,8 +466,19 @@ export default function PurchaseBills() {
         }
       }
 
+      let voucherNo = (form.purchaseNumber || '').trim();
+      if (!editingId && !voucherNo) {
+        try {
+          voucherNo = await getNextInvoiceNumber('PUR', { explicitPrefix: true });
+        } catch (e) {
+          console.warn('[purchase] allocate PUR on save', e);
+        }
+      }
       const purchase = {
         ...(editingId ? { id: editingId } : {}),
+        purchaseNumber: voucherNo || undefined,
+        voucherNo: voucherNo || undefined,
+        billNumber: voucherNo || undefined,
         date: form.date,
         supplierName: form.supplierName.trim(),
         supplierAddress: (form.supplierAddress || '').trim(),
@@ -1105,7 +1124,17 @@ export default function PurchaseBills() {
                   onChange={e => updateField('linkedPO', e.target.value)} placeholder="PO number (if any)" />
               </div>
 <div className="form-group">
-                <label className="form-label">Invoice Number *</label>
+                <label className="form-label">Our Voucher No.</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  disabled
+                  value={form.purchaseNumber || (editingId ? String(editingId) : 'New (assigning…)')}
+                  style={{ backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed', borderColor: '#cbd5e1' }}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Supplier Invoice No. *</label>
                 <input type="text" className="form-input" value={form.invoiceNumber}
                   onChange={e => updateField('invoiceNumber', e.target.value)} placeholder="Supplier invoice no." />
               </div>
@@ -1281,7 +1310,7 @@ export default function PurchaseBills() {
                       <td className="text-muted">{p.date ? new Date(p.date).toLocaleDateString('en-IN') : ''}</td>
                       <td className="font-medium">{p.supplierName}</td>
                       <td className="text-muted" style={{ fontSize: '0.78rem' }}>{p.supplierGstin || '-'}</td>
-                      <td><span className="invoice-badge">{p.invoiceNumber}</span></td>
+                      <td><span className="invoice-badge">{p.purchaseNumber || p.voucherNo || p.invoiceNumber}</span></td>
                       <td style={{ textAlign: 'right' }}>{formatCurrency(t.taxable)}</td>
                       <td style={{ textAlign: 'right' }} className="text-muted">{formatCurrency(t.tax)}</td>
                       <td style={{ textAlign: 'right' }} className="font-bold">{formatCurrency(t.finalTotal)}</td>

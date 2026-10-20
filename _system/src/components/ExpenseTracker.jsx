@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Wallet, Plus, Edit3, Trash2, Search, X, Save, Download, Calendar } from 'lucide-react';
-import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity } from '../store';
+import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity, getNextInvoiceNumber } from '../store';
 import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
 import { journalFromExpense } from '../utils/ledger';
@@ -13,6 +13,7 @@ import { confirmAction } from './ConfirmModal';
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
 
 const emptyForm = {
+  expenseNumber: '',
   workOrderId: '',
     poNumber: '',
     isSubcontract: false,
@@ -126,14 +127,21 @@ export default function ExpenseTracker() {
   const totalAmount = filtered.reduce((s, e) => s + (e.amount || 0), 0);
   const totalGST = filtered.reduce((s, e) => s + (e.gstAmount || 0), 0);
 
-  const openAdd = () => {
-    setForm({ ...emptyForm });
+  const openAdd = async () => {
     setEditingId(null);
+    setForm({ ...emptyForm });
     setShowForm(true);
+    try {
+      const num = await getNextInvoiceNumber('EXP', { explicitPrefix: true });
+      setForm(prev => ({ ...prev, expenseNumber: num || prev.expenseNumber || '' }));
+    } catch (e) {
+      console.warn('[expense] next EXP number', e);
+    }
   };
 
   const openEdit = (exp) => {
     setForm({
+      expenseNumber: exp.expenseNumber || exp.voucherNo || exp.voucherNumber || '',
       date: exp.date || '',
       description: exp.description || '',
       category: exp.category || 'Other',
@@ -169,8 +177,18 @@ export default function ExpenseTracker() {
     if (!form.description.trim()) { toast('Description is required', 'warning'); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter a valid amount', 'warning'); return; }
     try {
+      let voucherNo = (form.expenseNumber || '').trim();
+      if (!editingId && !voucherNo) {
+        try {
+          voucherNo = await getNextInvoiceNumber('EXP', { explicitPrefix: true });
+        } catch (e) {
+          console.warn('[expense] allocate EXP on save', e);
+        }
+      }
       const expense = {
         ...(editingId ? { id: editingId } : {}),
+        expenseNumber: voucherNo || undefined,
+        voucherNo: voucherNo || undefined,
         date: form.date,
         description: form.description.trim(),
         category: form.category,
@@ -369,12 +387,12 @@ export default function ExpenseTracker() {
               
               {/* Row 1: Number (Disabled/Greyed out), Date, Category */}
               <div className="form-group">
-                <label className="form-label">Expense #</label>
+                <label className="form-label">Voucher No.</label>
                 <input 
                   type="text" 
                   className="form-input" 
                   disabled 
-                  value={editingId ? `EXP-${editingId}` : `EXP-${expenses.length + 1} (New)`} 
+                  value={form.expenseNumber || (editingId ? String(editingId) : 'New (assigning…)')} 
                   style={{ backgroundColor: '#f1f5f9', color: '#64748b', cursor: 'not-allowed', borderColor: '#cbd5e1' }} 
                 />
               </div>

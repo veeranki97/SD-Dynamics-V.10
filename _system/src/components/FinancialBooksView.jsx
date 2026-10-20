@@ -32,6 +32,7 @@ export default function FinancialBooksView() {
   const [useGlEngine, setUseGlEngine] = useState(false);
   const [accounts, setAccounts] = useState([]);
   const [ledgerAccountId, setLedgerAccountId] = useState('');
+  const [showGlReversals, setShowGlReversals] = useState(false);
   const [opRows, setOpRows] = useState([{ accountId: '', debit: '', credit: '' }]);
   const [mjLines, setMjLines] = useState([
     { accountId: '', debit: '', credit: '' },
@@ -553,13 +554,17 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
 
       {tab === 'ledger' && (
         <div className="glass-panel" style={{ padding: 12 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <select className="form-input" style={{ minWidth: 220 }} value={ledgerAccountId} onChange={e => setLedgerAccountId(e.target.value)}>
               <option value="">Select account</option>
               {(accounts || []).filter(a => !a.isGroup && a.isActive !== false).map(a => (
                 <option key={a.id} value={a.id}>{(a.code ? a.code + ' — ' : '') + a.name}</option>
               ))}
             </select>
+            <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: '#64748b' }}>
+              <input type="checkbox" checked={showGlReversals} onChange={e => setShowGlReversals(e.target.checked)} />
+              Show reversals
+            </label>
           </div>
           <div className="table-responsive">
             <table className="data-table" style={{ width: '100%' }}>
@@ -568,15 +573,19 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                 {(() => {
                   let bal = 0;
                   const rows = [];
-                  activeGlJournals(scopedJournals).filter(j => !asOf || String(j.date).slice(0,10) <= asOf).forEach(j => {
+                  const src = showGlReversals
+                    ? (scopedJournals || []).filter(j => j && (!asOf || String(j.date).slice(0, 10) <= asOf))
+                    : activeGlJournals(scopedJournals).filter(j => !asOf || String(j.date).slice(0, 10) <= asOf);
+                  src.forEach(j => {
                     (j.entries || []).forEach(e => {
                       const match = ledgerAccountId && (e.accountId === ledgerAccountId || e.account === (accounts.find(a => a.id === ledgerAccountId) || {}).name);
                       if (!ledgerAccountId || !match) return;
                       bal += (Number(e.debit) || 0) - (Number(e.credit) || 0);
+                      const tag = j.isReversal ? ' [REV]' : (j.isReversed ? ' [REVERSED]' : '');
                       rows.push(
-                        <tr key={j.id + '-' + rows.length}>
+                        <tr key={j.id + '-' + rows.length} style={j.isReversal || j.isReversed ? { opacity: 0.65 } : undefined}>
                           <td>{j.date}</td>
-                          <td>{j.narration}</td>
+                          <td>{(j.narration || '') + tag}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(e.debit)}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(e.credit)}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(bal)}</td>

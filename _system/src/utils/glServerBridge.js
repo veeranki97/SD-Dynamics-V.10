@@ -257,11 +257,12 @@ export function afterExpenseSaved(ctx, exp) {
   const meta = ctx.getMeta();
   const lines = linesExpense(exp, meta);
   if (!lines) return { skipped: true };
+  const expLabel = exp.expenseNumber || exp.voucherNo || exp.voucherNumber || exp.id;
   return safePost(ctx, {
     sourceType: 'expense',
     sourceId: exp.id,
     date: exp.date || exp.expenseDate || new Date().toISOString().slice(0, 10),
-    narration: 'Expense ' + (exp.category || exp.id),
+    narration: 'Expense ' + expLabel + (exp.category ? ' — ' + exp.category : ''),
     lines,
   });
 }
@@ -270,11 +271,12 @@ export function afterPurchaseSaved(ctx, purch) {
   const meta = ctx.getMeta();
   const lines = linesPurchase(purch, meta);
   if (!lines) return { skipped: true };
+  const purLabel = purch.purchaseNumber || purch.voucherNo || purch.billNumber || purch.invoiceNumber || purch.id;
   return safePost(ctx, {
     sourceType: 'purchase',
     sourceId: purch.id || purch.billNumber,
     date: purch.date || purch.billDate || new Date().toISOString().slice(0, 10),
-    narration: 'Purchase ' + (purch.billNumber || purch.id),
+    narration: 'Purchase ' + purLabel + (purch.invoiceNumber && purLabel !== purch.invoiceNumber ? ' (sup. inv ' + purch.invoiceNumber + ')' : ''),
     lines,
   });
 }
