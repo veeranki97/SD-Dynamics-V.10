@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { getAllJournals, saveJournal, getAllBills, getAllExpenses, getAllWorkOrders, getAllCostCenters, getProfile } from '../store';
+import { getAllJournals, saveJournal, getAllBills, getAllExpenses, getAllWorkOrders, getAllCostCenters, getProfile, getAllAccounts } from '../store';
 import { formatCurrency } from '../utils';
 import {
   trialBalance, balanceSheet, computeTradingPnL, siteWisePnL,
   woWisePnL, costCenterWisePnL, filterJournalsByProfile,
   periodCloseJournal, bankBalance, lockMonth, unlockMonth, isMonthLocked,
 } from '../utils/ledger';
+import { trialBalanceFromJournals, activeGlJournals } from '../utils/glPosting';
+import { linesOpeningFromRows, linesPeriodClose } from '../utils/glRecipes';
 import { toast } from './Toast';
 import { downloadCsv, printHtmlTable } from '../utils/exportData';
 
@@ -27,11 +29,26 @@ export default function FinancialBooksView() {
     const d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   });
+  const [useGlEngine, setUseGlEngine] = useState(false);
+  const [accounts, setAccounts] = useState([]);
+  const [ledgerAccountId, setLedgerAccountId] = useState('');
+  const [opRows, setOpRows] = useState([{ accountId: '', debit: '', credit: '' }]);
+  const [mjLines, setMjLines] = useState([
+    { accountId: '', debit: '', credit: '' },
+    { accountId: '', debit: '', credit: '' },
+  ]);
+  const [mjDate, setMjDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mjNarr, setMjNarr] = useState('');
 
   const [profile, setProfile] = useState(null);
   const load = () => {
     getAllJournals().then(setJournals).catch(() => toast('Failed to load journals', 'error'));
     getProfile().then(setProfile).catch(() => setProfile(null));
+    getAllAccounts().then((a) => setAccounts(Array.isArray(a) ? a : [])).catch(() => setAccounts([]));
+    fetch('/api/meta/useGlEngine', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((d) => setUseGlEngine(!!d.value))
+      .catch(() => {});
   };
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -87,7 +104,13 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
     setTimeout(() => { try { iframe.contentWindow.print(); } catch(_){} document.title = prev; }, 400);
   };
 
-  const tb = useMemo(() => trialBalance(scopedJournals, asOf), [scopedJournals, asOf]);
+  const tb = useMemo(() => {
+    if (useGlEngine) {
+      const rows = trialBalanceFromJournals(scopedJournals, asOf);
+      return rows.map((r) => ({ account: r.account, debit: r.debit, credit: r.credit, accountId: r.accountId }));
+    }
+    return trialBalance(scopedJournals, asOf);
+  }, [scopedJournals, asOf, useGlEngine]);
   const bs = useMemo(() => balanceSheet(scopedJournals, asOf), [scopedJournals, asOf]);
   const pnl = useMemo(() => computeTradingPnL(scopedJournals, from, asOf), [scopedJournals, from, asOf]);
   const sites = useMemo(() => {
@@ -240,6 +263,10 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
     { id: 'site', label: 'Site-wise P&L' },
     { id: 'wo', label: 'WO-wise P&L' },
     { id: 'cc', label: 'Cost Center P&L' },
+    { id: 'ledger', label: 'Account Ledger' },
+    { id: 'opening', label: 'Opening Balances' },
+    { id: 'manual', label: 'Manual Journal' },
+    { id: 'gl', label: 'GL Engine' },
     { id: 'lock', label: 'Period Lock' },
   ];
 
@@ -477,6 +504,175 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+
+      {tab === 'ledger' && (
+        <div className="glass-panel" style={{ padding: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <select className="form-input" style={{ minWidth: 220 }} value={ledgerAccountId} onChange={e => setLedgerAccountId(e.target.value)}>
+              <option value="">Select account</option>
+              {(accounts || []).filter(a => !a.isGroup && a.isActive !== false).map(a => (
+                <option key={a.id} value={a.id}>{(a.code ? a.code + ' — ' : '') + a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="table-responsive">
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead><tr><th>Date</th><th>Narration</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+              <tbody>
+                {(() => {
+                  let bal = 0;
+                  const rows = [];
+                  activeGlJournals(scopedJournals).filter(j => !asOf || String(j.date).slice(0,10) <= asOf).forEach(j => {
+                    (j.entries || []).forEach(e => {
+                      const match = ledgerAccountId && (e.accountId === ledgerAccountId || e.account === (accounts.find(a => a.id === ledgerAccountId) || {}).name);
+                      if (!ledgerAccountId || !match) return;
+                      bal += (Number(e.debit) || 0) - (Number(e.credit) || 0);
+                      rows.push(
+                        <tr key={j.id + '-' + rows.length}>
+                          <td>{j.date}</td>
+                          <td>{j.narration}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(e.debit)}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(e.credit)}</td>
+                          <td style={{ textAlign: 'right' }}>{formatCurrency(bal)}</td>
+                        </tr>
+                      );
+                    });
+                  });
+                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (or select an account).</td></tr>;
+                  return rows;
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'opening' && (
+        <div className="glass-panel" style={{ padding: 12, maxWidth: 720 }}>
+          <p style={{ fontSize: 13, color: '#64748b' }}>Opening balances for FY start. Must balance (Dr = Cr). Posts only when GL engine is ON.</p>
+          {opRows.map((row, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+              <select className="form-input" value={row.accountId} onChange={e => setOpRows(prev => prev.map((r, j) => j === i ? { ...r, accountId: e.target.value } : r))}>
+                <option value="">Account</option>
+                {(accounts || []).filter(a => !a.isGroup).map(a => (
+                  <option key={a.id} value={a.id}>{(a.code ? a.code + ' ' : '') + a.name}</option>
+                ))}
+              </select>
+              <input type="number" className="form-input" placeholder="Dr" value={row.debit} onChange={e => setOpRows(prev => prev.map((r, j) => j === i ? { ...r, debit: e.target.value } : r))} />
+              <input type="number" className="form-input" placeholder="Cr" value={row.credit} onChange={e => setOpRows(prev => prev.map((r, j) => j === i ? { ...r, credit: e.target.value } : r))} />
+              <button type="button" className="btn btn-sm btn-secondary" onClick={() => setOpRows(prev => prev.filter((_, j) => j !== i))}>×</button>
+            </div>
+          ))}
+          <button type="button" className="btn btn-sm btn-secondary" onClick={() => setOpRows(prev => [...prev, { accountId: '', debit: '', credit: '' }])}>+ Line</button>
+          <button type="button" className="btn btn-primary" style={{ marginLeft: 8 }} onClick={async () => {
+            if (!useGlEngine) { toast('Enable GL Engine first (GL Engine tab)', 'warning'); return; }
+            const lines = linesOpeningFromRows(opRows);
+            const dr = lines.reduce((s, e) => s + e.debit, 0);
+            const cr = lines.reduce((s, e) => s + e.credit, 0);
+            if (Math.abs(dr - cr) > 0.01) { toast('Opening must balance', 'error'); return; }
+            try {
+              const res = await fetch('/api/gl/post', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sourceType: 'opening_balance',
+                  sourceId: 'op_' + from,
+                  date: from,
+                  narration: 'Opening balances ' + from,
+                  lines,
+                }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.message || data.error || 'Failed');
+              toast('Opening balances posted', 'success');
+              load();
+            } catch (e) { toast(e.message || 'Post failed', 'error'); }
+          }}>Post opening</button>
+        </div>
+      )}
+
+      {tab === 'manual' && (
+        <div className="glass-panel" style={{ padding: 12, maxWidth: 720 }}>
+          <p style={{ fontSize: 13, color: '#64748b' }}>Balanced manual journal. Uses /api/gl/post when engine ON; otherwise legacy saveJournal.</p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            <input type="date" className="form-input" value={mjDate} onChange={e => setMjDate(e.target.value)} />
+            <input className="form-input" style={{ flex: 1 }} placeholder="Narration" value={mjNarr} onChange={e => setMjNarr(e.target.value)} />
+          </div>
+          {mjLines.map((row, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <select className="form-input" value={row.accountId} onChange={e => setMjLines(prev => prev.map((r, j) => j === i ? { ...r, accountId: e.target.value } : r))}>
+                <option value="">Account</option>
+                {(accounts || []).filter(a => !a.isGroup).map(a => (
+                  <option key={a.id} value={a.id}>{(a.code ? a.code + ' ' : '') + a.name}</option>
+                ))}
+              </select>
+              <input type="number" className="form-input" placeholder="Debit" value={row.debit} onChange={e => setMjLines(prev => prev.map((r, j) => j === i ? { ...r, debit: e.target.value } : r))} />
+              <input type="number" className="form-input" placeholder="Credit" value={row.credit} onChange={e => setMjLines(prev => prev.map((r, j) => j === i ? { ...r, credit: e.target.value } : r))} />
+            </div>
+          ))}
+          <button type="button" className="btn btn-sm btn-secondary" onClick={() => setMjLines(prev => [...prev, { accountId: '', debit: '', credit: '' }])}>+ Line</button>
+          <button type="button" className="btn btn-primary" style={{ marginLeft: 8 }} onClick={async () => {
+            const lines = mjLines.filter(r => r.accountId && (Number(r.debit) || Number(r.credit)));
+            const dr = lines.reduce((s, e) => s + (Number(e.debit) || 0), 0);
+            const cr = lines.reduce((s, e) => s + (Number(e.credit) || 0), 0);
+            if (Math.abs(dr - cr) > 0.01) { toast('Journal must balance', 'error'); return; }
+            try {
+              if (useGlEngine) {
+                const res = await fetch('/api/gl/post', {
+                  method: 'POST', credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sourceType: 'manual_journal',
+                    sourceId: 'mj_' + Date.now(),
+                    date: mjDate,
+                    narration: mjNarr || 'Manual journal',
+                    lines: lines.map(l => ({ accountId: l.accountId, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })),
+                  }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || data.error || 'Failed');
+              } else {
+                await saveJournal({
+                  id: 'jnl_mj_' + Date.now().toString(36),
+                  date: mjDate,
+                  narration: mjNarr || 'Manual journal',
+                  entries: lines.map(l => {
+                    const acc = accounts.find(a => a.id === l.accountId);
+                    return { account: acc ? acc.name : l.accountId, accountId: l.accountId, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 };
+                  }),
+                });
+              }
+              toast('Journal saved', 'success');
+              load();
+            } catch (e) { toast(e.message || 'Save failed', 'error'); }
+          }}>Post journal</button>
+        </div>
+      )}
+
+      {tab === 'gl' && (
+        <div className="glass-panel" style={{ padding: 12, maxWidth: 480 }}>
+          <p style={{ fontSize: 13, color: '#64748b' }}>
+            GL Engine is <strong>{useGlEngine ? 'ON' : 'OFF'}</strong> (default OFF). When ON, tax invoices, receipts, expenses, and purchases post through postDocument (idempotent, balanced). When OFF, legacy journal writers run only.
+          </p>
+          <button type="button" className="btn btn-primary" onClick={async () => {
+            try {
+              const res = await fetch('/api/meta/useGlEngine', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: !useGlEngine }),
+              });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error || 'Failed');
+              setUseGlEngine(!!data.value);
+              toast(data.value ? 'GL Engine enabled' : 'GL Engine disabled (legacy)', 'success');
+            } catch (e) { toast(e.message || 'Could not toggle — is server bridge installed?', 'error'); }
+          }}>{useGlEngine ? 'Turn OFF engine' : 'Turn ON engine'}</button>
+          <p style={{ fontSize: 12, marginTop: 12, color: '#b45309' }}>
+            Enable only after Trial Balance balances on a sample manual journal.
+          </p>
         </div>
       )}
 
