@@ -4090,7 +4090,21 @@ async function processDueRecurring() {
             clientName: tpl.clientName,
             entries: jEntries,
           };
-          writeJSON(path.join(DATA_DIR, 'journals', safeFileName(jnlId) + '.json'), jnl);
+          // Single writer: when GL engine on, post via spine (not legacy free-text journal)
+          let engineOn = false;
+          try {
+            const m = readJSON(META_PATH, {}) || {};
+            engineOn = m.useGlEngine === true || m.useGlEngine === 'true' || m.useGlEngine === 1;
+          } catch (_) {}
+          if (engineOn && typeof afterTaxInvoiceSaved === 'function') {
+            try {
+              afterTaxInvoiceSaved(glCtx, bill);
+            } catch (ge) {
+              console.warn('[recurring] GL post failed:', ge.message);
+            }
+          } else {
+            writeJSON(path.join(DATA_DIR, 'journals', safeFileName(jnlId) + '.json'), jnl);
+          }
         } catch (je) {
           console.warn('[recurring] Journal auto-post failed:', je.message);
         }

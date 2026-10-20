@@ -1,14 +1,13 @@
-import { resolveWoCostCenter, resolveWoSite, extractBillWorkOrderRef, resolveBillCostCenterSite } from '../utils/workOrder';
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useRef } from 'react';
 import { Receipt, Plus, Trash2, Search, Printer, Pencil, Layers } from 'lucide-react';
 import { getAllReceipts, saveReceipt, deleteReceipt, getAllBills, getProfile, getNextInvoiceNumber, saveBill, saveJournal, getAllWorkOrders, getAllCostCenters, getAllClients } from '../store';
 import { journalFromPayment } from '../utils/ledger';
-import { checkPaymentCeiling } from '../utils/paymentGuard';
+import { saveJournalIfLegacy } from '../utils/glClient';
 import { formatCurrency, numberToWords, belongsToProfile, isUnassignedToBusiness } from '../utils';
 import { planBulkAllocation } from '../utils/bulkPayment';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
-import { downloadCsv } from '../utils/exportData';
 import { confirmAction } from './ConfirmModal';
 
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
@@ -109,7 +108,7 @@ export default function ReceiptVoucher() {
     const receiptNo = await getNextReceiptNo();
     setForm({ ...emptyForm, receiptNo });
     setEditingId(null);
-    setShowForm(true); refreshLinkMasters();
+    setShowForm(true);
   };
 
   // v1.10.16 — reported: "here also add edit option" — the Payment Receipts
@@ -133,46 +132,6 @@ export default function ReceiptVoucher() {
     });
     setEditingId(rcp.id);
     setShowForm(true);
-  };
-
-
-  const applyInvoiceLink = (inv) => {
-    const bill = (bills || []).find(b =>
-      String(b.invoiceNumber || b.id || '') === inv ||
-      String(b.invoiceNumber || '').toLowerCase() === String(inv || '').toLowerCase()
-    );
-    if (!bill) {
-      updateField('againstInvoice', inv || '');
-      return;
-    }
-    const rem = Math.max(0, (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0));
-    const linked = resolveBillCostCenterSite(bill, workOrders || [], costCenters || []);
-    setForm(f => ({
-      ...f,
-      againstInvoice: inv,
-      paymentType: 'invoice',
-      direction: 'in',
-      clientName: linked.clientName || bill.clientName || bill.data?.clientName || f.clientName,
-      amount: rem > 0 ? String(rem) : f.amount,
-      workOrderId: linked.workOrderId || f.workOrderId || '',
-      workOrderNo: linked.workOrderNo || f.workOrderNo || '',
-      costCenterId: linked.costCenterId || f.costCenterId || '',
-      site: linked.site || f.site || '',
-    }));
-  };
-
-
-  const refreshLinkMasters = async () => {
-    try {
-      const [wos, ccs, bs] = await Promise.all([
-        getAllWorkOrders().catch(() => []),
-        getAllCostCenters().catch(() => []),
-        getAllBills().catch(() => []),
-      ]);
-      setWorkOrders(wos || []);
-      setCostCenters(ccs || []);
-      if (bs && bs.length) setBills(bs);
-    } catch { /* ignore */ }
   };
 
   const closeForm = () => { setShowForm(false); setForm({ ...emptyForm }); setEditingId(null); };
@@ -219,10 +178,9 @@ export default function ReceiptVoucher() {
       const receipt = {
         ...form,
         receiptNo,
-        // Direction auto: vendor = out (negative amount); client/invoice/advance = in
-        amount: ((form.paymentType === 'vendor' || form.direction === 'out') ? -1 : 1) * Math.abs(parseFloat(form.amount) || 0),
+        amount: (form.direction === 'out' ? -1 : 1) * Math.abs(parseFloat(form.amount) || 0),
         paymentType: form.paymentType || 'invoice',
-        direction: (form.paymentType === 'vendor') ? 'out' : 'in',
+        direction: form.direction || 'in',
         ownerGstin: existing ? (existing.ownerGstin || '') : (profile?.gstin || ''),
         ownerName: existing ? (existing.ownerName || '') : (profile?.businessName || ''),
       };
@@ -241,21 +199,6 @@ export default function ReceiptVoucher() {
       // propagation and add a fresh one to the new invoice.
       const modeMap = { 'Bank Transfer': 'bank-transfer', 'UPI': 'upi', 'Cash': 'cash', 'Cheque': 'cheque', 'Card': 'card', 'Other': 'other' };
       const paidAmount = parseFloat(form.amount);
-    // A1 UI: reject over-outstanding (₹1 tol) unless explicit advance credit
-    if (form.againstInvoice && form.paymentType === 'invoice' && !form.allowAdvanceCredit) {
-      const bill = (bills || []).find(b =>
-        String(b.invoiceNumber || '') === String(form.againstInvoice).trim() ||
-        String(b.id || '') === String(form.againstInvoice).trim()
-      );
-      if (bill) {
-        const ceil = checkPaymentCeiling(paidAmount, bill, { tolerance: 1, allowAdvance: false });
-        if (!ceil.ok) {
-          toast(ceil.error, 'error');
-          return;
-        }
-      }
-    }
-
       const stripReceiptFromBill = async (bill) => {
         if (!bill) return;
         const priorPayments = bill.payments || [];
@@ -304,7 +247,7 @@ export default function ReceiptVoucher() {
                 date: form.date,
                 party: form.clientName || bill.clientName,
               });
-              if (jnl) await saveJournal(jnl);
+              if (jnl) await saveJournalIfLegacy(saveJournal, jnl);
             } catch (e) { console.warn('[ledger] receipt voucher journal', e); }
 
           }
@@ -415,7 +358,7 @@ export default function ReceiptVoucher() {
             date: form.date,
             party: form.clientName || bill.clientName,
           });
-          if (jnl) await saveJournal(jnl);
+          if (jnl) await saveJournalIfLegacy(saveJournal, jnl);
         } catch (e) { console.warn('[ledger] receipt voucher journal', e); }
 
       }
@@ -473,15 +416,7 @@ export default function ReceiptVoucher() {
           <h1 className="page-title">Receipts</h1>
           <p className="page-subtitle">Generate payment receipts for clients</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-secondary" onClick={() => downloadCsv('Payment-Receipts-Export.csv', receipts || [], [
-            { key: 'receiptNo', label: 'Receipt No', get: r => r.receiptNo || r.id },
-            { key: 'date', label: 'Date', get: r => r.date || '' },
-            { key: 'clientName', label: 'Client', get: r => r.clientName || '' },
-            { key: 'amount', label: 'Amount', get: r => r.amount || 0 },
-            { key: 'paymentMode', label: 'Mode', get: r => r.paymentMode || r.mode || '' },
-            { key: 'againstInvoice', label: 'Against Invoice', get: r => r.againstInvoice || '' },
-          ])}>Export CSV</button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button className="btn btn-secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>
             <Layers size={18} /> Bulk FIFO Allocate
           </button>
@@ -550,151 +485,143 @@ export default function ReceiptVoucher() {
         <div className="modal-overlay" onClick={closeForm}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px' }}>
             <h3 className="section-title">{editingId ? 'Edit Payment Receipt' : 'New Payment Receipt'}</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
-              <div className="form-group">
-                <label className="form-label">Transaction type</label>
-                <select className="form-input" value={form.paymentType || 'invoice'}
-                  onChange={e => {
-                    const t = e.target.value;
-                    setForm(f => ({
-                      ...f,
-                      paymentType: t,
-                      // Money IN from clients; OUT only for vendor payments (auto, no radio)
-                      direction: t === 'vendor' ? 'out' : 'in',
-                    }));
-                  }}>
-                  <option value="invoice">Against invoice (client payment)</option>
-                  <option value="advance">Advance from client</option>
-                  <option value="vendor">Vendor / payment out</option>
-                </select>
+            <div style={{ marginBottom: '1rem' }}>
+              <label className="form-label">Transaction type</label>
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                {['advance', 'invoice', 'vendor'].map(t => (
+                  <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, textTransform: 'capitalize' }}>
+                    <input type="radio" name="paymentType" checked={form.paymentType === t}
+                      onChange={() => {
+                      updateField('paymentType', t);
+                      if (t === 'advance' || t === 'vendor') {
+                        getNextInvoiceNumber('PAY', { peek: true, explicitPrefix: true }).then(raw => {
+                          const n = String(raw || '');
+                          const digits = (n.match(/(\d+)\s*$/) || [])[1];
+                          updateField('receiptNo', digits ? `PAY-${String(Number(digits)).padStart(3, '0')}` : (n.startsWith('PAY') ? n : `PAY-${n || '001'}`));
+                        }).catch(() => {});
+                      }
+                    }} /> {t === 'invoice' ? 'Against invoice' : t}
+                  </label>
+                ))}
               </div>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: 8 }}>
+                <label><input type="radio" name="dir" checked={form.direction !== 'out'} onChange={() => updateField('direction', 'in')} /> In (+)</label>
+                <label><input type="radio" name="dir" checked={form.direction === 'out'} onChange={() => updateField('direction', 'out')} /> Out (−)</label>
+              </div>
+            </div>
+
+
+            {/* Quick select from unpaid invoices */}
+            {unpaidBills.length > 0 && !form.againstInvoice && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label className="form-label">Quick Select — Unpaid Invoices</label>
+                {/* v1.10.57 — reported (#44 item 2, @sangwanmail-eng):
+                    "payment receipt overlapped". This capped the height of
+                    `.client-picker`, which has no overflow handling — the
+                    class that scrolls is `.client-picker-list`. Ten unpaid
+                    invoices in a 150px box with nothing to clip them simply
+                    spilled out and painted over Receipt No / Date / Amount
+                    underneath. Adding overflow makes the cap actually mean
+                    something. */}
+                <div className="client-picker" style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                  {unpaidBills.slice(0, 10).map(bill => (
+                    <button key={bill.id} className="client-picker-item" onClick={() => selectInvoice(bill)}>
+                      <div>
+                        <strong>{bill.clientName}</strong>
+                        <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bill.invoiceNumber}</span>
+                      </div>
+                      {/* v1.10.23 — hide the outstanding chip on overpaid
+                          bills (they don't need another receipt). */}
+                      {(bill.totalAmount - (bill.paidAmount || 0)) > 0.005 && (
+                        <span style={{ fontWeight: 600 }}>{formatCurrency(bill.totalAmount - (bill.paidAmount || 0))}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="form-group">
                 <label className="form-label">Receipt No</label>
-                <input type="text" className="form-input" value={form.receiptNo || ''}
-                  onChange={e => updateField('receiptNo', e.target.value)} placeholder="Auto PAY-###" />
+                <input type="text" className="form-input" value={form.receiptNo} onChange={e => updateField('receiptNo', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Date *</label>
-                <input type="date" className="form-input" value={form.date}
-                  onChange={e => updateField('date', e.target.value)} />
+                <label className="form-label">Date</label>
+                <input type="date" className="form-input" value={form.date} onChange={e => updateField('date', e.target.value)} />
               </div>
-
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label className="form-label">Against Invoice (type to search unpaid)</label>
-                <input type="text" className="form-input" list="rcp-unpaid-inv"
-                  value={form.againstInvoice || ''}
-                  placeholder="Select unpaid invoice…"
-                  onChange={e => applyInvoiceLink(e.target.value)}
-                  onBlur={e => applyInvoiceLink(e.target.value)}
-                />
-                <datalist id="rcp-unpaid-inv">
-                  {(bills || []).filter(b => {
-                    const st = String(b.status || '').toLowerCase();
-                    if (st === 'cancelled' || st === 'paid') return false;
-                    const t = String(b.invoiceType || '').toLowerCase();
-                    if (/quotation|delivery|challan/.test(t)) return false;
-                    return (Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0) > 0.5;
-                  }).slice(0, 300).map(b => (
-                    <option key={b.id || b.invoiceNumber} value={b.invoiceNumber}>
-                      {b.clientName} · due ₹{Math.max(0, (Number(b.totalAmount)||0)-(Number(b.paidAmount)||0)).toFixed(0)}
-                    </option>
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">{(form.paymentType === 'vendor') ? 'Vendor *' : 'Client *'}</label>
-                <input type="text" className="form-input" list={form.paymentType === 'vendor' ? 'rcp-vendors' : 'rcp-clients'}
-                  value={form.clientName || ''}
-                  onChange={e => updateField('clientName', e.target.value)}
-                  placeholder="Type to search…" />
-                <datalist id="rcp-clients">
-                  {(clientsList || []).map(c => (
-                    <option key={c.id || c.name} value={c.name || c.companyName} />
-                  ))}
-                </datalist>
-                <datalist id="rcp-vendors">
-                  {(vendorsList || []).map(c => (
-                    <option key={c.id || c.name} value={c.name || c.companyName} />
+                <label className="form-label">Received From (Client Name) *</label>
+                <input type="text" className="form-input" list="rcpt-party-list" value={form.clientName} onChange={e => updateField('clientName', e.target.value)} placeholder={form.paymentType==='vendor'?'Select or type vendor…':'Client name'} />
+                <datalist id="rcpt-party-list">
+                  {(form.paymentType === 'vendor' ? vendorsList : clientsList).map(p => (
+                    <option key={p.id} value={p.name}>{p.gstin || p.city || ''}</option>
                   ))}
                 </datalist>
               </div>
               <div className="form-group">
                 <label className="form-label">Amount *</label>
-                <input type="number" className="form-input" value={form.amount}
-                  onChange={e => updateField('amount', e.target.value)} min="0" step="0.01" placeholder="0.00" />
+                <input type="number" className="form-input" value={form.amount} onChange={e => updateField('amount', e.target.value)} min="0" />
               </div>
               <div className="form-group">
-                <label className="form-label">Payment mode</label>
-                <select className="form-input" value={form.paymentMode || 'Bank Transfer'}
-                  onChange={e => updateField('paymentMode', e.target.value)}>
-                  {['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'].map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
+                <label className="form-label">Payment Mode</label>
+                <select className="form-input" value={form.paymentMode} onChange={e => updateField('paymentMode', e.target.value)}>
+                  {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Reference / Transaction No</label>
+                <input type="text" className="form-input" value={form.referenceNo} onChange={e => updateField('referenceNo', e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Against Invoice</label>
+                <input type="text" className="form-input" value={form.againstInvoice} onChange={e => updateField('againstInvoice', e.target.value)} placeholder="e.g. INV/2025-26/0001" />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Reference No</label>
-                <input type="text" className="form-input" value={form.referenceNo || ''}
-                  onChange={e => updateField('referenceNo', e.target.value)} placeholder="UTR / Cheque no" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Work Order</label>
-                <select className="form-input" value={
-                    (() => {
-                      const id = form.workOrderId || '';
-                      if (!id) return '';
-                      if ((workOrders || []).some(w => w.id === id)) return id;
-                      const byNo = (workOrders || []).find(w => w.woNumber === id || w.woNumber === form.workOrderNo);
-                      return byNo ? byNo.id : id;
-                    })()
-                  }
-                  onChange={e => {
-                    const id = e.target.value;
-                    const wo = (workOrders || []).find(w => w.id === id);
-                    setForm(f => ({
-                      ...f,
-                      workOrderId: id,
-                      workOrderNo: wo?.woNumber || '',
-                      costCenterId: resolveWoCostCenter(wo) || f.costCenterId || '',
-                      site: resolveWoSite(wo) || wo?.site || f.site || '',
-                      clientName: f.clientName || wo?.clientName || '',
-                    }));
-                  }}>
-                  <option value="">— None —</option>
-                  {(workOrders || []).map(wo => (
-                    <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.clientName || wo.title || ''}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Cost Center</label>
-                <select className="form-input" value={form.costCenterId || ''}
-                  onChange={e => updateField('costCenterId', e.target.value)}>
-                  <option value="">— None —</option>
-                  {(costCenters || []).map(cc => (
-                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
-                  ))}
-                </select>
-              </div>
+              {(form.paymentType === 'advance' || form.paymentType === 'vendor') && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Site</label>
+                    <input className="form-input" value={form.site || ''} onChange={e => updateField('site', e.target.value)} placeholder="Site / location" />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Work Order</label>
+                    <select className="form-input" value={form.workOrderId || ''}
+                      onChange={e => {
+                        const id = e.target.value;
+                        const wo = workOrders.find(w => w.id === id);
+                        updateField('workOrderId', id);
+                        const cc = resolveWoCostCenter(wo); if (cc) updateField('costCenterId', cc);
+                        const st = resolveWoSite(wo); if (st) updateField('site', st);
+                        if (wo?.site) updateField('site', wo.site);
+                        if (wo?.woNumber) updateField('workOrderNo', wo.woNumber);
+                      }}>
+                      <option value="">— Select WO —</option>
+                      {workOrders.map(wo => (
+                        <option key={wo.id} value={wo.id}>{wo.woNumber} — {wo.clientName || ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Cost Center</label>
+                    <select className="form-input" value={form.costCenterId || ''}
+                      onChange={e => updateField('costCenterId', e.target.value)}>
+                      <option value="">—</option>
+                      {costCenters.map(cc => (
+                        <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
 
-              <div className="form-group">
-                <label className="form-label">Site</label>
-                <input type="text" className="form-input" value={form.site || ''}
-                  onChange={e => updateField('site', e.target.value)} placeholder="Site / location" />
-              </div>
-              <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                <label className="form-label">Note</label>
-                <input type="text" className="form-input" value={form.note || ''}
-                  onChange={e => updateField('note', e.target.value)} placeholder="Optional" />
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label">Note (optional)</label>
+                <input type="text" className="form-input" value={form.note} onChange={e => updateField('note', e.target.value)} />
               </div>
             </div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
-              Direction is automatic: client / invoice / advance = money <strong>in</strong>; vendor payment = money <strong>out</strong>.
-            </p>
-            <div className="modal-actions" style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={closeForm}>Cancel</button>
+            <div className="flex gap-2 justify-end mt-4">
+              <button className="btn btn-secondary" onClick={closeForm}>Cancel</button>
               <button className="btn btn-primary" onClick={handleSave}>Save Receipt</button>
             </div>
           </div>

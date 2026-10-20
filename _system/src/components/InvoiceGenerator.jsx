@@ -9,6 +9,7 @@ import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
 import { getHsnMaster, addHsnCode, getUnitMaster } from '../utils/masterData';
 import { journalFromTaxInvoice, journalApplyCustomerAdvance } from '../utils/ledger';
+import { saveJournalIfLegacy } from '../utils/glClient';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction, promptAction } from './ConfirmModal';
@@ -823,13 +824,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   // decide whether subsequent saves need overwrite: true (they do — same
   // invoice number, otherwise the server 409s).
   const hasBeenSaved = useRef(!!editingBill);
-  // After first save (or opening existing bill): form is locked until user clicks Edit.
-  // Prevents accidental field tweaks (e.g. Filter State) writing needless revisions.
-  const [formLocked, setFormLocked] = useState(() => !!(
-    editingBill && !editingBill._isDuplicate && !editingBill._convertToType
-  ));
-  const [checklistModal, setChecklistModal] = useState(null); // { issues, mode, onContinue }
-
 
   const typeConfig = INVOICE_TYPES[invoiceType];
   // CRITICAL FIX: GST% column must follow DOCUMENT TYPE, not sticky localStorage/server options.
@@ -1062,23 +1056,16 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
 
   const leaveActions = {
     saveAndExit: async () => {
-      if (formLocked) {
-        toast('Invoice locked — click Edit to change, or Discard & leave', 'info');
-        return;
+      try {
+        setAutoSaveStatus('saving');
+        await saveInvoiceToDB(true);
+        toast('Invoice saved', 'success');
+        clearDraft();
+        setLeaveModal(false);
+        onBack();
+      } catch {
+        toast('Save failed — staying on the page so you can retry', 'error');
       }
-      await runSaveWithChecklist(async () => {
-        try {
-          setAutoSaveStatus('saving');
-          await saveInvoiceToDB(true);
-          setFormLocked(true);
-          toast('Invoice saved', 'success');
-          clearDraft();
-          setLeaveModal(false);
-          onBack();
-        } catch {
-          toast('Save failed — staying on the page so you can retry', 'error');
-        }
-      });
     },
     discardAndExit: () => {
       clearDraft();
@@ -1655,48 +1642,18 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     setShowClientSuggestions(false);
   };
 
-  // Open modal to edit existing saved client (lock identity if invoices exist)
-  const openEditClientModal = async (cli) => {
-    if (!cli) return;
-    let locked = false;
-    try {
-      const bills = await getAllBills();
-      const cid = String(cli.id || '');
-      const cname = String(cli.name || '').trim().toLowerCase();
-      const cgst = String(cli.gstin || '').trim().toUpperCase();
-      locked = (bills || []).some(b => {
-        if (b.is_deleted || b.deleted) return false;
-        if (String(b.status || '').toLowerCase() === 'cancelled') return false;
-        const t = String(b.invoiceType || b.type || 'tax-invoice').toLowerCase().replace(/\s+/g, '-');
-        if (t.includes('quotation') || t === 'delivery-challan' || t === 'dc') return false;
-        const bid = String(b.clientId || b.data?.clientId || b.data?.client?.id || '');
-        const bname = String(b.clientName || b.data?.client?.name || b.data?.clientName || '').trim().toLowerCase();
-        const bgst = String(b.clientGstin || b.data?.client?.gstin || b.data?.gstin || '').trim().toUpperCase();
-        if (cid && bid && cid === bid) return true;
-        if (cname && bname && cname === bname) return true;
-        if (cgst.length === 15 && bgst === cgst) return true;
-        return false;
-      });
-    } catch (_) { locked = false; }
-    setModalClient({ ...cli, _locked: locked });
+  // Open modal to edit existing saved client
+  const openEditClientModal = (cli) => {
+    setModalClient(cli);
     setIsEditingClient(true);
     setShowClientModal(true);
-    if (locked) {
-      try { toast('Name, GSTIN and State locked — this client has invoices. Phone/email still editable.', 'info'); } catch (_) {}
-    }
   };
 
   // Save from modal (add or update)
   const handleClientModalSave = async (formData) => {
     const data = { ...formData };
     if (isEditingClient && modalClient?.id) data.id = modalClient.id;
-    try {
-      await saveClient(data);
-    } catch (err) {
-      const msg = err?.message || err?.error || String(err || '');
-      toast(msg.includes('cannot change') || msg.includes('403') ? msg : (msg || 'Failed to save client'), 'error');
-      return;
-    }
+    await saveClient(data);
     const updated = (await getAllClients() || []).filter(c => !c.isVendor && c.type !== 'vendor');
     setSavedClients(updated);
     // Sync the invoice form with the FULL saved record — dropping
@@ -1743,15 +1700,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     if (q) list = list.filter(cli => (cli.name || '').toLowerCase().includes(q));
     return list;
   }, [client.name, clientOnlyList, filterState]);
-    const clientSites = useMemo(() => {
-    const master = clientOnlyList.find(c => (c.name || '') === (client.name || ''));
+  const clientSites = useMemo(() => {
+    const master = clientOnlyList.find(c =>
+      (c.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase()
+    );
     const sites = master?.sites || (master?.site ? [master.site] : []) || (client.sites || []);
-    const arr = (Array.isArray(sites) ? sites : []).map(s => {
-      if (s == null || s === '') return null;
-      if (typeof s === 'string') return { name: s, gstin: '', address: '' };
-      return { name: s.name || s.site || '', gstin: s.gstin || '', address: s.address || '', state: s.state || '' };
-    }).filter(s => s && s.name);
-    return arr.length ? arr : [{ name: 'Main Site', gstin: '', address: '' }];
+    const arr = Array.isArray(sites) ? sites.filter(Boolean) : [];
+    if (client.site && !arr.includes(client.site)) arr.unshift(client.site);
+    return arr.length ? arr : ['Main Site'];
   }, [clientOnlyList, client.name, client.site, client.sites]);
   const stateOptionsForFilter = useMemo(() => {
     const s = new Set();
@@ -1771,120 +1727,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-
-  const getChecklistMode = () => {
-    try {
-      const raw = localStorage.getItem('sd_invoice_checklist_mode');
-      if (raw === 'off' || raw === 'block' || raw === 'warn') return raw;
-    } catch { /* */ }
-    return 'warn'; // default: show issues, allow Continue
-  };
-
-  /** Document checklist before finalizing a tax invoice (warn or block per setting). */
-  const buildTaxInvoiceChecklist = () => {
-    const issues = [];
-    const t = String(invoiceType || '').toLowerCase();
-    const invNoChk = String(details?.invoiceNumber || '').trim();
-    if (invNoChk.length > 16) {
-      issues.push({ level: 'block', text: `Document number is ${invNoChk.length} characters (GSTR-1 max 16). Shorten prefix or use Short year in Settings.` });
-    }
-    const isTaxInv = (t.includes('tax') && t.includes('invoice')) || t === 'tax-invoice';
-    const isCn = t.includes('credit');
-    if (!isTaxInv && !isCn) return issues; // e.g. QUO/PI/DC — only number length matters for GSTR on TI/CN
-    if (!isTaxInv && isCn) return issues; // CN: number length only here
-
-    const gstin = String(client?.gstin || '').replace(/\s/g, '');
-    const isB2B = gstin.length === 15;
-    // B2B path: GSTIN must be 15 chars when present; flag incomplete GSTIN
-    if (gstin && gstin.length !== 15) {
-      issues.push({ level: 'block', text: `Client GSTIN must be 15 characters (now ${gstin.length}).` });
-    }
-    // If e-invoice / GSP expects B2B and no GSTIN on a named client with value
-    try {
-      const ei = JSON.parse(localStorage.getItem('sd_einvoice_settings') || '{}');
-      if (ei?.enabled && !gstin && (Number(totals?.grandTotal) || 0) > 0) {
-        issues.push({ level: 'warn', text: 'E-invoice is enabled but client has no GSTIN (B2B IRN not possible).' });
-      }
-      if (ei?.enabled && isB2B && !(details?.irn || details?.Irn || client?.irn)) {
-        issues.push({ level: 'warn', text: 'B2B tax invoice: IRN not filled (paste after GSP generation, or disable e-invoice requirement).' });
-      }
-    } catch { /* */ }
-
-    (items || []).forEach((it, i) => {
-      const hsn = String(it.hsn || it.sac || '').trim();
-      if (!hsn || hsn.length < 4) {
-        issues.push({ level: 'block', text: `Line ${i + 1}: HSN/SAC must be at least 4 characters.` });
-      }
-    });
-
-    // Totals sanity: subtotal + tax ≈ grand (₹1 tol)
-    try {
-      const sub = Number(totals?.subTotal ?? totals?.taxable ?? 0) || 0;
-      const tax = Number(totals?.totalTax ?? ((totals?.cgst || 0) + (totals?.sgst || 0) + (totals?.igst || 0))) || 0;
-      const grand = Number(totals?.grandTotal ?? totals?.total ?? 0) || 0;
-      const roundOff = Number(totals?.roundOff || 0) || 0;
-      if (grand > 0 && Math.abs(sub + tax + roundOff - grand) > 1.01) {
-        issues.push({ level: 'warn', text: `Totals mismatch: taxable ${sub.toFixed(2)} + tax ${tax.toFixed(2)} + round ${roundOff.toFixed(2)} ≠ grand ${grand.toFixed(2)}.` });
-      }
-    } catch { /* */ }
-
-    // Bank / UPI on tax invoice when payment block is relevant
-    const needPayInfo = t.includes('tax') || t.includes('proforma');
-    if (needPayInfo) {
-      const bank = profile?.bankName || profile?.bankAccount || profile?.accountNumber || invoiceOptions?.paymentAccountSnapshot?.accountNumber;
-      const upi = profile?.upiId || profile?.upi || invoiceOptions?.paymentAccountSnapshot?.upiId;
-      if (!bank && !upi) {
-        issues.push({ level: 'warn', text: 'No bank account or UPI in Settings — payment details may be blank on the PDF.' });
-      }
-    }
-    return issues;
-  };
-
-  const runSaveWithChecklist = async (doSave) => {
-    if (formLocked) {
-      toast('Invoice is locked after save. Click Edit to change fields, then Save.', 'info');
-      return;
-    }
-    const problem = validateForSave();
-    if (problem) { toast(problem, 'warning'); return; }
-
-    // GSTR-1: document number max 16 characters (invoice / credit note)
-    const invNo = String(details?.invoiceNumber || '').trim();
-    if (invNo && invNo.length > 16) {
-      toast(`Invoice number is ${invNo.length} characters. GSTR-1 allows at most 16 — shorten the prefix or use Short year (26-27) in Settings.`, 'error');
-      return;
-    }
-    if (invNo && invNo.length > 16) return;
-
-    const issues = buildTaxInvoiceChecklist();
-    const mode = getChecklistMode();
-    if (issues.length && mode !== 'off') {
-      const hard = issues.filter(i => i.level === 'block');
-      if (mode === 'block' && hard.length) {
-        setChecklistModal({ issues, mode: 'block', onContinue: null });
-        return;
-      }
-      if (mode === 'block' && issues.length && !hard.length) {
-        // only warnings under block mode → still confirm
-        setChecklistModal({
-          issues,
-          mode: 'warn',
-          onContinue: async () => { setChecklistModal(null); await doSave(); },
-        });
-        return;
-      }
-      if (mode === 'warn') {
-        setChecklistModal({
-          issues,
-          mode: hard.length ? 'warn' : 'warn',
-          onContinue: async () => { setChecklistModal(null); await doSave(); },
-        });
-        return;
-      }
-    }
-    await doSave();
-  };
 
   const saveInvoiceToDB = async (skipStockDeduction = false, extraPatch = {}) => {
     // Lazy counter reservation: if this is a NEW bill (no editingBill) and
@@ -2172,7 +2014,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         const postsJournal = t.includes('tax') || t === 'tax-invoice' || t === 'invoice' || t.includes('debit');
         if (postsJournal) {
           const jnl = journalFromTaxInvoice(bill);
-          if (jnl) await saveJournal(jnl, { overwrite: true });
+          if (jnl) await saveJournalIfLegacy(saveJournal, jnl, { overwrite: true });
           // PI/Quotation → Tax Invoice: apply transferred advances to Debtors
           // (do NOT post Bank again — cash already hit on original advance receipt)
           const srcNo = bill.data?.details?.convertedFrom
@@ -2192,7 +2034,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               adj.againstInvoice = bill.invoiceNumber || bill.id;
               adj.invoiceNumber = bill.invoiceNumber || bill.id;
               adj.refId = bill.invoiceNumber || bill.id;
-              await saveJournal(adj, { overwrite: true });
+              await saveJournalIfLegacy(saveJournal, adj, { overwrite: true });
             }
             // P0: transferred PI cash already hit Bank on the original advance.
             // Do NOT create receipt/Bank journals for the transferred amount.
@@ -2307,7 +2149,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       // Mark that the invoice has been persisted at least once — subsequent
       // saves (auto-save, Save & Leave, Save & Download) can safely overwrite.
       hasBeenSaved.current = true;
-      setFormLocked(true);
       isDirty.current = false; // v1.10.22 — successful save clears dirty flag
     } catch (err) {
       if (err?.status === 409) {
@@ -2338,7 +2179,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               // subsequent save operate on the resolved id.
               setDetails(prev => ({ ...prev, invoiceNumber: nextNum }));
               hasBeenSaved.current = true;
-      setFormLocked(true);
               isDirty.current = false;
               if (nextNum !== bill.id) {
                 toast(`Invoice number ${bill.id} was already used — saved as ${nextNum} instead.`, 'info');
@@ -2588,11 +2428,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
     const capScale = (n) => Math.min(6, Math.max(2, Math.round(n)));
     const qualityCfg = {
       draft:    { scale: 2, imgFormat: 'JPEG', quality: 0.88 },
-      standard: { scale: capScale(Math.max(4, (window.devicePixelRatio || 1) * 2.5)), imgFormat: 'PNG', quality: 1.0 },
-      hd:       { scale: capScale(Math.max(5, (window.devicePixelRatio || 1) * 3)), imgFormat: 'PNG', quality: 1.0 },
+      standard: { scale: capScale(Math.max(3.5, (window.devicePixelRatio || 1) * 2.2)), imgFormat: 'PNG', quality: 1.0 },
+      hd:       { scale: capScale(Math.max(4, (window.devicePixelRatio || 1) * 2.5)), imgFormat: 'PNG', quality: 1.0 },
     };
-    // Prefer HD for tax docs — Google-Script PDFs look sharp because they are vector/print; we rasterize at higher DPI.
-    const q = qualityCfg[printSettings.pdfQuality || 'hd'] || qualityCfg.hd;
+    const q = qualityCfg[printSettings.pdfQuality] || qualityCfg.standard;
     const renderScale = q.scale;
     const jpegQuality = q.quality;
     const imgFormat = q.imgFormat;   // 'JPEG' or 'PNG'
@@ -2825,7 +2664,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           compress: true,
         });
       }
-      pdf.addImage(mainImg, imgFormat, contentXOffset, contentYOffset, contentWidth, finalH, undefined, 'NONE');
+      pdf.addImage(mainImg, imgFormat, contentXOffset, contentYOffset, contentWidth, finalH, undefined, 'MEDIUM');
       pageRecipes.push({ img: mainImg, y: contentYOffset, h: finalH, x: contentXOffset, w: contentWidth });
     } else {
       // v1.10.8 multi-page path — snap page breaks to safe DOM row boundaries.
@@ -2895,7 +2734,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         const pageMmHeight = (cropHeight * contentWidth) / mainCanvas.width;
         if (i > 0) pdf.addPage();
         const yForThisPage = contentYOffset + (i > 0 ? pageHeaderReserve : 0);
-        pdf.addImage(pageImg, imgFormat, contentXOffset, yForThisPage, contentWidth, pageMmHeight, undefined, 'NONE');
+        pdf.addImage(pageImg, imgFormat, contentXOffset, yForThisPage, contentWidth, pageMmHeight, undefined, 'MEDIUM');
         pageRecipes.push({ img: pageImg, y: yForThisPage, h: pageMmHeight, x: contentXOffset, w: contentWidth });
       }
     }
@@ -2916,7 +2755,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       const extraImg = c.toDataURL(imgFormat === 'PNG' ? 'image/png' : 'image/jpeg', jpegQuality);
       const extraH = Math.min((c.height * pdfWidth) / c.width, extraMaxH);
       pdf.addPage();
-      pdf.addImage(extraImg, imgFormat, 0, extraYOffset, pdfWidth, extraH, undefined, 'NONE');
+      pdf.addImage(extraImg, imgFormat, 0, extraYOffset, pdfWidth, extraH, undefined, 'MEDIUM');
       pageRecipes.push({ img: extraImg, y: extraYOffset, h: extraH });
     }
 
@@ -3627,42 +3466,31 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               also fires the same "save to Saved Invoices/ folder"
               + auto-print + Drive sync side effects that generatePDF
               does — minus the PDF file. */}
-          {formLocked ? (
-            <button type="button" className="btn btn-secondary" onClick={() => {
-              setFormLocked(false);
-              toast('Editing unlocked — change fields, then Save. A revision is stored on save.', 'info');
-            }} title="Unlock fields to edit this saved invoice">
-              Edit
-            </button>
-          ) : null}
           <button className="btn btn-primary" onClick={async () => {
-            await runSaveWithChecklist(async () => {
-              try {
-                setSaving(true);
-                await saveInvoiceToDB();
-                clearDraft();
-                setFormLocked(true);
-                toast('Invoice saved', 'success');
-              } catch (err) {
-                if (err?.status !== 409) {
-                  console.error('Save failed', err);
-                  toast((err && (err.message || err.error)) ? `Save failed: ${err.message || err.error}` : 'Save failed — try again', 'error');
-                }
-              } finally {
-                setSaving(false);
+            // v1.10.58 (#47) — refuse a blank invoice. Saving reserves an
+            // invoice number, so an empty save leaves a permanent gap in a
+            // sequence GST expects to be gapless.
+            const problem = validateForSave();
+            if (problem) { toast(problem, 'warning'); return; }
+            try {
+              setSaving(true);
+              await saveInvoiceToDB();
+              clearDraft();
+              toast('Invoice saved', 'success');
+            } catch (err) {
+              if (err?.status !== 409) {  // 409 already handled by retry inside saveInvoiceToDB
+                console.error('Save failed', err);
+                toast((err && (err.message || err.error)) ? `Save failed: ${err.message || err.error}` : 'Save failed — try again', 'error');
               }
-            });
-          }} disabled={saving || formLocked}
-          style={formLocked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-          title={formLocked ? 'Invoice locked — click Edit to change, then Save' : 'Save the invoice without downloading (Ctrl+S)'}>
+            } finally {
+              setSaving(false);
+            }
+          }} disabled={saving}
+          title="Save the invoice without downloading (Ctrl+S)">
             <Check size={18} /> {saving ? 'Saving…' : 'Save'}
           </button>
-          <button className="btn btn-secondary" onClick={async () => {
-            if (formLocked) { toast('Invoice locked — click Edit first', 'info'); return; }
-            await runSaveWithChecklist(async () => { await generatePDF(); setFormLocked(true); });
-          }} disabled={saving || formLocked}
-          style={formLocked ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
-            title={formLocked ? 'Locked — click Edit first' : 'Save + download the PDF'}>
+          <button className="btn btn-secondary" onClick={generatePDF} disabled={saving}
+            title="Save + download the PDF">
             <Download size={18} /> {saving ? 'Generating...' : 'Save & Download'}
           </button>
           <button className="btn btn-secondary" onClick={directPrint} disabled={saving}
@@ -4250,7 +4078,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           </div>
 
           {/* Client Modal */}
-          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} lockedFields={!!modalClient?._locked} />
+          <ClientModal show={showClientModal} onClose={() => setShowClientModal(false)} onSave={handleClientModalSave} client={modalClient} isEditing={isEditingClient} defaultCountry={profile?.country} />
 
           {/* Client Details */}
           <div className="glass-panel ig-panel">
@@ -4280,7 +4108,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                       name: c.name || '', address: c.address || '', city: c.city || '', pin: c.pin || '',
                       state: c.state || '', gstin: c.gstin || '', country: c.country || client.country || '',
                       email: c.email || '', phone: c.phone || '', isSEZ: !!c.isSEZ,
-                      site: typeof (c.sites && c.sites[0]) === 'object' ? (c.sites[0].name || c.site) : (c.site || (c.sites && c.sites[0]) || 'Main Site'), sites: c.sites || [],
+                      site: c.site || (c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
                     });
                     if (c.state) setFilterState(c.state);
                   }}>
@@ -4295,13 +4123,10 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 <select className="form-input" value={client.site || details.site || ''}
                   onChange={e => {
                     const site = e.target.value;
-                    const meta = (clientSites || []).find(s => (typeof s === 'string' ? s : (s.name || '')) === site);
-                    const siteGstin = (meta && typeof meta === 'object' && meta.gstin) ? String(meta.gstin).toUpperCase() : '';
-                    const siteAddr = (meta && typeof meta === 'object' && meta.address) ? String(meta.address) : '';
-                    setClient(prev => ({ ...prev, site, siteGstin: siteGstin || '', siteAddress: siteAddr || prev.siteAddress || '' }));
-                    setDetails(prev => ({ ...prev, site, siteGstin: siteGstin || '' }));
+                    setClient(prev => ({ ...prev, site }));
+                    setDetails(prev => ({ ...prev, site }));
                   }}>
-                  {clientSites.map(s => { const n = typeof s === 'string' ? s : (s.name || ''); return <option key={n} value={n}>{n}{typeof s === 'object' && s.gstin ? ` · ${String(s.gstin).slice(0, 5)}…` : ''}</option>; })}
+                  {clientSites.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
             </div>
@@ -4371,32 +4196,35 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
                 type="text"
                 className="form-input"
                 list="inv-wo-typeahead"
-                placeholder="Type WO no. or pick from list — exact match links"
-                value={details.workOrderNo || ''}
+                placeholder="Type WO no. / client / site…"
+                value={
+                  selectedWorkOrderId
+                    ? ((workOrders.find(w => w.id === selectedWorkOrderId)?.woNumber) || selectedWorkOrderId)
+                    : ''
+                }
                 onChange={(e) => {
-                  const raw = e.target.value;
-                  const q = raw.trim();
-                  // Always keep what the user types (free entry)
-                  setDetails(prev => ({ ...prev, workOrderNo: raw }));
+                  const q = e.target.value.trim();
                   if (!q) {
                     setSelectedWorkOrderId('');
+                    setDetails(prev => ({ ...prev, workOrderNo: '', workDetails: prev.workDetails }));
                     return;
                   }
-                  // Link + auto-fill ONLY on exact WO number (or id) match — never soft/partial
-                  const exact = workOrders.find(w =>
-                    String(w.id) === q ||
-                    String(w.woNumber || '').trim().toLowerCase() === q.toLowerCase()
-                  );
-                  if (!exact) {
-                    setSelectedWorkOrderId('');
-                    return;
-                  }
-                  const id = exact.id;
+                  const id = (() => {
+                    const exact = workOrders.find(w => w.id === q || w.woNumber === q);
+                    if (exact) return exact.id;
+                    const ql = q.toLowerCase();
+                    const soft = workOrders.find(w =>
+                      String(w.woNumber || '').toLowerCase().includes(ql) ||
+                      String(w.clientName || '').toLowerCase().includes(ql) ||
+                      String(w.title || '').toLowerCase().includes(ql) ||
+                      String(w.site || '').toLowerCase().includes(ql)
+                    );
+                    return soft ? soft.id : '';
+                  })();
+                  if (!id) return; // still typing — don't clear selection mid-type if partial
                   setSelectedWorkOrderId(id);
                   const wo = workOrders.find(w => w.id === id);
                   if (!wo) return;
-                  // Keep displayed text as the official WO number
-                  setDetails(prev => ({ ...prev, workOrderNo: wo.woNumber || prev.workOrderNo || q }));
                   const master = (savedClients || []).find(c =>
                     (c.name || '').trim().toLowerCase() === (wo.clientName || '').trim().toLowerCase()
                   );
@@ -4464,47 +4292,6 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
               <small style={{ color: '#64748b', display: 'block', marginTop: 4, fontSize: '0.72rem' }}>
                 Type WO number or client — auto-fills items, site, period & budget check on save.
               </small>
-              {!selectedWorkOrderId && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-secondary"
-                  style={{ marginTop: 6 }}
-                  title="Create a Work Order from this invoice, then return here with the link"
-                  onClick={() => {
-                    try {
-                      const woItems = (items || []).map((it, i) => ({
-                        id: 'woi_' + Date.now().toString(36) + '_' + i,
-                        description: it.description || it.name || '',
-                        hsn: it.hsn || it.sac || '',
-                        qty: it.qty ?? it.quantity ?? 1,
-                        unit: it.unit || 'Nos',
-                        rate: Number(it.rate) || 0,
-                        costCenterId: it.costCenterId || it.costHead || '',
-                      }));
-                      sessionStorage.setItem('sd_wo_from_invoice', JSON.stringify({
-                        clientName: client?.name || '',
-                        clientId: selectedClientId || client?.id || '',
-                        clientState: client?.state || '',
-                        hostState: profile?.state || '',
-                        site: client?.site || details?.site || 'Main Site',
-                        title: (details?.workDetails || '').trim() || client?.name || 'Work Order',
-                        notes: details?.workDetails || '',
-                        woNumber: (details?.workOrderNo || '').trim(),
-                        taxRate: 18,
-                        periodStart: details?.periodStart || '',
-                        periodEnd: details?.periodEnd || '',
-                        costCenterId: (items && items[0] && (items[0].costCenterId || items[0].costHead)) || '',
-                        items: woItems,
-                      }));
-                      sessionStorage.setItem('sd_return_to_invoice', '1');
-                    } catch (e) { console.warn(e); }
-                    try { sessionStorage.setItem('gst_currentView', 'workorders'); } catch (_) {}
-                    window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'workorders' }));
-                  }}
-                >
-                  Create Work Order from this invoice
-                </button>
-              )}
               {selectedWorkOrderId && (
                 <button type="button" className="ig-wo-badge" style={{ marginTop: 6 }} title="Open linked Work Order"
                   onClick={() => {
@@ -5221,43 +5008,14 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         invoiceOptions={invoiceOptions}
       />
 
-      {checklistModal && (
-        <div className="modal-overlay" style={{ zIndex: 80 }} onClick={() => setChecklistModal(null)}>
-          <div className="modal-content glass-panel" style={{ maxWidth: 480, padding: '1.25rem' }} onClick={e => e.stopPropagation()}>
-            <h3 className="section-title" style={{ marginTop: 0 }}>Document checklist</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-              Review before finalizing this tax invoice.
-              Mode: warn / block / off via localStorage key sd_invoice_checklist_mode
-            </p>
-            <ul style={{ margin: '0 0 1rem', paddingLeft: '1.1rem', fontSize: '0.9rem' }}>
-              {(checklistModal.issues || []).map((iss, i) => (
-                <li key={i} style={{ color: iss.level === 'block' ? '#b91c1c' : '#b45309', marginBottom: 6 }}>
-                  {iss.level === 'block' ? 'Block: ' : 'Warn: '}{iss.text}
-                </li>
-              ))}
-            </ul>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setChecklistModal(null)}>Close</button>
-              {checklistModal.onContinue ? (
-                <button type="button" className="btn btn-primary" onClick={() => checklistModal.onContinue()}>
-                  Continue save
-                </button>
-              ) : null}
-              {checklistModal.mode === 'block' && !checklistModal.onContinue ? (
-                <span style={{ fontSize: '0.8rem', color: '#b91c1c', alignSelf: 'center' }}>Fix issues to save</span>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* P2 #32 — 3-option leave modal */}
+      {/* P2 #32 — 3-option leave modal. Replaces the previous confusing
+          browser confirm() where OK=save was counterintuitive. */}
       {leaveModal && (
         <div className="modal-overlay" onClick={leaveActions.cancel}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
             <h3 style={{ marginTop: 0 }}>Unsaved changes</h3>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              This invoice has changes that haven&apos;t been saved yet. What do you want to do?
+              This invoice has changes that haven't been saved yet. What do you want to do?
             </p>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button className="btn btn-secondary" onClick={leaveActions.cancel}>

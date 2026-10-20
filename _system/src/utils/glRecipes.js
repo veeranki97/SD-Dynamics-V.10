@@ -99,13 +99,31 @@ export function linesExpense(exp, meta) {
     }
   }
   const totalDr = lines.reduce((s, e) => s + e.debit, 0);
-  const creditAcc = exp.vendorName || exp.vendorId ? mapId(meta, 'payables') : mapId(meta, 'operatingBank');
+  // Paid now (Bank/Cash/UPI) → Cr Bank/Cash. Unpaid credit → Cr Creditors.
+  const mode = String(exp.paymentMode || exp.mode || exp.payMode || '').toLowerCase();
+  const status = String(exp.status || exp.paymentStatus || '').toLowerCase();
+  const paidFlag = exp.paid === true || exp.isPaid === true || Number(exp.paidAmount || 0) >= totalDr - 0.01;
+  const isCashLike = /cash|petty/.test(mode);
+  const isBankLike = /bank|upi|neft|rtgs|imps|card|cheque|online|transfer/.test(mode);
+  const isPaidNow = paidFlag || status === 'paid' || isCashLike || isBankLike || (!exp.vendorName && !exp.vendorId);
+  let creditAcc;
+  let partyType = null;
+  let partyId = '';
+  if (isPaidNow) {
+    creditAcc = isCashLike ? mapId(meta, 'cash') : mapId(meta, 'operatingBank');
+  } else if (exp.vendorName || exp.vendorId) {
+    creditAcc = mapId(meta, 'payables');
+    partyType = 'vendor';
+    partyId = exp.vendorName || exp.vendorId || '';
+  } else {
+    creditAcc = mapId(meta, 'operatingBank');
+  }
   lines.push({
     accountId: creditAcc,
     debit: 0,
     credit: totalDr,
-    partyType: exp.vendorName ? 'vendor' : null,
-    partyId: exp.vendorName || exp.vendorId || '',
+    partyType,
+    partyId,
   });
   return lines;
 }
@@ -126,13 +144,21 @@ export function linesPurchase(purch, meta) {
   if (sgst > 0) lines.push({ accountId: mapId(meta, 'inputSgst'), debit: sgst, credit: 0 });
   if (igst > 0) lines.push({ accountId: mapId(meta, 'inputIgst'), debit: igst, credit: 0 });
   const dr = lines.reduce((s, e) => s + e.debit, 0);
-  lines.push({
-    accountId: mapId(meta, 'payables'),
-    debit: 0,
-    credit: dr,
-    partyType: 'vendor',
-    partyId: purch.vendorName || purch.supplierName || '',
-  });
+  const mode = String(purch.paymentMode || purch.mode || '').toLowerCase();
+  const status = String(purch.status || purch.paymentStatus || '').toLowerCase();
+  const paidNow = status === 'paid' || purch.paid === true || /bank|cash|upi|card|neft|paid/.test(mode);
+  if (paidNow) {
+    const bankId = /cash/.test(mode) ? mapId(meta, 'cash') : mapId(meta, 'operatingBank');
+    lines.push({ accountId: bankId, debit: 0, credit: dr });
+  } else {
+    lines.push({
+      accountId: mapId(meta, 'payables'),
+      debit: 0,
+      credit: dr,
+      partyType: 'vendor',
+      partyId: purch.vendorName || purch.supplierName || '',
+    });
+  }
   return lines;
 }
 

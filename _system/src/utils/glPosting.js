@@ -307,6 +307,22 @@ export function createGlEngine(deps) {
 
     // Stable id per source — overwrite only the active batch file when needed;
     // reversals use separate jnl_rev_* ids from reverseJournal.
+    // Reuse `accounts` from normalizeLines above (do not redeclare).
+    const labelled = lines.map((e) => {
+      const acc = accounts.find(
+        (a) => a.id === e.accountId || a.code === e.accountId || a.name === e.account
+      );
+      const code = acc ? acc.code : '';
+      const name = acc ? acc.name : (e.account || e.accountId || '');
+      const label = code ? (code + ' — ' + name) : name;
+      return {
+        ...e,
+        account: label || e.account || e.accountId,
+        accountCode: code || e.accountCode || '',
+        accountName: name,
+      };
+    });
+
     const journal = {
       id: id + (reversedIds.length ? '_' + Date.now().toString(36) : ''),
       date,
@@ -317,7 +333,7 @@ export function createGlEngine(deps) {
       refId: payload.refId || String(payload.sourceId),
       refLabel: payload.refLabel || null,
       companyId: payload.companyId || 'default',
-      entries: lines,
+      entries: labelled,
       lineHash: lineHash,
       glEngine: true,
       isReversed: false,

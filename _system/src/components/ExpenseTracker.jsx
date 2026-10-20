@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Wallet, Plus, Edit3, Trash2, Search, X, Save, Download, Calendar } from 'lucide-react';
-import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity, getAllBudgets } from '../store';
-import { resolveWoCostCenter, resolveWoSite, extractBillWorkOrderRef, findWorkOrderForBill, resolveBillCostCenterSite } from '../utils/workOrder';
-import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getFinancialYearLabel } from '../utils';
-import { journalFromExpense, expensePlAccount } from '../utils/ledger';
-import { checkBudgetLimit } from '../utils/budget';
+import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrders, getAllBills, getAllCostCenters, getAllClients, saveJournal, logActivity } from '../store';
+import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
+import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
+import { journalFromExpense } from '../utils/ledger';
+import { saveJournalIfLegacy } from '../utils/glClient';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { getExpenseCategories } from '../utils/masterData';
@@ -14,7 +14,8 @@ const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'
 
 const emptyForm = {
   workOrderId: '',
-    jobCost: false,
+    poNumber: '',
+    isSubcontract: false,
   againstInvoice: '',
   receiptData: '',
   receiptName: '',
@@ -35,10 +36,6 @@ const emptyForm = {
   invoiceNo: '',
   paymentMode: 'Bank Transfer',
   note: '',
-  deductTds: false,
-  tdsSection: '194C',
-  tdsRate: '2',
-  tdsAmount: '',
 };
 
 export default function ExpenseTracker() {
@@ -49,18 +46,16 @@ export default function ExpenseTracker() {
   const [ownerProfile, setOwnerProfile] = useState(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [woFilter, setWoFilter] = useState('');
   const [fyFilter, setFyFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [woBanner, setWoBanner] = useState(null);
   const [form, setForm] = useState({ ...emptyForm });
   const [masterCats, setMasterCats] = useState([]);
   const [woList, setWoList] = useState([]);
   const [billList, setBillList] = useState([]);
-  const [budgets, setBudgets] = useState([]);
 
   useEffect(() => {
-    getAllBudgets().then(setBudgets).catch(() => {});
     getAllWorkOrders().then(rows => {
       setWoList(rows || []);
       setWorkOrders(rows || []);
@@ -74,25 +69,6 @@ export default function ExpenseTracker() {
       const cats = getExpenseCategories();
       setMasterCats(Array.isArray(cats) ? cats : []);
     } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem('sd_expense_from_wo');
-      if (!raw) return;
-      const p = JSON.parse(raw);
-      sessionStorage.removeItem('sd_expense_from_wo');
-      setWoBanner(p);
-      setShowForm(true);
-      setForm(f => ({
-        ...f,
-        workOrderId: p.workOrderId || f.workOrderId || '',
-        workOrderNo: p.workOrderNumber || p.workOrderNo || f.workOrderNo || '',
-        site: p.site || f.site || '',
-        costCenterId: p.costCenterId || f.costCenterId || '',
-        jobCost: true,
-      }));
-    } catch { /* */ }
   }, []);
 
   const fyOptions = getFYOptions();
@@ -139,27 +115,21 @@ export default function ExpenseTracker() {
         if (exp.date < fy.from || exp.date > fy.to) return false;
       }
     }
+    if (woFilter) {
+      const wid = String(woFilter);
+      const ewo = String(exp.workOrderId || exp.woId || exp.woNumber || '');
+      if (ewo !== wid && ewo !== String((workOrders || []).find(w => w.id === wid)?.woNumber || '')) return false;
+    }
     return true;
   });
 
   const totalAmount = filtered.reduce((s, e) => s + (e.amount || 0), 0);
   const totalGST = filtered.reduce((s, e) => s + (e.gstAmount || 0), 0);
 
-  const openAdd = async () => {
+  const openAdd = () => {
     setForm({ ...emptyForm });
     setEditingId(null);
     setShowForm(true);
-    try {
-      const [wos, ccs, bills] = await Promise.all([
-        getAllWorkOrders().catch(() => []),
-        getAllCostCenters().catch(() => []),
-        getAllBills().catch(() => []),
-      ]);
-      setWorkOrders(wos || []);
-      setWoList(wos || []);
-      setCostCenters(ccs || []);
-      setBillList(bills || []);
-    } catch { /* ignore */ }
   };
 
   const openEdit = (exp) => {
@@ -195,56 +165,9 @@ export default function ExpenseTracker() {
   };
 
   const handleSave = async () => {
-    // Job cost / subcontractor: Work Order required
-    const needsWo = !!form.jobCost || !!form.isSubcontractor || !!form.subcontractor;
-    if (needsWo && !(form.workOrderId || form.workOrderNo || form.workOrderNumber)) {
-      toast('Job cost / subcontractor expense requires a Work Order', 'error');
-      return;
-    }
-
     if (!(form.costCenterId || '').trim()) { toast('Cost Center is required on every expense', 'error'); return; }
     if (!form.description.trim()) { toast('Description is required', 'warning'); return; }
     if (!form.amount || parseFloat(form.amount) <= 0) { toast('Enter a valid amount', 'warning'); return; }
-
-    // Budget vs Actual enforcement
-    const expAmt = parseFloat(form.amount) || 0;
-    const accountCode = expensePlAccount({ category: form.category, isDirect: false });
-    const currentFY = getFinancialYearLabel(form.date ? new Date(form.date) : new Date());
-    
-    // Sum prior actual spend for this Cost Center + Account in this FY
-    const priorActual = (expenses || []).reduce((acc, e) => {
-      if (editingId && e.id === editingId) return acc;
-      if (e.costCenterId !== form.costCenterId) return acc;
-      const eFY = getFinancialYearLabel(e.date ? new Date(e.date) : new Date());
-      if (eFY !== currentFY) return acc;
-      const eAcc = expensePlAccount(e);
-      if (eAcc !== accountCode) return acc;
-      return acc + (Number(e.amount) || 0);
-    }, 0);
-
-    const budgetCheck = checkBudgetLimit({
-      budgets,
-      costCenterId: form.costCenterId,
-      accountCode,
-      fiscalYear: currentFY,
-      newAmount: expAmt,
-      currentActual: priorActual,
-    });
-
-    if (budgetCheck.exceeded) {
-      if (budgetCheck.action === 'Stop') {
-        toast(`Budget exceeded! Limit: ₹${budgetCheck.budgetAmount}, Projected: ₹${budgetCheck.projectedTotal}. Save blocked.`, 'error');
-        return;
-      } else if (budgetCheck.action === 'Warn') {
-        const proceed = await confirmAction({
-          title: 'Budget Limit Exceeded',
-          message: `This expense will push spend to ₹${budgetCheck.projectedTotal}, exceeding budget ₹${budgetCheck.budgetAmount} by ₹${budgetCheck.overAmount}. Proceed anyway?`,
-          confirmLabel: 'Proceed & Save',
-          tone: 'warning',
-        });
-        if (!proceed) return;
-      }
-    }
     try {
       const expense = {
         ...(editingId ? { id: editingId } : {}),
@@ -268,16 +191,8 @@ export default function ExpenseTracker() {
       expense.receiptData = form.receiptData || '';
       expense.receiptName = form.receiptName || '';
       expense.costCenterId = form.costCenterId;
-      expense.costSplits = form.costSplits || [];
       expense.site = form.site || '';
       expense.claimStatus = form.claimStatus || 'Draft';
-      expense.deductTds = !!form.deductTds;
-      expense.tdsSection = form.deductTds ? (form.tdsSection || '194C') : '';
-      expense.tdsRate = form.deductTds ? parseFloat(form.tdsRate || 0) : 0;
-      expense.tdsAmount = form.deductTds
-        ? (form.tdsAmount ? parseFloat(form.tdsAmount) : +(parseFloat(form.amount || 0) * parseFloat(form.tdsRate || 0) / 100).toFixed(2))
-        : 0;
-      expense.netPayable = Math.max(0, parseFloat(form.amount || 0) - (expense.tdsAmount || 0));
       
       if (!(expense.workOrderId || expense.againstInvoice || expense.receiptData)) {
         toast('Link a Work Order / Invoice OR attach a receipt image/PDF', 'error');
@@ -290,7 +205,7 @@ export default function ExpenseTracker() {
         const jnl = journalFromExpense({ ...expense, id: expId });
         if (jnl) {
           jnl.overwrite = true;
-          await saveJournal(jnl);
+          await saveJournalIfLegacy(saveJournal, jnl);
         }
       } catch (jerr) {
         console.warn('[expense] journal post failed', jerr);
@@ -333,7 +248,7 @@ export default function ExpenseTracker() {
             entries: [],
             overwrite: true,
           };
-          await saveJournal(jnl);
+          await saveJournalIfLegacy(saveJournal, jnl);
         } catch (jerr) {
           console.warn('[expense] journal void failed', jerr);
         }
@@ -419,13 +334,19 @@ export default function ExpenseTracker() {
       </div>
 
       {/* Filters */}
-      <div className="glass-panel p-4 mb-6 expense-filters-sticky" style={{ position: 'sticky', top: 0, zIndex: 15, background: 'var(--surface, #fff)' }}>
+      <div className="glass-panel p-4 mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '350px' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
           </div>
+          <select className="filter-select" value={woFilter || ''} onChange={e => setWoFilter(e.target.value)} style={{ marginRight: 8 }}>
+            <option value="">All WOs</option>
+            {(workOrders || woList || []).map(w => (
+              <option key={w.id} value={w.id}>{w.woNumber || w.id}{w.clientName ? ` — ${w.clientName}` : ''}</option>
+            ))}
+          </select>
           <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
             <option value="all">All Categories</option>
             {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
@@ -433,8 +354,8 @@ export default function ExpenseTracker() {
           <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
-          {(search || categoryFilter !== 'all') && (
-            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
+          {(search || categoryFilter !== 'all' || woFilter) && (
+            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); setWoFilter(''); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
           )}
         </div>
       </div>
@@ -443,13 +364,6 @@ export default function ExpenseTracker() {
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '960px', padding: '1rem 1.25rem' }}>
-
-            {woBanner && (
-              <div style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', fontSize: '0.85rem', color: '#1e40af' }}>
-                Job: <strong>{woBanner.workOrderNumber || woBanner.woNumber || woBanner.workOrderId}</strong> — job cost linked.
-                <button type="button" className="btn btn-sm btn-secondary" style={{ marginLeft: 8 }} onClick={() => setWoBanner(null)}>Dismiss</button>
-              </div>
-            )}
             <h3 className="section-title">{editingId ? 'Edit Expense' : 'Add Expense'}</h3>
             <div className="expense-form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem', alignItems: 'start' }}>
               
@@ -518,14 +432,21 @@ export default function ExpenseTracker() {
                       updateField('againstInvoice', inv);
                       return;
                     }
-                    const linked = resolveBillCostCenterSite(bill, workOrders || woList || [], costCenters || []);
+                    // Auto-extract logic when invoice is found
+                    const rawWo = bill.workOrderId || bill.workOrder || bill.woId || bill.woNumber || '';
+                    const wo = (workOrders || []).find(w =>
+                      w.id === rawWo ||
+                      w.woNumber === rawWo ||
+                      String(w.woNumber || '').toLowerCase() === String(rawWo).toLowerCase()
+                    );
+                    const woId = wo?.id || '';
+                    const cc = resolveWoCostCenter(wo) || bill.costCenterId || bill.costCenter || '';
                     setForm(f => ({
                       ...f,
                       againstInvoice: inv,
-                      workOrderId: linked.workOrderId || f.workOrderId || '',
-                      costCenterId: linked.costCenterId || f.costCenterId || '',
-                      site: linked.site || f.site || '',
-                      vendorName: f.vendorName || bill.clientName || bill.data?.clientName || '',
+                      workOrderId: woId || f.workOrderId || '',
+                      costCenterId: cc || f.costCenterId || '',
+                      site: resolveWoSite(wo) || bill.site || f.site || '',
                     }));
                   }} />
                 <datalist id="exp-inv-list">
@@ -546,11 +467,6 @@ export default function ExpenseTracker() {
               </div>
               <div className="form-group">
   <label className="form-label">Work Order</label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', marginTop: 4 }}>
-                <input type="checkbox" checked={!!form.jobCost}
-                  onChange={e => setForm(f => ({ ...f, jobCost: e.target.checked }))} />
-                Job cost (requires WO)
-              </label>
   <input type="text" className="form-input" list="wo-datalist" 
     value={(() => {
       const v = form.workOrderId || '';
@@ -577,83 +493,15 @@ export default function ExpenseTracker() {
     ))}
   </datalist>
 </div>
-              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label className="form-label" style={{ margin: 0 }}>Cost Center *</label>
-                  <button type="button" className="btn btn-sm btn-secondary" style={{ fontSize: '0.75rem', padding: '2px 8px' }}
-                    onClick={() => {
-                      const cur = form.costSplits || [];
-                      if (cur.length === 0) {
-                        setForm(f => ({
-                          ...f,
-                          costSplits: [
-                            { costCenterId: f.costCenterId || '', percent: 50 },
-                            { costCenterId: '', percent: 50 },
-                          ]
-                        }));
-                      } else {
-                        setForm(f => ({ ...f, costSplits: [...cur, { costCenterId: '', percent: 0 }] }));
-                      }
-                    }}>
-                    + Split across Cost Centers
-                  </button>
-                </div>
-                {(!form.costSplits || form.costSplits.length === 0) ? (
-                  <select className="form-input" value={form.costCenterId || ''}
-                    onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
-                    <option value="">— Select Cost Center —</option>
-                    {costCenters.map(cc => (
-                      <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <div style={{ background: 'rgba(0,0,0,0.03)', padding: 10, borderRadius: 6, border: '1px dashed #cbd5e1' }}>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Allocations must total 100%</span>
-                      <button type="button" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.75rem' }}
-                        onClick={() => setForm(f => ({ ...f, costSplits: [] }))}>
-                        Remove split
-                      </button>
-                    </div>
-                    {form.costSplits.map((sp, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-                        <select className="form-input" style={{ flex: 2 }} value={sp.costCenterId || ''}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setForm(f => {
-                              const arr = [...(f.costSplits || [])];
-                              arr[idx] = { ...arr[idx], costCenterId: val };
-                              return { ...f, costSplits: arr, costCenterId: arr[0]?.costCenterId || f.costCenterId };
-                            });
-                          }}>
-                          <option value="">— Select Cost Center —</option>
-                          {costCenters.map(cc => (
-                            <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
-                          ))}
-                        </select>
-                        <input type="number" className="form-input" style={{ width: 90 }} value={sp.percent}
-                          placeholder="%" min="0" max="100"
-                          onChange={e => {
-                            const val = parseFloat(e.target.value) || 0;
-                            setForm(f => {
-                              const arr = [...(f.costSplits || [])];
-                              arr[idx] = { ...arr[idx], percent: val };
-                              return { ...f, costSplits: arr };
-                            });
-                          }} />
-                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>%</span>
-                        <button type="button" className="btn-icon" onClick={() => {
-                          setForm(f => ({ ...f, costSplits: f.costSplits.filter((_, i) => i !== idx) }));
-                        }}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                    <div style={{ fontSize: '0.78rem', marginTop: 4, fontWeight: 600, color: (form.costSplits.reduce((s, x) => s + (Number(x.percent) || 0), 0) === 100) ? '#059669' : '#d97706' }}>
-                      Total: {form.costSplits.reduce((s, x) => s + (Number(x.percent) || 0), 0)}%
-                    </div>
-                  </div>
-                )}
+              <div className="form-group">
+                <label className="form-label">Cost Center *</label>
+                <select className="form-input" value={form.costCenterId || ''}
+                  onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                  <option value="">— Select Cost Center —</option>
+                  {costCenters.map(cc => (
+                    <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Row 5: Amount, GST %, Payment Mode */}
@@ -707,59 +555,7 @@ export default function ExpenseTracker() {
               </div>
 
               {/* Row 8: Note */}
-              
               <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 13 }}>
-                  <input type="checkbox" checked={!!form.deductTds} onChange={e => setForm(f => ({
-                    ...f,
-                    deductTds: e.target.checked,
-                    tdsAmount: e.target.checked
-                      ? String(+((parseFloat(f.amount)||0) * (parseFloat(f.tdsRate)||2) / 100).toFixed(2))
-                      : '',
-                  }))} />
-                  Deduct TDS (vendor) — 194C / 194J / 194I
-                </label>
-                {form.deductTds && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
-                    <div className="form-group">
-                      <label className="form-label">Section</label>
-                      <select className="form-input" value={form.tdsSection || '194C'}
-                        onChange={e => {
-                          const sec = e.target.value;
-                          const rate = sec === '194C' ? '2' : '10';
-                          setForm(f => ({
-                            ...f,
-                            tdsSection: sec,
-                            tdsRate: rate,
-                            tdsAmount: String(+((parseFloat(f.amount)||0) * parseFloat(rate) / 100).toFixed(2)),
-                          }));
-                        }}>
-                        <option value="194C">194C (Contract) ~2%</option>
-                        <option value="194J">194J (Professional) ~10%</option>
-                        <option value="194I">194I (Rent) ~10%</option>
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Rate %</label>
-                      <input type="number" className="form-input" value={form.tdsRate || ''}
-                        onChange={e => {
-                          const rate = e.target.value;
-                          setForm(f => ({
-                            ...f,
-                            tdsRate: rate,
-                            tdsAmount: String(+((parseFloat(f.amount)||0) * (parseFloat(rate)||0) / 100).toFixed(2)),
-                          }));
-                        }} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">TDS ₹</label>
-                      <input type="number" className="form-input" value={form.tdsAmount || ''}
-                        onChange={e => setForm(f => ({ ...f, tdsAmount: e.target.value }))} />
-                    </div>
-                  </div>
-                )}
-              </div>
-<div className="form-group" style={{ gridColumn: '1 / -1' }}>
                 <label className="form-label">Note (optional)</label>
                 <input type="text" className="form-input" value={form.note}
                   onChange={e => updateField('note', e.target.value)} placeholder="Any additional note..." />

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getAllJournals, getProfile } from '../store';
 import { formatCurrency } from '../utils';
+import { activeGlJournals } from '../utils/glPosting';
 import { toast } from './Toast';
 
 /** General Ledger + Party Statement of Account (letterhead PDF). */
@@ -25,18 +26,26 @@ export default function GeneralLedgerView() {
     getProfile().then(p => setProfile(p || null)).catch(() => {});
     getAllJournals().then(js => {
       const flat = [];
-      (js || []).forEach(j => {
+      // Active only — hide reversed originals and pure reverse batches from audit list
+      const active = activeGlJournals(js || []);
+      active.forEach(j => {
+        if (j.isReversed || j.IsReversed) return;
         (j.entries || []).forEach(e => {
+          const accLabel =
+            e.account ||
+            (e.accountCode && e.accountName
+              ? e.accountCode + ' — ' + e.accountName
+              : e.accountId || '');
           flat.push({
             date: j.date,
             narration: j.narration,
-            account: e.account,
+            account: accLabel,
             debit: e.debit,
             credit: e.credit,
-            refId: j.refId,
-            refType: j.refType,
-            party: j.party || j.clientName || '',
-            site: j.site || '',
+            refId: j.refLabel || j.refId,
+            refType: j.refType || j.sourceType,
+            party: j.party || j.clientName || e.partyId || '',
+            site: j.site || e.site || '',
             workOrderId: j.workOrderId || e.workOrderId || '',
             woNumber: j.woNumber || j.workOrderNo || '',
           });

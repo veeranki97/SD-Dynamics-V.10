@@ -186,9 +186,24 @@ export default function CashBookView() {
         const cr = Math.round((Number(e.credit) || 0) * 100) / 100;
         if (dr < 0.005 && cr < 0.005) return;
         // P2: human document number only — never internal pay_/jnl_ hashes
-        let invRef = j.againstInvoice || j.invoiceNumber || j.receiptNo || '';
+        // Prefer human receipt/invoice numbers (REC/…, SD/…), never pay_* as voucher no
+        let invRef =
+          j.refLabel ||
+          j.receiptNumber ||
+          j.receiptNo ||
+          j.againstInvoice ||
+          j.invoiceNumber ||
+          '';
+        if (!invRef && (j.sourceType === 'receipt' || j.refType === 'receipt' || j.refType === 'payment')) {
+          invRef = (j.refId && !/^pay_|^jnl_|^rcpt_/i.test(String(j.refId))) ? String(j.refId) : (j.narration || '');
+        }
         if (!invRef && j.refType === 'expense') invRef = j.narration || '';
         if (!invRef && j.refId && !/^pay_|^jnl_|^rcpt_/i.test(String(j.refId))) invRef = String(j.refId);
+        // Parse REC/… from narration if still missing
+        if (!invRef && j.narration) {
+          const m = String(j.narration).match(/\bREC\/[\d-]+\/\d+\b/i);
+          if (m) invRef = m[0];
+        }
         if (!invRef) invRef = (j.narration || '').split('—')[0].trim().slice(0, 40);
         entries.push({
           date: j.date,
