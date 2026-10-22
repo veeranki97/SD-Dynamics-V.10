@@ -9,10 +9,10 @@ const ICONS = {
 };
 
 const COLORS = {
-  success: { bg: '#ecfdf5', border: '#a7f3d0', text: '#065f46', icon: '#10b981' },
-  error: { bg: '#fef2f2', border: '#fecaca', text: '#991b1b', icon: '#ef4444' },
-  warning: { bg: '#fffbeb', border: '#fde68a', text: '#92400e', icon: '#f59e0b' },
-  info: { bg: '#eff6ff', border: '#bfdbfe', text: '#1e40af', icon: '#3b82f6' }
+  success: { bg: 'var(--success-light)', border: 'var(--success)', text: 'var(--success)', icon: 'var(--success)' },
+  error: { bg: 'var(--danger-light)', border: 'var(--danger)', text: 'var(--danger)', icon: 'var(--danger)' },
+  warning: { bg: 'var(--warning-light)', border: 'var(--warning)', text: 'var(--warning)', icon: 'var(--warning)' },
+  info: { bg: 'var(--primary-light)', border: 'var(--primary)', text: 'var(--primary)', icon: 'var(--primary)' }
 };
 
 let toastId = 0;

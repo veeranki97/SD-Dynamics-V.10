@@ -4029,3 +4029,321 @@ table.dossier-dense-table th {
 .badge-success, .status-paid { color: var(--success); }
 .badge-danger, .status-overdue { color: var(--danger); }
 .badge-warning, .status-pending { color: var(--warning); }
+
+
+/* =============================================================================
+   Design system Phase 2 — shared controls (buttons, inputs, tables, headers)
+   Uses Phase 1 tokens. Does not change tax/PDF/print document surfaces.
+   ============================================================================= */
+
+:root {
+  --control-height: 38px;
+  --control-height-sm: 32px;
+  --table-row-height: 44px;
+  --focus-ring: 0 0 0 3px rgba(var(--primary-rgb), 0.18);
+}
+
+/* --- Page header --- */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.25rem;
+  box-shadow: var(--glass-shadow);
+}
+.page-header .page-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0;
+}
+.page-header .page-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0.2rem 0 0;
+}
+.page-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--primary), var(--primary-darker));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.28);
+}
+.page-header-meta {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* --- Form inputs --- */
+.form-input,
+input.form-input,
+select.form-input,
+textarea.form-input {
+  width: 100%;
+  min-height: var(--control-height);
+  box-sizing: border-box;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.form-input:focus,
+input.form-input:focus,
+select.form-input:focus,
+textarea.form-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+.form-input::placeholder {
+  color: var(--text-muted);
+}
+.form-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+.form-group {
+  margin-bottom: 0.85rem;
+}
+
+/* --- Buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: var(--control-height);
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.875rem;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none !important;
+}
+.btn-sm {
+  min-height: var(--control-height-sm);
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+}
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 1px 2px rgba(var(--primary-rgb), 0.2);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.28);
+}
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+/* Prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .form-input,
+  .data-table tbody tr {
+    transition: none !important;
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* --- Data tables --- */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: var(--surface);
+}
+.data-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0.85rem;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  min-height: var(--table-row-height);
+}
+.data-table tbody tr:hover td {
+  background: rgba(var(--primary-rgb), 0.04);
+}
+.data-table .td-num,
+.data-table td.amount,
+.data-table th.amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.table-responsive {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+/* --- Status chips --- */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.status-chip-paid,
+.status-chip-success {
+  background: var(--success-light);
+  color: var(--success);
+  border-color: rgba(15, 118, 110, 0.25);
+}
+.status-chip-pending,
+.status-chip-warning {
+  background: var(--warning-light);
+  color: var(--warning);
+  border-color: rgba(180, 83, 9, 0.25);
+}
+.status-chip-overdue,
+.status-chip-danger {
+  background: var(--danger-light);
+  color: var(--danger);
+  border-color: rgba(185, 28, 28, 0.25);
+}
+.status-chip-draft,
+.status-chip-muted {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+/* --- Modals --- */
+.modal-overlay {
+  background: rgba(15, 23, 42, 0.45);
+}
+.modal-content {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.18);
+}
+.modal-content .section-title,
+.modal-content h3 {
+  color: var(--text);
+}
+
+/* --- Empty / loading --- */
+.empty-state {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-tertiary), var(--surface), var(--bg-tertiary));
+  background-size: 200% 100%;
+  border-radius: var(--radius);
+  min-height: 1rem;
+}
+
+/* --- Search / filter bar --- */
+.search-box,
+.filter-select,
+.filter-date {
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.search-box:focus,
+.filter-select:focus,
+.filter-date:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--focus-ring);
+}
+
+/* Sticky filter toolbars */
+.sticky-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  padding: 0.5rem 0;
+  border-bottom: 1px solid transparent;
+}
