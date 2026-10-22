@@ -31,7 +31,7 @@ const emptyEmp = () => ({
   pfApplicable: true,
   esiApplicable: true,
   isActive: true,
-  basic: 0,
+  basic: 0, leaveCL: 12, leaveSL: 6, leaveEL: 15,
   hra: 0,
   da: 0,
   allowances: 0,

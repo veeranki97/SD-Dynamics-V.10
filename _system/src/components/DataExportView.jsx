@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Download, FileSpreadsheet, FileText, ExternalLink } from 'lucide-react';
 import { getAllBills, getAllPurchases, getProfile } from '../store';
 import { buildTallySalesXml, buildTallyPurchaseXml } from '../utils/tallyXml';
+import { buildBusySalesRegisterCsv, buildBusyPurchaseRegisterCsv } from '../utils/registerExport';
 import { toast } from './Toast';
 
 function downloadText(filename, text, mime = 'text/csv;charset=utf-8') {
@@ -167,6 +168,28 @@ export default function DataExportView() {
             try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
             downloadText('tally-purchases.xml', buildTallyPurchaseXml(purchases, company), 'application/xml');
             toast('Tally purchase XML downloaded', 'success');
+          })}
+        />
+        <Card
+          title="Sales register (Busy/Zoho-style)"
+          desc="Date, party, GSTIN, voucher, taxable, CGST/SGST/IGST, total, place of supply."
+          icon={Download}
+          busy={busy === 'bsales'}
+          onClick={() => run('bsales', async () => {
+            const bills = await getAllBills();
+            downloadText('sales-register-busy.csv', buildBusySalesRegisterCsv(bills), 'text/csv;charset=utf-8');
+            toast('Sales register CSV downloaded', 'success');
+          })}
+        />
+        <Card
+          title="Purchase register (Busy/Zoho-style)"
+          desc="Supplier register for Excel / CA worksheets."
+          icon={Download}
+          busy={busy === 'bpurch'}
+          onClick={() => run('bpurch', async () => {
+            const purchases = await getAllPurchases();
+            downloadText('purchase-register-busy.csv', buildBusyPurchaseRegisterCsv(purchases), 'text/csv;charset=utf-8');
+            toast('Purchase register CSV downloaded', 'success');
           })}
         />
       </div>

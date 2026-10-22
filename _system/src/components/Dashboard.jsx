@@ -13,6 +13,7 @@ import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/r
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
+import DashboardInsights from './DashboardInsights';
 import { sendMailSmart } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
 import { runWorkflowRules } from './WorkflowRulesView';
@@ -1608,6 +1609,7 @@ const openPaymentModal = (bill) => {
         ) : null}
       </PageHeader>
 
+      <DashboardInsights bills={bills} onFilterOverdue={() => setStatusFilter('overdue')} />
       {overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
           style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

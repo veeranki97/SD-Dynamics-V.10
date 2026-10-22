@@ -2,6 +2,7 @@ import GstFilingAssistPanel from './GstFilingAssistPanel';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
 import { getAllBills, getAllExpenses, getAllPurchases, getProfile } from '../store';
+import { parseGstr2bCsv, csvRowsTo2bData } from '../utils/gstr2bCsv';
 import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, formatDateGST, getFilingPeriod, getUnitUQC, getFYOptions, belongsToProfile, toCsvLine, splitIntraStateTax } from '../utils';
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
@@ -548,19 +549,31 @@ export default function GSTReturns() {
     if (!file) return;
     try {
       const text = await file.text();
-      const json = JSON.parse(text);
-      // Accept both wrapped {data: ...} and bare formats
-      const root = json?.data || json;
-      if (!root?.docdata && !root?.b2b) {
-        toast('That doesn\'t look like a GSTR-2B JSON. Expected docdata.b2b array.', 'error');
-        return;
+      const name = String(file.name || '').toLowerCase();
+      const looksCsv = name.endsWith('.csv') || (!text.trim().startsWith('{') && text.includes(','));
+      if (looksCsv) {
+        const rows = parseGstr2bCsv(text);
+        if (!rows.length) {
+          toast('No rows found in CSV. Need GSTIN and Invoice columns.', 'error');
+          return;
+        }
+        const root = csvRowsTo2bData(rows);
+        setGstr2bData(root);
+        toast('Imported GSTR-2B CSV — ' + rows.length + ' invoice row(s), ' + (root.b2b || []).length + ' supplier(s)', 'success');
+      } else {
+        const json = JSON.parse(text);
+        const root = json?.data || json;
+        if (!root?.docdata && !root?.b2b) {
+          toast('That does not look like a GSTR-2B JSON. Expected docdata.b2b array.', 'error');
+          return;
+        }
+        setGstr2bData(root);
+        const supplierCount = (root.docdata?.b2b || root.b2b || []).length;
+        toast('Imported GSTR-2B for ' + (root.gstin || '?') + ' — ' + supplierCount + ' suppliers', 'success');
       }
-      setGstr2bData(root);
-      const supplierCount = (root.docdata?.b2b || root.b2b || []).length;
-      toast(`Imported GSTR-2B for ${root.gstin || '?'} — ${supplierCount} suppliers`, 'success');
     } catch (err) {
       console.error(err);
-      toast('Failed to parse GSTR-2B JSON', 'error');
+      toast('Failed to parse GSTR-2B file (JSON or CSV)', 'error');
     }
     if (gstr2bInputRef.current) gstr2bInputRef.current.value = '';
   };
@@ -2176,7 +2189,7 @@ export default function GSTReturns() {
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <input ref={gstr2bInputRef} type="file" accept=".json,application/json" onChange={handleImport2B} style={{ display: 'none' }} />
+              <input ref={gstr2bInputRef} type="file" accept=".json,.csv,application/json,text/csv" onChange={handleImport2B} style={{ display: 'none' }} />
               <button className="btn btn-primary" onClick={() => gstr2bInputRef.current?.click()} style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem' }}>
                 <Upload size={13} /> Import 2B JSON
               </button>

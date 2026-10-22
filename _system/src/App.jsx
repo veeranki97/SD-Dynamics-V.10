@@ -5,7 +5,7 @@ import DataExportView from './components/DataExportView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity, Target } from 'lucide-react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity, Target, CheckSquare } from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
 import { isModuleEnabled, getUpcomingFilings } from './utils';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
@@ -32,6 +32,7 @@ import WelcomeGuide from './components/WelcomeGuide';
 const SettingsView = lazy(() => import('./components/SettingsView'));
 const ClientsView = lazy(() => import('./components/ClientsView'));
 const InventoryView = lazy(() => import('./components/InventoryView'));
+const TasksView = lazy(() => import('./components/TasksView'));
 const ReportsView = lazy(() => import('./components/ReportsView'));
 const EinvoiceSettingsPanel = lazy(() => import('./components/EinvoiceSettingsPanel'));
 const ExpenseTracker = lazy(() => import('./components/ExpenseTracker'));
@@ -930,6 +931,7 @@ function App() {
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // HR
+    { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'System' },
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
     // System — no E-Invoice duplicate; no Services (use Master data → Services)
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
@@ -1477,7 +1479,9 @@ function App() {
         {currentView === 'workflows' && (
           <Suspense fallback={<ViewLoading />}><WorkflowRulesView key={businessKey} /></Suspense>
         )}
-        {currentView === 'hrm' ? <HrmView />
+        {currentView === 'tasks' ? (
+            <Suspense fallback={null}><TasksView /></Suspense>
+          ) : currentView === 'hrm' ? <HrmView />
         : currentView === 'activity-log' ? <ActivityLogView />
         : currentView === 'system-health' ? (
           <Suspense fallback={<ViewLoading />}><SystemHealthView /></Suspense>
