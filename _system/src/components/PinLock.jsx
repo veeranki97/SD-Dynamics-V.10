@@ -54,7 +54,7 @@ export default function PinLock({ children }) {
       position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(15,23,42,0.92)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 320, textAlign: 'center' }}>
+      <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 28, width: 320, textAlign: 'center' }}>
         <h2 style={{ margin: '0 0 8px' }}>SD Dynamics locked</h2>
         <p style={{ fontSize: 13, color: '#64748b' }}>Enter 4-digit PIN</p>
         <input

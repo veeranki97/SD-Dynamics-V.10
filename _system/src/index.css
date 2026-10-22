@@ -13,83 +13,113 @@
    immediately. */
 
 :root {
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-light: rgba(37, 99, 235, 0.08);
-  /* v1.10.40 — RGB channels of --primary for rgba() composition.
-     html2canvas (which rasterizes the invoice for the PDF) does NOT
-     support color-mix(in oklab, …) — reported as "Attempting to parse
-     an unsupported color function oklab" on Save & Download. So all
-     dynamic tints that used to be color-mix now use rgba(var(--primary-rgb), α). */
-  --primary-rgb: 37, 99, 235;
-  --primary-darker: #1e3a8a;
-  --bg: #F5F7FB;                 /* app canvas — light gray everywhere except pure-white panels */
-  --bg-primary: #F5F7FB;
-  --bg-secondary: #FFFFFF;       /* cards / glass panels — pure white */
-  --bg-tertiary: #EEF2F7;        /* hover / selected inset */
-  --card-bg: #FFFFFF;            /* no translucent mix — avoids gray-on-gray mottling */
+  color-scheme: light;
+
+  /* Brand — Enterprise Sapphire */
+  --primary: #1D4ED8;
+  --primary-hover: #1E40AF;
+  --primary-light: #EFF6FF;
+  /* RGB for rgba() / html2canvas-safe tints (no color-mix/oklab) */
+  --primary-rgb: 29, 78, 216;
+  --primary-darker: #172033;
+
+  /* Surfaces — one canvas, one card */
+  --bg: #F4F6FA;
+  --bg-primary: #F4F6FA;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EEF2F7;
+  --card-bg: #FFFFFF;
   --surface: #FFFFFF;
-  --text: #111827;
-  --text-primary: #111827;       /* alias used by newer components */
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
-  --border: rgba(229, 231, 235, 0.8);
-  --border-color: #e2e8f0;       /* solid border alias for inline styles */
-  --note-bg: #fefce8;            /* yellow callout */
-  --note-border: #fde68a;
-  --note-text: #78350f;
-  --info-bg: #ecfdf5;             /* green privacy-notice / info card */
-  --info-border: #bbf7d0;
-  --info-text: #065f46;
-  --warn-bg: #fffbeb;
-  --warn-border: #fde68a;
-  --warn-text: #92400e;
-  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
-  --success: #059669;
-  --success-light: rgba(5, 150, 105, 0.08);
-  --danger: #dc2626;
-  --danger-light: rgba(220, 38, 38, 0.08);
-  --purple: #7c3aed;
-  --purple-light: rgba(124, 58, 237, 0.08);
-  --radius: 10px;
-  --radius-lg: 14px;
+
+  /* Typography */
+  --text: #172033;
+  --text-primary: #172033;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+
+  /* Borders & elevation */
+  --border: #E2E8F0;
+  --border-color: #E2E8F0;
+  --glass-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+
+  /* Status */
+  --success: #0F766E;
+  --success-light: rgba(15, 118, 110, 0.10);
+  --danger: #B91C1C;
+  --danger-light: rgba(185, 28, 28, 0.10);
+  --warning: #B45309;
+  --warning-light: rgba(180, 83, 9, 0.10);
+  --purple: #6D28D9;
+  --purple-light: rgba(109, 40, 217, 0.10);
+
+  /* Callouts (compat) */
+  --note-bg: #FFFBEB;
+  --note-border: #FDE68A;
+  --note-text: #92400E;
+  --info-bg: #ECFDF5;
+  --info-border: #A7F3D0;
+  --info-text: #065F46;
+  --warn-bg: #FFFBEB;
+  --warn-border: #FDE68A;
+  --warn-text: #92400E;
+
+  /* Shape */
+  --radius: 8px;
+  --radius-lg: 12px;
+  --control-height: 38px;
 }
+
 
 /* Dark Mode */
 [data-theme="dark"] {
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-light: rgba(59, 130, 246, 0.12);
+  color-scheme: dark;
+
+  --primary: #3B82F6;
+  --primary-hover: #60A5FA;
+  --primary-light: #1E3150;
   --primary-rgb: 59, 130, 246;
-  --primary-darker: #1e3a8a;
-  --bg: #0f172a;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;       /* card / inset surface in dark mode */
-  --bg-tertiary: #334155;
-  --card-bg: rgba(30, 41, 59, 0.92);
-  --text: #f1f5f9;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border: rgba(51, 65, 85, 0.8);
+  --primary-darker: #1E3A8A;
+
+  --bg: #0B1220;
+  --bg-primary: #0B1220;
+  --bg-secondary: #151F32;
+  --bg-tertiary: #26344A;
+  --card-bg: #151F32;
+  --surface: #151F32;
+
+  --text: #F1F5F9;
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+
+  --border: #334155;
   --border-color: #334155;
+  --glass-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+
+  --success: #5EEAD4;
+  --success-light: rgba(94, 234, 212, 0.12);
+  --danger: #F87171;
+  --danger-light: rgba(248, 113, 113, 0.12);
+  --warning: #FBBF24;
+  --warning-light: rgba(251, 191, 36, 0.12);
+  --purple: #C4B5FD;
+  --purple-light: rgba(196, 181, 253, 0.12);
+
   --note-bg: rgba(202, 138, 4, 0.12);
   --note-border: rgba(202, 138, 4, 0.4);
-  --note-text: #fde68a;
+  --note-text: #FDE68A;
   --info-bg: rgba(16, 185, 129, 0.12);
   --info-border: rgba(16, 185, 129, 0.4);
-  --info-text: #6ee7b7;
-  --warn-bg: rgba(217, 119, 6, 0.12);
-  --warn-border: rgba(217, 119, 6, 0.4);
-  --warn-text: #fcd34d;
-  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-  --success: #34d399;
-  --success-light: rgba(52, 211, 153, 0.12);
-  --danger: #f87171;
-  --danger-light: rgba(248, 113, 113, 0.12);
-  --purple: #a78bfa;
-  --purple-light: rgba(167, 139, 250, 0.12);
+  --info-text: #6EE7B7;
+  --warn-bg: rgba(202, 138, 4, 0.12);
+  --warn-border: rgba(202, 138, 4, 0.4);
+  --warn-text: #FDE68A;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+  --control-height: 38px;
 }
+
 [data-theme="dark"] .form-input { background-color: #1e293b; border-color: #334155; color: #f1f5f9; }
 [data-theme="dark"] .form-input::placeholder { color: #64748b; }
 [data-theme="dark"] .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
@@ -3970,3 +4000,32 @@ table.dossier-dense-table th {
 }
 .sidebar.sidebar-collapsed:hover { width: 64px !important; }
 .sidebar.sidebar-collapsed .sidebar-pin-btn { margin: 0 auto; }
+
+
+/* ===== Design system Phase 1 — shared surfaces (app chrome only) ===== */
+/* PDF / print / invoice-preview stay intentionally white — do not override those. */
+.glass-panel,
+.card,
+.stats-card,
+.dashboard-kpi-block .stats-grid > div {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.page,
+.main-content,
+.dashboard-container.dashboard-home {
+  background: var(--bg);
+  color: var(--text);
+}
+.action-menu-panel,
+.dropdown-menu,
+.profile-switcher-menu {
+  background: var(--surface) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+}
+/* Status chips use tokens when classes present */
+.badge-success, .status-paid { color: var(--success); }
+.badge-danger, .status-overdue { color: var(--danger); }
+.badge-warning, .status-pending { color: var(--warning); }

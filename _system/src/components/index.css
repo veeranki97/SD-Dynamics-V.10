@@ -13,21 +13,22 @@
    immediately. */
 
 :root {
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
+  --primary: #1D4ED8;
+  --primary-hover: #1E40AF;
   --primary-light: rgba(37, 99, 235, 0.08);
   /* v1.10.40 — RGB channels of --primary for rgba() composition.
      html2canvas (which rasterizes the invoice for the PDF) does NOT
      support color-mix(in oklab, …) — reported as "Attempting to parse
      an unsupported color function oklab" on Save & Download. So all
      dynamic tints that used to be color-mix now use rgba(var(--primary-rgb), α). */
-  --primary-rgb: 37, 99, 235;
+  --primary-rgb: 29, 78, 216;
   --primary-darker: #1e3a8a;
-  --bg: #f0f2f5;
-  --bg-primary: #f0f2f5;
-  --bg-secondary: #f8fafc;       /* card / inset surface — light grey on light, dark slate on dark */
-  --bg-tertiary: #f1f5f9;        /* hover / selected inset */
-  --card-bg: rgba(255, 255, 255, 0.92);
+  --bg: #F4F6FA;
+  --bg-primary: #F4F6FA;
+  --bg-secondary: #FFFFFF;       /* card / inset surface — light grey on light, dark slate on dark */
+  --bg-tertiary: #EEF2F7;        /* hover / selected inset */
+  --card-bg: #FFFFFF;
+  --surface: #FFFFFF;
   --text: #111827;
   --text-primary: #111827;       /* alias used by newer components */
   --text-secondary: #6b7280;
@@ -56,6 +57,7 @@
 
 /* Dark Mode */
 [data-theme="dark"] {
+  --surface: #151F32;
   --primary: #3b82f6;
   --primary-hover: #2563eb;
   --primary-light: rgba(59, 130, 246, 0.12);
