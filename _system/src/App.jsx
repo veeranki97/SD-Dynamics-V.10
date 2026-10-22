@@ -1302,6 +1302,7 @@ function App() {
                       type="button"
                       className={`nav-group-header${open ? ' open' : ''}`}
                       onClick={() => toggleNavGroup(grp.name)}
+                      aria-expanded={open}
                       title={open ? ('Collapse ' + grp.name) : ('Expand ' + grp.name)}
                     >
                       <span className="nav-group-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -1317,12 +1318,16 @@ function App() {
                   )}
                   {(open || grp.name === 'Home') && grp.items.map((item) => {
                     const isNested = !!item.parent;
-                    // When Invoices is the parent, show New/Recurring nested only
+                    // Keep the invoice section visibly active when one of its child workflows is open.
+                    const isInvoiceParentActive = item.id === 'invoices'
+                      && ['new', 'recurring', 'payment-reminders'].includes(currentView);
+                    const isActive = currentView === item.id || isInvoiceParentActive;
                     return (
                       <button
                         key={item.id}
                         type="button"
-                        className={`nav-btn ${currentView === item.id ? 'nav-btn-active' : ''}${isNested ? ' nav-btn-nested' : ''}`}
+                        aria-current={isActive ? 'page' : undefined}
+                        className={`nav-btn ${isActive ? 'nav-btn-active' : ''}${isNested ? ' nav-btn-nested' : ''}`}
                         onClick={item.onClick || (() => setCurrentView(item.id))}
                         title={item.label}
                         style={item.id === 'notifications' && notifTotal > 0 ? { position: 'relative' } : undefined}

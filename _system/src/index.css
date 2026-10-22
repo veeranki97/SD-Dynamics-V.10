@@ -4484,3 +4484,29 @@ textarea.form-input:focus {
   background: var(--surface, #151F32) !important;
   border-color: var(--border, #334155) !important;
 }
+
+
+/* v1.10.67 — Surgical accessibility polish: visible keyboard focus for navigation and dashboard KPI shortcuts. */
+.nav-btn:focus-visible,
+.nav-group-header:focus-visible,
+.stat-card[role="button"]:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.stat-card[role="button"] {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-btn,
+  .nav-group-header,
+  .stat-card[role="button"] {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

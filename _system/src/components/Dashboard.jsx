@@ -1627,7 +1627,7 @@ const openPaymentModal = (bill) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{
               fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
-              background: 'rgba(37,99,235,0.12)', color: '#1d4ed8', border: '1px solid rgba(37,99,235,0.25)'
+              background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid var(--border)'
             }}>{(() => {
               const d = new Date();
               const y = d.getFullYear();
@@ -1635,7 +1635,7 @@ const openPaymentModal = (bill) => {
               const fyStart = m >= 3 ? y : y - 1;
               return 'FY ' + String(fyStart).slice(-2) + '-' + String(fyStart + 1).slice(-2);
             })()}</span>
-            <span style={{ fontSize: 12, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
               {new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
             </span>
           </div>
@@ -1770,7 +1770,14 @@ const openPaymentModal = (bill) => {
 
       {/* A) Second KPI row — this month + drafts + open */}
       <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
+        <div className="stat-card" role="button" tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.currentTarget.click();
+            }
+          }}
+          title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
             const last = new Date(Number(y), Number(mth), 0).getDate();
@@ -1792,13 +1799,27 @@ const openPaymentModal = (bill) => {
           <p className="stat-label">This month sales</p>
           <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
+        <div className="stat-card" role="button" tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.currentTarget.click();
+            }
+          }}
+          title="Purchase bills dated this month"
           onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
           style={{ cursor: 'pointer' }}>
           <p className="stat-label">This month purchases</p>
           <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
+        <div className="stat-card" role="button" tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.currentTarget.click();
+            }
+          }}
+          title="Draft documents"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ statusFilter: 'draft' }));
@@ -1811,7 +1832,14 @@ const openPaymentModal = (bill) => {
           <p className="stat-label">Drafts</p>
           <p className="stat-value">{secondaryKpis.drafts}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
+        <div className="stat-card" role="button" tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.currentTarget.click();
+            }
+          }}
+          title="Tax invoices with balance &gt; ₹1"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));

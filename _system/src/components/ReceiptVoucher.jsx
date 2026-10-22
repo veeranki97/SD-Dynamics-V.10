@@ -620,7 +620,7 @@ export default function ReceiptVoucher() {
       )}
 
       {/* Search */}
-      <div className="glass-panel p-4 mb-6">
+      <div className="list-module-toolbar glass-panel">
         <div className="search-box" style={{ maxWidth: '400px' }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search by name or receipt no..." value={search}
@@ -629,7 +629,7 @@ export default function ReceiptVoucher() {
       </div>
 
       {/* Receipts Table */}
-      <div className="glass-panel">
+      <div className="list-module receipts-list-module glass-panel">
         <div className="table-header"><h3>Transaction History</h3></div>
         {filtered.length === 0 ? (
           <div className="empty-state">
