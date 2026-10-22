@@ -42,6 +42,43 @@ const JUMP_NAV_SECTIONS = SETTINGS_TABS.flatMap((t) => t.sections.map((id) => [i
 
 
 
+
+function GlEngineToggle() {
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch('/api/meta/useGlEngine').then(r => r.json()).then(d => setOn(!!d.value)).catch(() => {});
+  }, []);
+  const save = async (v) => {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/meta/useGlEngine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: !!v }),
+      });
+      if (!r.ok) throw new Error('save failed');
+      setOn(!!v);
+      try { toast(v ? 'GL engine ON' : 'GL engine OFF', 'success'); } catch (_) {}
+    } catch (e) {
+      try { toast('Could not save GL engine setting', 'error'); } catch (_) {}
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="glass-panel p-4 mb-4" style={{ border: '1px solid var(--border)' }}>
+      <h4 className="section-title" style={{ marginTop: 0, fontSize: '1rem' }}>General Ledger engine</h4>
+      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        When ON, documents post once to Chart of Accounts. Moved from Financial Books → GL Engine.
+      </p>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+        <input type="checkbox" checked={on} disabled={busy} onChange={e => save(e.target.checked)} />
+        Enable GL engine (recommended)
+      </label>
+    </div>
+  );
+}
+
 function SmtpSettingsPanel() {
   const [form, setForm] = useState({ host: 'smtp.gmail.com', port: 465, user: '', pass: '', from: '', secure: true });
   const [configured, setConfigured] = useState(false);
@@ -2029,6 +2066,7 @@ export default function SettingsView({ onSaved }) {
         <EinvoiceSettingsPanel />
       </div>
       <div id="section-gl-map" data-settings-section="section-gl-map" style={{ order: 2.6 }} className="mb-6">
+        <GlEngineToggle />
         <GlMappingPanel />
       </div>
       <EmailTemplatesPanel />

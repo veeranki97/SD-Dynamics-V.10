@@ -616,6 +616,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
   const [collapsedSections, setCollapsedSections] = useState({ terms: true, extras: true, options: true, billingFrom: true });
   const toggleSection = (key) => setCollapsedSections(prev => ({ ...prev, [key]: !prev[key] }));
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState(editingBill?.workOrderId || draft?.workOrderId || '');
+  const [filterState, setFilterState] = useState('');
   // Prefill from Work Order convert (Tax / Proforma / DC) — runs after WO list loads
   useEffect(() => {
     if (editingBill) return;
@@ -1835,8 +1836,6 @@ const validateForSave = useCallback(() => {
   // suggestion list identity stable across renders where neither
   // input matters (saves a downstream re-render of the suggestion
   // dropdown).
-  // Clients only (never vendors); optional state filter for SD cascade
-  const [filterState, setFilterState] = useState('');
   const clientOnlyList = useMemo(
     () => (savedClients || []).filter(c => !c.isVendor && c.type !== 'vendor'),
     [savedClients],
@@ -4388,14 +4387,9 @@ const validateForSave = useCallback(() => {
                   try {
                     const list = workOrderList;
                     let match = list.find(w => w && (w.id === q || String(w.woNumber || '') === q));
-                    if (!match && q.length >= 4) {
+                    if (!match && q.length >= 6) {
                       const ql = q.toLowerCase();
-                      const softHits = list.filter(w =>
-                        w && (
-                          String(w.woNumber || '').toLowerCase().includes(ql) ||
-                          String(w.clientName || '').toLowerCase().includes(ql)
-                        )
-                      );
+                      const softHits = list.filter(w => w && String(w.woNumber || '').toLowerCase() === ql);
                       if (softHits.length === 1) match = softHits[0];
                     }
                     if (!match) {

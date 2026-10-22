@@ -310,7 +310,6 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
     { id: 'ledger', label: 'Account Ledger' },
     { id: 'opening', label: 'Opening Balances' },
     { id: 'manual', label: 'Manual Journal' },
-    { id: 'gl', label: 'GL Engine' },
     { id: 'lock', label: 'Period Lock' },
   ];
 
@@ -573,17 +572,33 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                 {(() => {
                   let bal = 0;
                   const rows = [];
+                  const selAcc = (accounts || []).find(a => a.id === ledgerAccountId);
+                  const matchEntry = (e) => {
+                    if (!ledgerAccountId) return false;
+                    const id = String(e.accountId || '');
+                    const nm = String(e.account || e.accountName || '');
+                    if (selAcc) {
+                      if (id && (id === selAcc.id || id === String(selAcc.code || ''))) return true;
+                      if (nm && (nm === selAcc.name || nm === String(selAcc.code || ''))) return true;
+                      const label = (selAcc.code ? String(selAcc.code) + ' — ' : '') + String(selAcc.name || '');
+                      if (nm === label) return true;
+                      if (selAcc.code && nm.indexOf(String(selAcc.code)) === 0) return true;
+                      if (selAcc.name && nm.indexOf(String(selAcc.name)) >= 0) return true;
+                    }
+                    if (id === ledgerAccountId || nm === ledgerAccountId) return true;
+                    return false;
+                  };
+                  const journalPool = (scopedJournals && scopedJournals.length) ? scopedJournals : (journals || []);
                   const src = showGlReversals
-                    ? (scopedJournals || []).filter(j => j && (!asOf || String(j.date).slice(0, 10) <= asOf))
-                    : activeGlJournals(scopedJournals).filter(j => !asOf || String(j.date).slice(0, 10) <= asOf);
+                    ? (journalPool || []).filter(j => j && (!asOf || String(j.date).slice(0, 10) <= asOf))
+                    : activeGlJournals(journalPool).filter(j => !asOf || String(j.date).slice(0, 10) <= asOf);
                   src.forEach(j => {
-                    (j.entries || []).forEach(e => {
-                      const match = ledgerAccountId && (e.accountId === ledgerAccountId || e.account === (accounts.find(a => a.id === ledgerAccountId) || {}).name);
-                      if (!ledgerAccountId || !match) return;
+                    (j.entries || j.lines || []).forEach(e => {
+                      if (!matchEntry(e)) return;
                       bal += (Number(e.debit) || 0) - (Number(e.credit) || 0);
                       const tag = j.isReversal ? ' [REV]' : (j.isReversed ? ' [REVERSED]' : '');
                       rows.push(
-                        <tr key={j.id + '-' + rows.length} style={j.isReversal || j.isReversed ? { opacity: 0.65 } : undefined}>
+                        <tr key={(j.id || 'j') + '-' + rows.length} style={j.isReversal || j.isReversed ? { opacity: 0.65 } : undefined}>
                           <td>{j.date}</td>
                           <td>{(j.narration || '') + tag}</td>
                           <td style={{ textAlign: 'right' }}>{formatCurrency(e.debit)}</td>
@@ -593,7 +608,8 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                       );
                     });
                   });
-                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (or select an account).</td></tr>;
+                  if (!ledgerAccountId) return <tr><td colSpan={5} style={{ color: '#64748b' }}>Select an account above.</td></tr>;
+                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (check date range / GL engine posts).</td></tr>;
                   return rows;
                 })()}
               </tbody>
@@ -704,30 +720,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
         </div>
       )}
 
-      {tab === 'gl' && (
-        <div className="glass-panel" style={{ padding: 12, maxWidth: 480 }}>
-          <p style={{ fontSize: 13, color: '#64748b' }}>
-            GL Engine is <strong>{useGlEngine ? 'ON' : 'OFF'}</strong> (default OFF). When ON, tax invoices, receipts, expenses, and purchases post through postDocument (idempotent, balanced). When OFF, legacy journal writers run only.
-          </p>
-          <button type="button" className="btn btn-primary" onClick={async () => {
-            try {
-              const res = await fetch('/api/meta/useGlEngine', {
-                method: 'POST', credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ value: !useGlEngine }),
-              });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error || 'Failed');
-              setUseGlEngine(!!data.value);
-              toast(data.value ? 'GL Engine enabled' : 'GL Engine disabled (legacy)', 'success');
-            } catch (e) { toast(e.message || 'Could not toggle — is server bridge installed?', 'error'); }
-          }}>{useGlEngine ? 'Turn OFF engine' : 'Turn ON engine'}</button>
-          <p style={{ fontSize: 12, marginTop: 12, color: '#b45309' }}>
-            Enable only after Trial Balance balances on a sample manual journal.
-          </p>
-        </div>
-      )}
-
+      
       {tab === 'lock' && (
         <div className="glass-panel p-4" style={{ maxWidth: 420 }}>
           <p style={{ fontSize: 14, color: '#64748b' }}>

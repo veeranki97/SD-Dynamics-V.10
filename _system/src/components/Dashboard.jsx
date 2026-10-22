@@ -13,7 +13,6 @@ import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/r
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
-import DashboardInsights from './DashboardInsights';
 import { sendMailSmart } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
 import { runWorkflowRules } from './WorkflowRulesView';
@@ -1586,7 +1585,7 @@ const openPaymentModal = (bill) => {
       <PageHeader
         icon={listMode ? "📄" : "📊"}
         title={listMode ? "Invoices" : "Dashboard"}
-        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "Overview of your invoices"}
+        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "KPIs, trends and action centre"}
         meta={`${bills.length} invoice${bills.length === 1 ? '' : 's'}`}>
         <HelpButton title="Dashboard — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
@@ -1609,8 +1608,41 @@ const openPaymentModal = (bill) => {
         ) : null}
       </PageHeader>
 
-      <DashboardInsights bills={bills} onFilterOverdue={() => setStatusFilter('overdue')} />
-      {overdueBills.length > 0 && (
+      {!listMode && (
+        <div className="sd-dash-brand-bar" style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+          marginBottom: 16, padding: '12px 16px', borderRadius: 12,
+          background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'linear-gradient(135deg, #4F46E5, #2563EB)', color: '#fff', fontWeight: 800, fontSize: 13
+            }}>SD</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{(activeProfile && activeProfile.businessName) || 'SD Dynamics'}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>Service ERP</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+              background: 'rgba(37,99,235,0.12)', color: '#1d4ed8', border: '1px solid rgba(37,99,235,0.25)'
+            }}>{(() => {
+              const d = new Date();
+              const y = d.getFullYear();
+              const m = d.getMonth();
+              const fyStart = m >= 3 ? y : y - 1;
+              return 'FY ' + String(fyStart).slice(-2) + '-' + String(fyStart + 1).slice(-2);
+            })()}</span>
+            <span style={{ fontSize: 12, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+              {new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
+            </span>
+          </div>
+        </div>
+      )}
+
+{overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
           style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />

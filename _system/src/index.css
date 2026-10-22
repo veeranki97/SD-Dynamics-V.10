@@ -3940,3 +3940,33 @@ table.dossier-dense-table th {
 .stat-card {
   background: #FFFFFF;
 }
+
+
+/* ===== SD-COLLAPSED-ICONS-ONLY ===== */
+.sidebar.sidebar-collapsed .nav-group-header { display: none !important; }
+.sidebar.sidebar-collapsed .nav-label,
+.sidebar.sidebar-collapsed .nav-group-text,
+.sidebar.sidebar-collapsed .sidebar-brand-text,
+.sidebar.sidebar-collapsed .sidebar-subtitle,
+.sidebar.sidebar-collapsed .profile-switcher-name,
+.sidebar.sidebar-collapsed .profile-switcher-edit,
+.sidebar.sidebar-collapsed .profile-switcher,
+.sidebar.sidebar-collapsed .server-status {
+  display: none !important;
+  overflow: hidden !important;
+}
+.sidebar.sidebar-collapsed .nav-btn {
+  justify-content: center !important;
+  padding-left: 0.35rem !important;
+  padding-right: 0.35rem !important;
+}
+.sidebar.sidebar-collapsed .nav-btn-nested { padding-left: 0.35rem !important; }
+.sidebar.sidebar-collapsed:hover .nav-label,
+.sidebar.sidebar-collapsed:hover .nav-group-text,
+.sidebar.sidebar-collapsed:hover .sidebar-brand-text,
+.sidebar.sidebar-collapsed:hover .profile-switcher-name,
+.sidebar.sidebar-collapsed:hover .nav-group-header {
+  display: none !important;
+}
+.sidebar.sidebar-collapsed:hover { width: 64px !important; }
+.sidebar.sidebar-collapsed .sidebar-pin-btn { margin: 0 auto; }

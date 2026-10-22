@@ -931,9 +931,9 @@ function App() {
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // HR
-    { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'System' },
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
-    // System — no E-Invoice duplicate; no Services (use Master data → Services)
+    // System — keep contiguous (Tasks before Notifications) so only ONE System group header
+    { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'System' },
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
@@ -1248,7 +1248,7 @@ function App() {
               style={{ cursor: allProfiles.length > 1 ? 'pointer' : 'default' }}
             >
               <Building2 size={14} />
-              <span className="profile-switcher-name">{profile?.businessName || 'My Business'}</span>
+              <span className="profile-switcher-name" title={profile?.businessName || 'My Business'}>Business</span>
               {allProfiles.length > 1 && <ChevronDown size={13} style={{ marginLeft: 'auto', opacity: 0.6 }} />}
             </button>
             <button
@@ -1302,9 +1302,16 @@ function App() {
                       type="button"
                       className={`nav-group-header${open ? ' open' : ''}`}
                       onClick={() => toggleNavGroup(grp.name)}
-                      title={open ? `Collapse ${grp.name}` : `Expand ${grp.name}`}
+                      title={open ? ('Collapse ' + grp.name) : ('Expand ' + grp.name)}
                     >
-                      <span>{grp.name}</span>
+                      <span className="nav-group-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        {(() => {
+                          const GI = { Sales: FileText, Purchase: ShoppingCart, Work: ClipboardList, Money: Banknote, Books: BookOpen, Compliance: BarChart3, System: Settings, HR: Users };
+                          const Ic = GI[grp.name];
+                          return Ic ? <Ic size={14} strokeWidth={2} aria-hidden /> : null;
+                        })()}
+                        <span className="nav-group-text">{grp.name}</span>
+                      </span>
                       <span className="nav-group-chevron">▸</span>
                     </button>
                   )}
