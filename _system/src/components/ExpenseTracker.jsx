@@ -351,9 +351,9 @@ export default function ExpenseTracker() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="glass-panel p-4 mb-6">
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Filters — Phase 4 list toolbar */}
+      <div className="list-module-toolbar glass-panel mb-6">
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
           <div className="search-box" style={{ maxWidth: '350px' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
@@ -589,7 +589,7 @@ export default function ExpenseTracker() {
       )}
 
       {/* Expense Table */}
-      <div className="glass-panel">
+      <div className="list-module glass-panel">
         <div className="table-header"><h3>Expense Records</h3></div>
         {filtered.length === 0 ? (
           <div className="empty-state">

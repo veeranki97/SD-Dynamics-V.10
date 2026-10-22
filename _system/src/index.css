@@ -4347,3 +4347,140 @@ textarea.form-input:focus {
   padding: 0.5rem 0;
   border-bottom: 1px solid transparent;
 }
+
+
+/* =============================================================================
+   Design system Phase 4 — List modules (Vendors / PO / Expenses) + dark KPI
+   ============================================================================= */
+
+/* Shared list shell used by Invoices, Vendors, Expenses, PO */
+.list-module {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  overflow: hidden;
+  box-shadow: var(--glass-shadow, none);
+  margin-bottom: 1rem;
+}
+.list-module .table-header {
+  padding: 0.85rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary, #eef2f7);
+}
+.list-module .table-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.list-module .empty-state {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.list-module .data-table thead th {
+  background: var(--bg-tertiary, #eef2f7);
+}
+
+.list-module-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface, #fff);
+  position: sticky;
+  top: 0;
+  z-index: 12;
+}
+.list-module-toolbar .search-box {
+  flex: 1;
+  min-width: 200px;
+  max-width: 420px;
+}
+.list-module-toolbar .search-input,
+.list-module-toolbar .filter-select,
+.list-module-toolbar .filter-date {
+  background: var(--surface, #fff) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius, 8px);
+  min-height: 36px;
+  color: var(--text);
+}
+.list-module-toolbar .search-input:focus,
+.list-module-toolbar .filter-select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 29, 78, 216), 0.15);
+}
+
+/* PO list: table inside list-module */
+.po-list-module {
+  overflow-x: auto;
+}
+.po-list-module .data-table {
+  margin: 0;
+}
+
+/* Vendor cards inside list shell */
+.vendors-list-module .vendor-card,
+.vendors-list-module .glass-panel.mb-4 {
+  border-radius: var(--radius, 8px);
+  border: 1px solid var(--border);
+  margin-bottom: 0.75rem !important;
+  background: var(--surface, #fff);
+}
+
+/* Dark mode — KPI icons readable */
+[data-theme="dark"] .dashboard-kpi-block .stat-card,
+[data-theme="dark"] .stats-grid .stat-card {
+  background: var(--surface, #151F32) !important;
+  border-color: var(--border, #334155) !important;
+}
+[data-theme="dark"] .dashboard-kpi-block .stat-label,
+[data-theme="dark"] .stats-grid .stat-label {
+  color: var(--text-muted, #94a3b8) !important;
+}
+[data-theme="dark"] .dashboard-kpi-block .stat-value,
+[data-theme="dark"] .stats-grid .stat-value {
+  color: var(--text, #f1f5f9) !important;
+}
+[data-theme="dark"] .stat-icon-blue {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #93c5fd !important;
+}
+[data-theme="dark"] .stat-icon-green {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #6ee7b7 !important;
+}
+[data-theme="dark"] .stat-icon-orange,
+[data-theme="dark"] .stat-icon-amber {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fcd34d !important;
+}
+[data-theme="dark"] .stat-icon-red {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #fca5a5 !important;
+}
+[data-theme="dark"] .stat-icon-purple {
+  background: rgba(139, 92, 246, 0.2) !important;
+  color: #c4b5fd !important;
+}
+[data-theme="dark"] .list-module {
+  background: var(--surface, #151F32);
+  border-color: var(--border, #334155);
+}
+[data-theme="dark"] .list-module .table-header,
+[data-theme="dark"] .list-module .data-table thead th {
+  background: rgba(15, 23, 42, 0.65);
+  color: var(--text, #f1f5f9);
+}
+[data-theme="dark"] .list-module-toolbar {
+  background: var(--surface, #151F32);
+  border-color: var(--border, #334155);
+}
+[data-theme="dark"] .sd-dash-brand-bar,
+[data-theme="dark"] .dash-brand-bar {
+  background: var(--surface, #151F32) !important;
+  border-color: var(--border, #334155) !important;
+}

@@ -1609,7 +1609,7 @@ const openPaymentModal = (bill) => {
       </PageHeader>
 
       {!listMode && (
-        <div className="sd-dash-brand-bar" style={{
+        <div className="sd-dash-brand-bar dash-brand-bar" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
           marginBottom: 16, padding: '12px 16px', borderRadius: 12,
           background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
@@ -1892,9 +1892,9 @@ const openPaymentModal = (bill) => {
         </div>
       )}
 {listMode && (
-<div className="glass-panel invoice-list-panel" data-testid="invoice-list">
+<div className="glass-panel invoice-list-panel list-module" data-testid="invoice-list">
         <div className="table-header"><h3>Invoices</h3></div>
-        <div className="filters-bar invoice-list-toolbar">
+        <div className="filters-bar invoice-list-toolbar list-module-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search client or invoice..." data-list-anchor="1" value={search}

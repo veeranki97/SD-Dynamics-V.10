@@ -747,8 +747,8 @@ export default function VendorsView() {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="glass-panel p-4 mb-6">
+      {/* Search Bar — Phase 4 list toolbar */}
+      <div className="list-module-toolbar glass-panel mb-6" style={{ marginBottom: '1rem' }}>
         <div className="search-box" style={{ maxWidth: '400px' }}>
           <Search size={16} className="search-icon" />
           <input 
@@ -764,7 +764,7 @@ export default function VendorsView() {
 
       {/* Vendor Cards List */}
       {sortedVendors.length === 0 ? (
-        <div className="glass-panel p-6">
+        <div className="list-module glass-panel p-6">
           <div className="empty-state">
             <Users size={48} />
             <p>No vendors found.</p>
