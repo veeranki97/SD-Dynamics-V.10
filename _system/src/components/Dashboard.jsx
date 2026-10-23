@@ -4,11 +4,13 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
+import DashboardHomeExtras from './DashboardHomeExtras';
+import TopCreateMenu from './TopCreateMenu';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
-import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney, invoiceAmountDue, localToday } from '../utils';
+import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
 import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTax } from '../utils/revenueFilter';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
@@ -220,7 +222,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -472,7 +474,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         });
         setWorkOrderMap(map);
       } catch { /* ignore */ }
-      const today = (typeof localToday === 'function' ? localToday() : new Date().toISOString().split('T')[0]);
+      const today = new Date().toISOString().split('T')[0];
 
       // v1.10.41 — Orphaned-payment reconciliation. Reported: user
       // recorded a payment in an older version — the receipt file
@@ -1054,8 +1056,7 @@ const openPaymentModal = (bill) => {
     const payments = (bill.payments || []).filter((_, i) => i !== idx);
     const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const total = Number(bill.totalAmount) || 0;
-    const dueAmt = invoiceAmountDue({ ...bill, totalAmount: total, total, tdsAmount: (bill.tdsAmount || (bill.totals && bill.totals.tdsAmount) || (bill.data && bill.data.totals && bill.data.totals.tdsAmount) || 0) });
-    const updated = { ...bill, payments, paidAmount: totalPaid, status: (totalPaid + 0.01 >= dueAmt && dueAmt > 0) ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid') };
+    const updated = { ...bill, payments, paidAmount: totalPaid, status: totalPaid >= total && total > 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid') };
     await saveBill(updated, { overwrite: true });
     // v1.10.10 — Also remove the linked Receipt record so the Receipts
     // page stays in sync. Silently skips if this was a legacy payment
@@ -1116,8 +1117,7 @@ const openPaymentModal = (bill) => {
       ? { ...p, id: withId, amount: newAmount, date: form.date, mode: form.mode, note: form.note }
       : p);
     const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const dueAmt2 = invoiceAmountDue({ ...bill, totalAmount: billTotal });
-    const status = (totalPaid + 0.01 >= dueAmt2 && dueAmt2 > 0) ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+    const status = totalPaid >= billTotal && billTotal > 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
     const updated = { ...bill, payments, paidAmount: totalPaid, status };
     await saveBill(updated, { overwrite: true });
     // Also update the linked Receipt record so the Receipts page reflects the edit.
@@ -1632,7 +1632,26 @@ const openPaymentModal = (bill) => {
               <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>Service ERP</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {typeof onOpenSearch === 'function' && (
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
+                onClick={onOpenSearch} title="Search (Ctrl+K)">
+                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                Search… Ctrl+K
+              </button>
+            )}
+            <TopCreateMenu onNewInvoice={onNew} />
+            {typeof onOpenNotifs === 'function' && (
+              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
+                <Bell size={18} />
+              </button>
+            )}
+            {typeof onToggleTheme === 'function' && (
+              <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
+                onClick={onToggleTheme} aria-label="Toggle theme">
+                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            )}
             <span style={{
               fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
               background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid var(--border)'
@@ -1879,6 +1898,11 @@ const openPaymentModal = (bill) => {
         <div className="dashboard-charts-wrap">
         <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} />
         </div>
+      )}
+
+      {/* Spec regions 12–14: Recent Activity, Quick Actions, Compliance */}
+      {!listMode && (
+        <DashboardHomeExtras onNew={onNew} secondaryKpis={secondaryKpis} />
       )}
 
       {/* Low Stock Alerts */}

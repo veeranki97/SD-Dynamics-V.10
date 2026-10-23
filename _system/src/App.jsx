@@ -25,6 +25,7 @@ import { isModuleEnabled, getUpcomingFilings } from './utils';
 // Result: smaller initial JS payload; each heavy view chunk-caches
 // once fetched.
 import Dashboard from './components/Dashboard';
+import TopCreateMenu from './components/TopCreateMenu';
 import InvoiceGenerator from './components/InvoiceGenerator';
 import SetupWizard from './components/SetupWizard';
 import ToastContainer, { toast } from './components/Toast';
@@ -364,20 +365,11 @@ function App() {
       if (e?.detail?.enabled === true) { setAppLockEnabled(true); setUnlocked(true); }
     };
     window.addEventListener('sd-app-lock-now', onLock);
-    const onLockHotkey = (e) => {
-      if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')) {
-        e.preventDefault();
-        if (appLockEnabled) setUnlocked(false);
-      }
-    };
-    window.addEventListener('keydown', onLockHotkey);
-
     const onNeedPin = () => { if (appLockEnabled) setUnlocked(false); };
     window.addEventListener('sd-app-lock-required', onNeedPin);
     window.addEventListener('sd-app-lock-prefs', onPrefs);
     return () => {
       window.removeEventListener('sd-app-lock-now', onLock);
-      window.removeEventListener('keydown', onLockHotkey);
       window.removeEventListener('sd-app-lock-required', onNeedPin);
       window.removeEventListener('sd-app-lock-prefs', onPrefs);
     };
@@ -1244,6 +1236,7 @@ function App() {
         </button>
         <span className="mobile-topbar-title">SD Dynamics</span>
         <span className="mobile-topbar-business">{profile?.businessName || ''}</span>
+        <TopCreateMenu onNewInvoice={handleNewInvoice} />
       </div>
       {navOpen && <div className="sidebar-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <div
@@ -1339,7 +1332,27 @@ function App() {
                     >
                       <span className="nav-group-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                         {(() => {
-                          const GI = { Sales: FileText, Purchase: ShoppingCart, Work: ClipboardList, Money: Banknote, Books: BookOpen, Compliance: BarChart3, System: Settings, HR: Users };
+                          const GI = {
+                            Sales: FileText,
+                            'Sales & Receivables': FileText,
+                            Purchase: ShoppingCart,
+                            'Purchases & Expenses': ShoppingCart,
+                            Work: ClipboardList,
+                            Operations: ClipboardList,
+                            Money: Banknote,
+                            'Cash & Banking': Banknote,
+                            Books: BookOpen,
+                            Accounting: BookOpen,
+                            Compliance: BarChart3,
+                            'Tax & Compliance': BarChart3,
+                            Reports: BarChart3,
+                            'Reports & Analytics': BarChart3,
+                            System: Settings,
+                            Administration: Settings,
+                            'Administration & Settings': Settings,
+                            HR: Users,
+                            Overview: Home,
+                          };
                           const Ic = GI[grp.name];
                           return Ic ? <Ic size={14} strokeWidth={2} aria-hidden /> : null;
                         })()}
@@ -1435,7 +1448,19 @@ function App() {
       )}
       <div className="main-content">
         {(currentView === 'dashboard' || currentView === 'invoices') && (
-          <Dashboard listMode={currentView === 'invoices'} onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} onConvert={handleConvertToInvoice} onOpenProducts={() => { try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); }} activeProfile={profile} />
+          <Dashboard
+            listMode={currentView === 'invoices'}
+            onNew={handleNewInvoice}
+            onEdit={handleEditInvoice}
+            onDuplicate={handleDuplicateInvoice}
+            onConvert={handleConvertToInvoice}
+            onOpenProducts={() => { try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); }}
+            activeProfile={profile}
+            onOpenSearch={() => setShowPalette(true)}
+            onOpenNotifs={() => setShowNotifs(true)}
+            darkMode={darkMode}
+            onToggleTheme={() => setDarkMode(d => !d)}
+          />
         )}
         {currentView === 'new' && (
           <InvoiceGenerator

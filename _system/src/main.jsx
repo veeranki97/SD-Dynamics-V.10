@@ -17,6 +17,7 @@ window.addEventListener('unhandledrejection', (ev) => {
 })
 import './index.css'
 import './styles/sidebar-autohide.css'
+import './styles/dashboard-home-spec.css'
 
 const updateSW = registerSW({
   onNeedRefresh() {
