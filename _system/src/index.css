@@ -3653,6 +3653,76 @@ kbd {
 }
 
 
+/* Compact 4-KPI row — no overlap on desktop */
+.stats-grid-kpi-4,
+.dashboard-kpi-row {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 0.65rem !important;
+  margin-bottom: 1rem;
+}
+.stats-grid-kpi-4 .stat-card,
+.dashboard-kpi-row .stat-card {
+  padding: 0.65rem 0.75rem !important;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+.stats-grid-kpi-4 .stat-label,
+.dashboard-kpi-row .stat-label {
+  font-size: 0.68rem !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stats-grid-kpi-4 .stat-value,
+.dashboard-kpi-row .stat-value {
+  font-size: 1.05rem !important;
+  line-height: 1.2 !important;
+  word-break: break-word;
+}
+@media (max-width: 900px) {
+  .stats-grid-kpi-4,
+  .dashboard-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+.stats-grid-5.stats-grid-kpi-4,
+.stats-grid.stats-grid-kpi-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+
+/* FORCE 4 KPI cards on one row (desktop) — highest priority */
+div.stats-grid.stats-grid-kpi-4 {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 0.55rem !important;
+  margin-bottom: 1rem !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-card {
+  padding: 0.55rem 0.65rem !important;
+  min-width: 0 !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-icon {
+  width: 36px !important;
+  height: 36px !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-label {
+  font-size: 0.65rem !important;
+  margin: 0 !important;
+}
+div.stats-grid.stats-grid-kpi-4 .stat-value {
+  font-size: 0.95rem !important;
+  margin: 0 !important;
+}
+@media (max-width: 700px) {
+  div.stats-grid.stats-grid-kpi-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+
 /* =============================================================================
    Dashboard KPI grid — responsive (no inline gridTemplateColumns in JSX)
    Wide: 4 cols · ≤1100px: 2 cols · ≤420px: 1 col
@@ -4700,15 +4770,79 @@ a:focus-visible,
 }
 
 
-/* Dashboard charts — consistent min height, no page overflow */
-.dashboard-charts-wrap {
-  width: 100%;
-  max-width: 100%;
+/* =============================================================================
+   List pages: no double title, use full width, less side whitespace, thinner scroll
+   ============================================================================= */
+
+/* Prefer full width for list modules (Invoices, Purchases, Expenses, WO…) */
+.dashboard-container.dashboard-list-mode,
+.dashboard-list-mode {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
   box-sizing: border-box;
-  overflow-x: hidden;
-  margin-bottom: 0.75rem;
 }
-.dashboard-charts-wrap .glass-panel,
-.dashboard-charts-wrap canvas {
-  max-width: 100%;
+.page,
+.list-module,
+.invoice-list-panel {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Tighter main canvas padding (was 2rem 2.5rem → large left/right gutters) */
+.app-layout > .main-content,
+.main-content {
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+  padding-top: 1rem !important;
+  padding-bottom: 1.25rem !important;
+}
+@media (min-width: 1280px) {
+  .app-layout > .main-content,
+  .main-content {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+  }
+}
+
+/* Page header less bottom margin so filters sit closer */
+.page-header {
+  margin-bottom: 0.85rem !important;
+}
+
+/* Hide empty table-header shells if left behind */
+.table-header:empty {
+  display: none !important;
+}
+
+/* Thinner scrollbars on main content and tables */
+.main-content,
+.table-scroll,
+.table-responsive {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+.main-content::-webkit-scrollbar,
+.table-scroll::-webkit-scrollbar,
+.table-responsive::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.main-content::-webkit-scrollbar-thumb,
+.table-scroll::-webkit-scrollbar-thumb,
+.table-responsive::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 8px;
+}
+.main-content::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-track,
+.table-responsive::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Filters row sits flush under page header */
+.invoice-list-toolbar,
+.list-module-toolbar {
+  margin-top: 0;
 }

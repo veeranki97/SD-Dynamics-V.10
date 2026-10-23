@@ -1962,7 +1962,6 @@ const openPaymentModal = (bill) => {
       )}
 {listMode && (
 <div className="glass-panel invoice-list-panel list-module" data-testid="invoice-list">
-        <div className="table-header"><h3>Invoices</h3></div>
         <div className="filters-bar invoice-list-toolbar list-module-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />

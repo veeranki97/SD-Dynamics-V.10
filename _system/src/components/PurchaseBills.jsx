@@ -1276,8 +1276,7 @@ export default function PurchaseBills() {
 
       {/* Purchase Table */}
       <div className="list-module glass-panel">
-        <div className="table-header"><h3>Purchase Records</h3></div>
-        {filtered.length === 0 ? (
+                {filtered.length === 0 ? (
           <div className="empty-state">
             <ShoppingCart size={48} />
             <p>{purchases.length === 0 ? 'No purchase bills recorded yet.' : 'No purchases match your filters.'}</p>

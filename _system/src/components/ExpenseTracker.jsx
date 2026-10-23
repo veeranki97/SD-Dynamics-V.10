@@ -590,8 +590,7 @@ export default function ExpenseTracker() {
 
       {/* Expense Table */}
       <div className="list-module glass-panel">
-        <div className="table-header"><h3>Expense Records</h3></div>
-        {filtered.length === 0 ? (
+                {filtered.length === 0 ? (
           <div className="empty-state">
             <Wallet size={48} />
             <p>{expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match your filters.'}</p>

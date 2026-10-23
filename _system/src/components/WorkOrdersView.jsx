@@ -561,8 +561,7 @@ const updateItem = (idx, field, value) => {
         </button>
       </div>
       <div className="list-module wo-list-module glass-panel">
-        <div className="table-header"><h3>Work Orders</h3></div>
-        <div className="table-responsive">
+                <div className="table-responsive">
         <table className="data-table" style={{ width: '100%' }}>
           <thead>
             <tr>
