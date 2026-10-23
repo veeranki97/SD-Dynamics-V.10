@@ -1,3 +1,6 @@
+/* NOTE (Phase B): The running Vite app loads src/index.css via main.jsx.
+   This root index.css is not the primary token source for the SPA. */
+
 /* v1.10.2 — Removed render-blocking `@import url(https://fonts.googleapis.com/...)`.
    Two problems it caused:
    1. First-ever offline load (fresh install, never online) blocked the

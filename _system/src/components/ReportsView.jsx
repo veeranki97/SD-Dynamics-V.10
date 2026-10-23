@@ -1,6 +1,7 @@
 import DataExportView from './DataExportView';
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Wallet, BarChart3, Clock, Search, X, Users, Package, FileText, Download } from 'lucide-react';
+import PageHeader from './PageHeader';
 import { getAllBills, getAllExpenses, getProfile, getAllWorkOrders } from '../store';
 import { formatCurrency, getFYOptions, belongsToProfile } from '../utils';
 import { toast } from './Toast';
@@ -178,12 +179,11 @@ export default function ReportsView() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Reports</h1>
-          <p className="page-subtitle">Financial reports and receivables analysis</p>
-        </div>
-      </div>
+      <PageHeader
+        icon="📊"
+        title="Reports"
+        subtitle="Financial reports and receivables analysis"
+      />
 
       {/* Tab Selector — v1.9.5 adds Client + Product tabs */}
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
@@ -417,7 +417,7 @@ export default function ReportsView() {
           )}
 
           {/* Search */}
-          <div className="glass-panel p-4 mb-6" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+          <div className="list-module-toolbar glass-panel mb-6" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
             <div className="search-box" style={{ maxWidth: '350px' }}>
               <Search size={16} className="search-icon" />
               <input type="text" placeholder="Filter by client name..." value={agingSearch}

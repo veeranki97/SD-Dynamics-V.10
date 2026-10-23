@@ -20,6 +20,7 @@ import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
 import PrintSettings from './PrintSettings';
 import HelpButton from './HelpButton';
+import PageHeader from './PageHeader';
 import { getBackupsList, restoreBackup, triggerBackup, deleteBackup, getTrashedBills, restoreTrashedBill, purgeTrashedBill } from '../store';
 
 // v1.10.36 — Section order for the jump-nav pill bar. Keeping this at
@@ -1160,33 +1161,13 @@ export default function SettingsView({ onSaved }) {
            card, gear glyph in a rounded badge for visual identity, and
            a subtle count chip showing how many sections there are so
            the user has a scale expectation before diving in. */}
-      <div className="page-header" style={{
-        padding: '1.1rem 1.35rem',
-        background: 'linear-gradient(135deg, rgba(var(--primary-rgb), 0.12), var(--card-bg))',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        marginBottom: '1.25rem',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div style={{
-            width: 44, height: 44,
-            borderRadius: 12,
-            background: 'linear-gradient(135deg, var(--primary), var(--primary-darker))',
-            color: '#fff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '1.15rem',
-            boxShadow: '0 6px 18px rgba(var(--primary-rgb), 0.35)',
-          }}>⚙</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 className="page-title" style={{ margin: 0 }}>Settings</h1>
-            <p className="page-subtitle" style={{ margin: '0.15rem 0 0' }}>
-              Business profile, branding, integrations & data
-              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.5rem', borderRadius: 999, background: 'var(--bg-secondary)', border: '1px solid var(--border)', marginLeft: '0.55rem', fontWeight: 600 }}>
-                {JUMP_NAV_SECTIONS.length} sections
-              </span>
-            </p>
-          </div>
-          <HelpButton title="Settings — how to use">
+      <PageHeader
+        icon="⚙"
+        title="Settings"
+        subtitle="Business profile, branding, integrations and data"
+        meta={String(JUMP_NAV_SECTIONS.length) + ' sections'}
+      >
+        <HelpButton title="Settings — how to use">
             <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
               <li><strong>Company Details</strong> — this is the header block on every invoice. GSTIN drives place-of-supply detection.</li>
               <li><strong>Multi-business profiles</strong> — Save as Profile keeps the current form as a switchable profile; switch between them from the invoice generator.</li>
@@ -1198,8 +1179,7 @@ export default function SettingsView({ onSaved }) {
               <li><strong>Import / Export</strong> — CSV import for products/clients; JSON export for full backup portability.</li>
             </ul>
           </HelpButton>
-        </div>
-      </div>
+      </PageHeader>
 
       {/* v1.10.36 — Jump-nav pill bar with scroll-spy. Sticky at the
            top of the panel, backdrop-blur so content beneath still
@@ -1282,7 +1262,7 @@ export default function SettingsView({ onSaved }) {
            input so users can pick a common value in one click, then a
            number field for fine-tuning. Save button gets a subtle live
            status text next to it. */}
-      <div id="section-stock" data-settings-section="section-stock" className="glass-panel p-6 mb-6" style={{ order: 6 }}>
+      <div id="section-stock" data-settings-section="section-stock" className="list-module glass-panel p-6 mb-6" style={{ order: 6 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.9rem', marginBottom: '0.9rem' }}>
           <div style={{
             width: 40, height: 40, flexShrink: 0,
@@ -1397,7 +1377,7 @@ export default function SettingsView({ onSaved }) {
       <div id="section-backups" data-settings-section="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>
 
       {/* ---- Modules / Features ---- */}
-      <div id="section-modules" data-settings-section="section-modules" className="glass-panel p-6 mb-6" style={{ order: 5 }}>
+      <div id="section-modules" data-settings-section="section-modules" className="list-module glass-panel p-6 mb-6" style={{ order: 5 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div>
             <h3 className="section-title" style={{ marginTop: 0, marginBottom: '0.25rem' }}>Modules</h3>
@@ -1440,7 +1420,7 @@ export default function SettingsView({ onSaved }) {
       </div>
 
       {/* ---- Region Preference ---- */}
-      <div id="section-region" data-settings-section="section-region" className="glass-panel p-6 mb-6" style={{ order: 7 }}>
+      <div id="section-region" data-settings-section="section-region" className="list-module glass-panel p-6 mb-6" style={{ order: 7 }}>
         <h3 className="section-title" style={{ marginTop: 0 }}>Region Preference</h3>
         <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.85rem' }}>
           Choose how the app behaves. You can change this any time without losing data.

@@ -9,7 +9,7 @@ import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
 import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
-import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/revenueFilter';
+import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTax } from '../utils/revenueFilter';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
@@ -267,46 +267,56 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     const aging = { notDue: 0, d0_30: 0, d31_60: 0, d61_90: 0, d90p: 0 };
     const today = new Date();
     today.setHours(0,0,0,0);
+    // Phase A (DASH-001): primary KPIs use revenueFilter — same rules as
+    // secondary month sales / GSTR-oriented charts (exclude QUO/PI/DC/cancelled/converted).
     for (const b of bills) {
-      if ((b.invoiceType || '').toLowerCase().includes('proforma') || (b.invoiceType || '').toLowerCase().includes('quotation')) continue;
       const cur = b.currency || b.data?.invoiceOptions?.currency || 'INR';
       if (!byCurrency[cur]) byCurrency[cur] = { total: 0, tax: 0, unpaid: 0, received: 0 };
-      // Skip cancelled for KPIs
-      if ((b.status || '') === 'cancelled') continue;
-      byCurrency[cur].total += Number(b.totalAmount) || 0;
-      byCurrency[cur].tax += Number(b.totalTaxAmount) || 0;
-      // Total Received = sum of all paid amounts (partial + full). Prior bug only
-      // counted paidAmount when status !== 'paid', so fully paid invoices showed ₹0.
-      const paid = Number(b.paidAmount) || 0;
-      byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
-      const due = (Number(b.totalAmount) || 0) - paid;
-      if (b.status !== 'paid' && due > 0.01) {
-        byCurrency[cur].unpaid += due;
-        const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
-        if (dueDate) {
-          const dd = new Date(dueDate);
-          const days = Math.floor((today - dd) / 86400000);
-          if (days < 0) aging.notDue += due;
-          else if (days <= 30) aging.d0_30 += due;
-          else if (days <= 60) aging.d31_60 += due;
-          else if (days <= 90) aging.d61_90 += due;
-          else aging.d90p += due;
-        } else aging.d0_30 += due;
+
+      const signedAmt = revenueSignedAmount(b);
+      const signedTax = revenueSignedTax(b);
+      if (signedAmt !== 0 || signedTax !== 0) {
+        byCurrency[cur].total += signedAmt;
+        byCurrency[cur].tax += signedTax;
       }
+
+      // Received / AR only on receivable tax invoices (not PI/QUO/DC/CN).
+      if (isReceivableDocument(b)) {
+        const paid = Number(b.paidAmount) || 0;
+        byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
+        const due = (Number(b.totalAmount) || 0) - paid;
+        if (b.status !== 'paid' && due > 0.01) {
+          byCurrency[cur].unpaid += due;
+          const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
+          if (dueDate) {
+            const dd = new Date(dueDate);
+            const days = Math.floor((today - dd) / 86400000);
+            if (days < 0) aging.notDue += due;
+            else if (days <= 30) aging.d0_30 += due;
+            else if (days <= 60) aging.d31_60 += due;
+            else if (days <= 90) aging.d61_90 += due;
+            else aging.d90p += due;
+          } else aging.d0_30 += due;
+        }
+      }
+
       const idate = b.data?.details?.invoiceDate || b.invoiceDate || '';
       if (idate.length >= 7) {
         const m = idate.slice(0, 7);
-        byMonth[m] = (byMonth[m] || 0) + (b.totalAmount || 0);
+        const monthAdd = revenueSignedAmount(b);
+        if (monthAdd !== 0) byMonth[m] = (byMonth[m] || 0) + monthAdd;
       }
-      const cn = b.clientName || b.data?.client?.name || 'Unknown';
-      byClient[cn] = (byClient[cn] || 0) + (b.totalAmount || 0);
+      if (isRevenueDocument(b) || isCreditNote(b)) {
+        const cn = b.clientName || b.data?.client?.name || 'Unknown';
+        byClient[cn] = (byClient[cn] || 0) + revenueSignedAmount(b);
+      }
     }
     const monthKeys = Object.keys(byMonth).sort().slice(-6);
     const topClients = Object.entries(byClient).sort((a,b) => b[1]-a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount }));
     const bySite = {};
     const byState = {};
     bills.forEach(b => {
-      if ((b.invoiceType || 'tax-invoice') !== 'tax-invoice' || b.status === 'cancelled') return;
+      if (!isRevenueDocument(b)) return;
       const site = b.data?.site || b.data?.details?.site || 'Unassigned';
       bySite[site] = (bySite[site] || 0) + (Number(b.totalAmount) || 0);
       const st = b.data?.client?.state || b.data?.details?.placeOfSupply || 'Unknown';
@@ -1721,7 +1731,7 @@ const openPaymentModal = (bill) => {
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
-            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · incl. GST)</span></p>
+            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · excl. QUO/PI/DC · CN reduces)</span></p>
             {Object.entries(stats.byCurrency).map(([cur, v]) => (
               <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
                 {formatCurrency(v.total, cur)}

@@ -58,7 +58,7 @@ export default function DashboardCharts({ stats }) {
             labels = s.salesTrend.map(x => x.label || x.month || '');
             data = s.salesTrend.map(x => x.value || x.amount || 0);
           }
-          if (!labels.length) { labels = ['No data']; data = [0]; }
+          if (!labels.length) { labels = ['No revenue data']; data = [0]; }
           const purchMap = s.byMonthPurchases || {};
           const purchData = labels.map(k => Number(purchMap[k]) || 0);
           mk(salesRef.current, {
@@ -274,10 +274,15 @@ export default function DashboardCharts({ stats }) {
   }, [stats]);
 
   const prefs = getChartPrefs() || {};
-  const card = (title, show, ref) => (
+  const card = (title, subtitle, show, ref) => (
     show === false ? null : (
-      <div className="glass-panel" style={{ padding: '0.75rem 1rem', minHeight: 260 }}>
-        <h3 style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 600, opacity: 0.85 }}>{title}</h3>
+      <div className="glass-panel chart-card" style={{ padding: '0.75rem 1rem', minHeight: 260 }}>
+        <h3 style={{ margin: '0 0 0.15rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>{title}</h3>
+        {subtitle ? (
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)', lineHeight: 1.35 }}>{subtitle}</p>
+        ) : (
+          <div style={{ height: '0.5rem' }} />
+        )}
         <div style={{ height: 200, position: 'relative' }}>
           <canvas ref={ref} />
         </div>
@@ -292,12 +297,42 @@ export default function DashboardCharts({ stats }) {
       gap: '1rem',
       marginBottom: '1.25rem',
     }}>
-      {card('Sales Trend', prefs.showSalesTrend, salesRef)}
-      {card('GST Breakdown', prefs.showGstBreakdown, gstRef)}
-      {card('Top Clients', prefs.showTopClients, clientsRef)}
-      {card('Top Sites', prefs.showTopSites, sitesRef)}
-      {card('Sales by State', prefs.showSalesByState, stateRef)}
-      {card('Aging Summary', prefs.showAging, agingRef)}
+      {card(
+        'Sales vs purchases',
+        'Tax invoices only (excl. quotation, proforma, delivery challan). Credit notes reduce sales.',
+        prefs.showSalesTrend,
+        salesRef,
+      )}
+      {card(
+        'GST breakdown',
+        'Output tax from revenue documents (CGST / SGST / IGST).',
+        prefs.showGstBreakdown,
+        gstRef,
+      )}
+      {card(
+        'Top clients',
+        'By billed amount on tax invoices (same revenue rules as KPIs).',
+        prefs.showTopClients,
+        clientsRef,
+      )}
+      {card(
+        'Top sites',
+        'Tax-invoice revenue by site / location.',
+        prefs.showTopSites,
+        sitesRef,
+      )}
+      {card(
+        'Sales by state',
+        'Place of supply / client state on tax invoices.',
+        prefs.showSalesByState,
+        stateRef,
+      )}
+      {card(
+        'Aging summary',
+        'Open tax-invoice balances only (not quotation / proforma / challan).',
+        prefs.showAging,
+        agingRef,
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { ShoppingCart, Plus, Edit3, Trash2, Search, X, Save, Download, Wand2, FileText, Eye } from 'lucide-react';
 import HelpButton from './HelpButton';
+import PageHeader from './PageHeader';
 import { getAllPurchases, savePurchase, deletePurchase, getAllProducts, saveProduct, getProfile, getAllBudgets, getNextInvoiceNumber } from '../store';
 import { getAllWorkOrders as fetchWOs, getAllCostCenters as fetchCCs } from '../store';
 import { formatCurrency, calculateRoundOff, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine, getStateCode, getFinancialYearLabel } from '../utils';
@@ -867,30 +868,26 @@ export default function PurchaseBills() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div>
-            <h1 className="page-title">Purchase Bills</h1>
-            <p className="page-subtitle">Track supplier invoices for ITC claims in GSTR-3B</p>
-          </div>
-          <HelpButton title="Purchase Bills — how to use">
-            <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
-              <li><strong>Add Purchase</strong> — record every supplier tax invoice you receive. The GST paid becomes your ITC (input tax credit) in GSTR-3B.</li>
-              <li><strong>Import from image (OCR)</strong> — snap the supplier's invoice with your phone. The app extracts supplier GSTIN, invoice number, date, and grand total. Line items still need manual entry (bill layouts vary too much for reliable auto-parsing).</li>
-              <li><strong>Interstate toggle</strong> — flip ON when the supplier is in a different state (they charged IGST) so ITC routes correctly.</li>
-              <li><strong>Payment status</strong> — Unpaid / Partial / Paid drives the "amount payable to suppliers" report.</li>
-              <li><strong>Export CSV</strong> — hand to your CA at return time.</li>
-            </ul>
-          </HelpButton>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
-          <button className="btn btn-secondary" onClick={() => setShowOCR(true)} title="Extract fields from a bill photo/scan">
-            <Wand2 size={16} /> Import from image (OCR)
-          </button>
-          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Purchase</button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<ShoppingCart size={20} />}
+        title="Purchase Bills"
+        subtitle="Track supplier invoices for ITC claims in GSTR-3B"
+      >
+        <HelpButton title="Purchase Bills — how to use">
+          <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
+            <li><strong>Add Purchase</strong> — record every supplier tax invoice you receive. The GST paid becomes your ITC (input tax credit) in GSTR-3B.</li>
+            <li><strong>Import from image (OCR)</strong> — snap the supplier's invoice with your phone. The app extracts supplier GSTIN, invoice number, date, and grand total. Line items still need manual entry (bill layouts vary too much for reliable auto-parsing).</li>
+            <li><strong>Interstate toggle</strong> — flip ON when the supplier is in a different state (they charged IGST) so ITC routes correctly.</li>
+            <li><strong>Payment status</strong> — Unpaid / Partial / Paid drives the "amount payable to suppliers" report.</li>
+            <li><strong>Export CSV</strong> — hand to your CA at return time.</li>
+          </ul>
+        </HelpButton>
+        <button type="button" className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
+        <button type="button" className="btn btn-secondary" onClick={() => setShowOCR(true)} title="Extract fields from a bill photo/scan">
+          <Wand2 size={16} /> Import from image (OCR)
+        </button>
+        <button type="button" className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Purchase</button>
+      </PageHeader>
 
       {/* v1.10.22 — Bill OCR modal (tesseract.js, lazy-loaded). */}
       {showOCR && (
@@ -1004,7 +1001,7 @@ export default function PurchaseBills() {
       </div>
 
       {/* Filters */}
-      <div className="glass-panel p-4 mb-6">
+      <div className="list-module-toolbar glass-panel mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <div className="search-box" style={{ maxWidth: '300px' }}>
             <Search size={16} className="search-icon" />
@@ -1278,7 +1275,7 @@ export default function PurchaseBills() {
       )}
 
       {/* Purchase Table */}
-      <div className="glass-panel">
+      <div className="list-module glass-panel">
         <div className="table-header"><h3>Purchase Records</h3></div>
         {filtered.length === 0 ? (
           <div className="empty-state">

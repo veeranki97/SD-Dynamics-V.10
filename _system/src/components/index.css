@@ -1,3 +1,6 @@
+/* LEGACY / AUX stylesheet — Vite app tokens are defined in src/index.css (Phase B).
+   Keep :root below in sync with src/index.css when editing colours. */
+
 /* v1.10.2 — Removed render-blocking `@import url(https://fonts.googleapis.com/...)`.
    Two problems it caused:
    1. First-ever offline load (fresh install, never online) blocked the
@@ -29,11 +32,11 @@
   --bg-tertiary: #EEF2F7;        /* hover / selected inset */
   --card-bg: #FFFFFF;
   --surface: #FFFFFF;
-  --text: #111827;
-  --text-primary: #111827;       /* alias used by newer components */
-  --text-secondary: #6b7280;
-  --text-muted: #9ca3af;
-  --border: rgba(229, 231, 235, 0.8);
+  --text: #172033;
+  --text-primary: #172033;       /* alias used by newer components */
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --border: #E2E8F0;
   --border-color: #e2e8f0;       /* solid border alias for inline styles */
   --note-bg: #fefce8;            /* yellow callout */
   --note-border: #fde68a;

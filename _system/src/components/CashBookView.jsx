@@ -4,6 +4,7 @@ import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals
 import { activeGlJournals } from '../utils/glPosting';
 import { formatCurrency, belongsToProfile } from '../utils';
 import { toast } from './Toast';
+import PageHeader from './PageHeader';
 
 function openPrintHtml(html, title) {
   const t = String(title || 'Cash-Book').replace(/[/\\?%*:|"<>]/g, '-');
@@ -244,12 +245,12 @@ export default function CashBookView() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Banknote size={22} /> Cash Book
-        </h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => exportCashCsv(rows)}>Export CSV</button>
+      <PageHeader
+        icon={<Banknote size={20} />}
+        title="Cash Book"
+        subtitle="Running balance from Journal (Bank/Cash) — receipts = money in, expenses/payments = money out. Same source as General Ledger."
+      >
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => exportCashCsv(rows)}>Export CSV</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={async () => {
             let company = 'SAI DURGA';
             try { const p = await getProfile(); company = p?.businessName || p?.name || company; } catch (_) {}
@@ -264,9 +265,7 @@ export default function CashBookView() {
               exportCashPdf({ title: 'Cash Book', subtitle: 'CASHBOOK LEDGER', company, rows, mode: 'ledger', closing });
             }
           }}>{tab === 'day' ? 'Export Day Book PDF' : 'Export Cash Book PDF'}</button>
-        </div>
-        <p className="page-subtitle">Running balance from Journal (Bank/Cash) — receipts = money in, expenses/payments = money out. Same source as General Ledger.</p>
-      </div>
+      </PageHeader>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button type="button" className={`btn ${tab === 'ledger' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('ledger')}>Bank Ledger</button>
@@ -278,7 +277,7 @@ export default function CashBookView() {
         const tin = dayRows.reduce((s, r) => s + r.inflow, 0);
         const tout = dayRows.reduce((s, r) => s + r.outflow, 0);
         return (
-          <div className="glass-panel p-4 mb-4">
+          <div className="list-module-toolbar glass-panel mb-4">
             <div className="form-group" style={{ maxWidth: 220 }}>
               <label className="form-label">Date</label>
               <input type="date" className="form-input" value={dayDate} onChange={e => setDayDate(e.target.value)} />
@@ -312,7 +311,7 @@ export default function CashBookView() {
 
       {tab === 'ledger' && (
         <>
-          <div className="glass-panel" style={{
+          <div className="list-module glass-panel" style={{
             display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center',
             padding: '0.65rem 1rem', marginBottom: '0.75rem',
           }}>

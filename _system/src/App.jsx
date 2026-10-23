@@ -371,7 +371,7 @@ function App() {
     } catch { /* sandboxed history API — fall through */ }
     const saved = sessionStorage.getItem('gst_currentView') || 'dashboard';
     // Guard: unknown / partially-updated views must not blank the whole app
-    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders','einvoice','budgets']);
+    const known = new Set(['dashboard','invoices','new','recurring','clients','vendors','inventory','expenses','purchases','workorders','purchaseorders','cashbook','costcenters','coa','generalledger','servicerev','finbooks','payrecon','bankfeed','vouchers','workflows','receipts','reports','filing','incometax','guide','settings','controlpanel','activity-log','system-health','payment-reminders','einvoice','budgets','dataexport','tasks','hrm','chart-settings']);
     return known.has(saved) ? saved : 'dashboard';
   });
   const [profile, setProfile] = useState(null);
@@ -915,6 +915,7 @@ function App() {
     // Work — jobs + masters (Services tab inside Master data)
     { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Work' },
     { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Work' },
+    { id: 'inventory', icon: Package, label: 'Inventory', module: 'inventory', group: 'Work' },
     // Money
     { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Money' },
     { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Money' },
@@ -928,12 +929,15 @@ function App() {
     { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
     // Compliance
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
+    { id: 'dataexport', icon: Download, label: 'Data export', module: 'reports', group: 'Compliance' },
+    { id: 'servicerev', icon: BarChart3, label: 'Service revenue', module: 'reports', group: 'Compliance' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
     // HR
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
     // System — keep contiguous (Tasks before Notifications) so only ONE System group header
     { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'System' },
+    { id: 'workflows', icon: CheckSquare, label: 'Workflow rules', module: 'dashboard', group: 'System' },
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
@@ -1478,6 +1482,9 @@ function App() {
         )}
         {currentView === 'reports' && (
           <ReportsView key={businessKey} />
+        )}
+        {currentView === 'dataexport' && (
+          <Suspense fallback={<ViewLoading />}><DataExportView key={businessKey} /></Suspense>
         )}
         {currentView === 'filing' && (
           <GSTReturns key={businessKey} />

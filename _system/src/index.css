@@ -12,6 +12,14 @@
    Francisco, Roboto) so pre-cache users get clean typography
    immediately. */
 
+/* =============================================================================
+   CANONICAL DESIGN TOKENS (Phase B)
+   main.jsx imports ONLY this file: src/index.css
+   Do not treat root index.css or src/components/index.css as token sources
+   for the Vite app — keep their :root values aligned with this block if those
+   files are still bundled for legacy/release tooling.
+   ============================================================================= */
+
 :root {
   color-scheme: light;
 

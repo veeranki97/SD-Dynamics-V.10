@@ -6,6 +6,7 @@ import { parseGstr2bCsv, csvRowsTo2bData } from '../utils/gstr2bCsv';
 import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, formatDateGST, getFilingPeriod, getUnitUQC, getFYOptions, belongsToProfile, toCsvLine, splitIntraStateTax } from '../utils';
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
+import PageHeader from './PageHeader';
 
 /** ITC set-off per Sec 49(5) / 49A Rule 88A (pure, testable). */
 export function applyItcSetOff(outputTax, itc) {
@@ -1645,9 +1646,13 @@ export default function GSTReturns() {
 
   return (
     <div className="dashboard-container">
-      {/* Header row: title + period selector + portal link */}
+      <PageHeader
+        icon={<FileText size={20} />}
+        title="GST Returns"
+        subtitle="GSTR-1 / GSTR-3B data, ITC set-off and filing assist"
+      />
+      {/* Period selector + portal link */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-        <h1 className="page-title" style={{ margin: 0 }}>GST Returns</h1>
         {profile?.gstin ? (
           <span className="gstin-header-badge" title="Business GSTIN (from Settings → Company)" style={{
             fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.02em',
