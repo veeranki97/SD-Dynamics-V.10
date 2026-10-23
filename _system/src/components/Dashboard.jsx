@@ -1753,8 +1753,7 @@ const openPaymentModal = (bill) => {
       <p className="sd-dash-greeting text-muted" style={{ margin: '0 0 12px', fontSize: '0.9rem' }}>
         {((activeProfile && activeProfile.businessName) ? ('Overview — ' + activeProfile.businessName) : 'Overview')} · real-time figures from your books (tax invoices only for sales KPIs).
       </p>
-<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
+<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary">
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
@@ -1806,7 +1805,7 @@ const openPaymentModal = (bill) => {
       </div>
 
       {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
         <div className="stat-card" role="button" tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
