@@ -292,12 +292,24 @@ export function addMonthsClamped(dateInput, months) {
 /** Amount the client must pay for “Paid” status (grand total minus TDS withheld). */
 export function invoiceAmountDue(billOrTotals) {
   if (!billOrTotals) return 0;
-  const tds = Number(billOrTotals.tdsAmount ?? billOrTotals.totals?.tdsAmount) || 0;
+  const opts = billOrTotals.invoiceOptions || billOrTotals.totals?.invoiceOptions || {};
+  const tds = Number(
+    billOrTotals.tdsAmount
+    ?? billOrTotals.totals?.tdsAmount
+    ?? opts.tdsAmount
+  ) || 0;
   const net = billOrTotals.netReceivable ?? billOrTotals.totals?.netReceivable;
-  if (net != null && Number(net) > 0) return Math.round(Number(net) * 100) / 100;
-  const total = Number(billOrTotals.totalAmount ?? billOrTotals.total ?? billOrTotals.totals?.total) || 0;
+  if (net != null && Number.isFinite(Number(net)) && Number(net) >= 0 && tds > 0) {
+    return Math.round(Number(net) * 100) / 100;
+  }
+  const total = Number(
+    billOrTotals.totalAmount
+    ?? billOrTotals.total
+    ?? billOrTotals.totals?.total
+    ?? billOrTotals.grandTotal
+  ) || 0;
   if (tds > 0) return Math.round((total - tds) * 100) / 100;
-  return total;
+  return Math.round(total * 100) / 100;
 }
 
 export function computeInvoiceTotals(opts) {
@@ -444,12 +456,17 @@ export function computeInvoiceTotals(opts) {
   const marginalTcsBase = tcsCumBefore >= TDS_TCS_THRESHOLD
     ? receiptIncludingGst
     : Math.max(0, (tcsCumBefore + receiptIncludingGst) - TDS_TCS_THRESHOLD);
-  // Section 194Q / contract TDS: base is taxable value WITHOUT GST (not receipt incl. tax).
-  // TCS 206C(1H) above still uses receiptIncludingGst per CBDT Circular 17/2020.
+  // Section 194Q: base = taxable WITHOUT GST; ₹50L annual threshold applies.
+  // Sections 194C / 194J / 194I / 194H / etc.: compute on full taxable (no ₹50L gate).
+  // TCS 206C(1H) still uses receiptIncludingGst + ₹50L threshold (CBDT).
   const tdsBaseExGst = r2(taxableAmount);
-  const marginalTdsBase = tdsCumBefore >= TDS_TCS_THRESHOLD
-    ? tdsBaseExGst
-    : Math.max(0, (tdsCumBefore + tdsBaseExGst) - TDS_TCS_THRESHOLD);
+  const tdsSectionCode = String(invoiceOptions.tdsSection || invoiceOptions.tdsSectionCode || '').toUpperCase();
+  const tdsNeeds50L = !tdsSectionCode || tdsSectionCode === '194Q' || tdsSectionCode.startsWith('194Q');
+  const marginalTdsBase = tdsNeeds50L
+    ? (tdsCumBefore >= TDS_TCS_THRESHOLD
+        ? tdsBaseExGst
+        : Math.max(0, (tdsCumBefore + tdsBaseExGst) - TDS_TCS_THRESHOLD))
+    : tdsBaseExGst;
 
   const tcsRate = Number(invoiceOptions.tcsRate) || 0;
   const tdsRate = Number(invoiceOptions.tdsRate) || 0;

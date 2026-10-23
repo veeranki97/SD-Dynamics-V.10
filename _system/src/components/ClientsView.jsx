@@ -716,8 +716,19 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
     try {
       const data = { ...formData };
       if (editingClientId) data.id = editingClientId;
+      // Premium sequential party code CL-001, CL-002… (keep existing code on edit)
+      if (!editingClientId && !(data.partyCode || data.clientCode)) {
+        const existing = (clients || []).map(c => String(c.partyCode || c.clientCode || ''));
+        let maxN = 0;
+        existing.forEach(c => {
+          const m = c.match(/^CL-?0*(\d+)$/i);
+          if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+        });
+        data.partyCode = 'CL-' + String(maxN + 1).padStart(3, '0');
+        data.clientCode = data.partyCode;
+      }
       await saveClient(data);
-      toast(editingClientId ? 'Client updated' : 'Client added', 'success');
+      toast(editingClientId ? 'Client updated' : ('Client added' + (data.partyCode ? ' · ' + data.partyCode : '')), 'success');
       closeForm();
       loadData();
     } catch {

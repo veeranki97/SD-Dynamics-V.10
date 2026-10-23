@@ -11,7 +11,7 @@ import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
-import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
+import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney , invoiceAmountDue } from '../utils';
 import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTax } from '../utils/revenueFilter';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
@@ -287,7 +287,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       if (isReceivableDocument(b)) {
         const paid = Number(b.paidAmount) || 0;
         byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
-        const due = (Number(b.totalAmount) || 0) - paid;
+        const due = Math.max(0, ((typeof invoiceAmountDue === "function" ? invoiceAmountDue(b) : (Number(b.netReceivable) || Number(b.totalAmount) || 0)) - paid));
         if (b.status !== 'paid' && due > 0.01) {
           byCurrency[cur].unpaid += due;
           const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
@@ -775,7 +775,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   const changeStatus = async (bill, newStatus) => {
     const alreadyPaid = (bill.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
       || Number(bill.paidAmount) || 0;
-    const billTotal = Number(bill.totalAmount) || 0;
+    const billTotal = (typeof invoiceAmountDue === "function" ? invoiceAmountDue(bill) : (Number(bill.netReceivable) || Number(bill.totalAmount) || 0));
     const outstanding = Math.max(0, billTotal - alreadyPaid);
     const today = new Date().toISOString().split('T')[0];
     let updated = { ...bill, status: newStatus };

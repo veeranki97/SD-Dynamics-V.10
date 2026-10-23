@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronU
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllBills, getAllWorkOrders, saveJournal, getAllCostCenters } from '../store';
-import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, htmlHasText, numberToWords } from '../utils';
+import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, htmlHasText, numberToWords, invoiceAmountDue } from '../utils';
 // isValidIndianGSTIN used in save validation
 import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
@@ -1430,7 +1430,7 @@ const validateForSave = useCallback(() => {
   const totals = useMemo(() => computeInvoiceTotals({
     items, profile, client, details, showGST, taxInclusive,
     invoiceOptions: { ...invoiceOptions, showDiscount: false, invoiceDiscountValue: 0 },
-  }), [items, client.state, client?.country, client?.gstin, client?.isSEZ, profile?.state, profile?.country, profile?.gstin, showGST, taxInclusive, invoiceOptions.showRoundOff, invoiceOptions.showTDS, invoiceOptions.tdsRate, invoiceOptions.tdsCumulativeThisYear, invoiceOptions.showTCS, invoiceOptions.tcsRate, invoiceOptions.tcsCumulativeThisYear, invoiceOptions.reverseCharge, invoiceOptions.invoiceDiscountValue, invoiceOptions.invoiceDiscountType, details?.placeOfSupply]);
+  }), [items, client.state, client?.country, client?.gstin, client?.isSEZ, profile?.state, profile?.country, profile?.gstin, showGST, taxInclusive, invoiceOptions.showRoundOff, invoiceOptions.showTDS, invoiceOptions.tdsSection, invoiceOptions.tdsRate, invoiceOptions.tdsCumulativeThisYear, invoiceOptions.showTCS, invoiceOptions.tcsRate, invoiceOptions.tcsCumulativeThisYear, invoiceOptions.reverseCharge, invoiceOptions.invoiceDiscountValue, invoiceOptions.invoiceDiscountType, details?.placeOfSupply]);
 
   const buildTaxInvoiceChecklist = useCallback(() => {
     const invT = String(invoiceType || '').toLowerCase();
@@ -1995,7 +1995,10 @@ const validateForSave = useCallback(() => {
     // Dashboard while the editor was open (see comment above), that
     // stale status would still say 'unpaid' and this save would
     // downgrade a fully-paid invoice.
-    const billTotalForStatus = Number(totals.total) || 0;
+    // Paid / Partial against net receivable (grand total − TDS), not full GST total
+    const billTotalForStatus = (typeof invoiceAmountDue === 'function')
+      ? invoiceAmountDue({ ...totals, totalAmount: totals.total, tdsAmount: totals.tdsAmount, netReceivable: totals.netReceivable })
+      : (Number(totals.netReceivable) > 0 ? Number(totals.netReceivable) : (Number(totals.total) || 0));
     const computedStatus = seedPaidAmount >= billTotalForStatus - 0.005 && billTotalForStatus > 0
       ? 'paid'
       : (seedPaidAmount > 0.005 ? 'partial' : 'unpaid');
@@ -2014,6 +2017,9 @@ const validateForSave = useCallback(() => {
       currency: invoiceOptions.currency || 'INR',
       totalAmount: totals.total,
       totalTaxAmount: totals.totalTaxAmount ?? (totals.cgst + totals.sgst + (totals.utgst || 0) + totals.igst + (totals.cess || 0)),
+      tdsAmount: Number(totals.tdsAmount) || 0,
+      tcsAmount: Number(totals.tcsAmount) || 0,
+      netReceivable: Number(totals.netReceivable) || Number(totals.total) || 0,
       status: seedStatus,
       paidAmount: seedPaidAmount,
       payments: seedPayments,

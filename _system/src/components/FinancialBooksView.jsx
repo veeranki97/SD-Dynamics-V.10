@@ -587,14 +587,25 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                     const id = String(e.accountId || e.account_id || '').trim();
                     const code = String(e.accountCode || e.code || '').trim();
                     const nm = String(e.account || e.accountName || '').trim();
+                    // Extract leading CoA code from labels like "5100 — Direct Project / Material"
+                    const codeFromLabel = (s) => {
+                      const m = String(s || '').match(/^\s*(\d{3,6})\b/);
+                      return m ? m[1] : '';
+                    };
+                    const nmCode = codeFromLabel(nm);
+                    const wantCodes = new Set(
+                      [selCode, selId, selAcc && selAcc.code, codeFromLabel(selId)]
+                        .map((x) => String(x || '').replace(/^acc_/i, '').trim())
+                        .filter(Boolean)
+                    );
                     if (id && (id === selId || norm(id) === norm(selId))) return true;
+                    if (code && wantCodes.has(code.replace(/^acc_/i, ''))) return true;
+                    if (nmCode && wantCodes.has(nmCode)) return true;
                     if (selAcc) {
                       if (id && (id === selAcc.id || norm(id) === norm(selAcc.id) || id === selCode || norm(id) === norm(selCode))) return true;
                       if (code && (code === selCode || norm(code) === norm(selCode))) return true;
                       if (nm) {
-                        if (selCode && nm.indexOf(selCode) === 0) return true;
-                        if (selCode && nm.indexOf(selCode + ' —') >= 0) return true;
-                        if (selCode && nm.indexOf(selCode + '—') >= 0) return true;
+                        if (selCode && (nm.indexOf(selCode) === 0 || nm.indexOf(selCode + ' —') >= 0 || nm.indexOf(selCode + '—') >= 0 || nm.indexOf(selCode + ' -') >= 0)) return true;
                         if (selName && nm.toLowerCase().indexOf(selName.toLowerCase()) >= 0) return true;
                       }
                     }
@@ -603,7 +614,10 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                   };
 
                   // Flatten exactly like GeneralLedgerView
-                  const journalPool = (scopedJournals && scopedJournals.length) ? scopedJournals : (journals || []);
+                  // Account Ledger: prefer all journals when profile scope is empty/thin so CoA drill-down works
+                  const journalPool = (scopedJournals && scopedJournals.length)
+                    ? scopedJournals
+                    : (journals || []);
                   let activeRaw = showGlReversals
                     ? (journalPool || []).filter(Boolean)
                     : activeGlJournals(journalPool || []);

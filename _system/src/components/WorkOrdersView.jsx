@@ -601,10 +601,10 @@ const updateItem = (idx, field, value) => {
               const { billedAmount, remaining, committedCost = 0, actualCost = 0, projectedProfit = 0, costOverrun } = usage;
               return (
                 <tr key={woRow.id}>
-                  <td><strong>{woRow.woNumber || woRow.id}</strong></td>
-                  <td>{woRow.clientName}</td>
-                  <td>{woRow.site}</td>
-                  <td>{woRow.title}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}><strong>{woRow.woNumber || woRow.id}</strong></td>
+                  <td title={woRow.clientName || ''} style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{woRow.clientName}</td>
+                  <td style={{ maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={woRow.site || ''}>{woRow.site}</td>
+                  <td title={woRow.title || ''} style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{woRow.title}</td>
                   <td>{formatCurrency(woRow.approvedBudget)}</td>
                   <td>{formatCurrency(billedAmount)}</td>
                   <td className="text-end" style={{ fontSize: '0.78rem' }}>{formatCurrency(usage.openPO || 0)}</td>

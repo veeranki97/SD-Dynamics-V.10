@@ -88,11 +88,24 @@ export default function GeneralLedgerView() {
   const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const exportPdf = () => {
-    const w = window.open('', '_blank');
+    // In-tab iframe print so Chrome suggests filename from document.title (no new tab)
+    let frame = document.getElementById('sd-gl-print-frame');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'sd-gl-print-frame';
+      frame.setAttribute('title', 'GL print');
+      frame.style.cssText = 'position:fixed;left:0;top:0;width:210mm;height:297mm;opacity:0;z-index:-1;pointer-events:none;border:0';
+      document.body.appendChild(frame);
+    }
+    const w = frame.contentWindow;
     if (!w) {
-      toast('Pop-up blocked — allow pop-ups to export PDF', 'error');
+      toast('Print frame unavailable', 'error');
       return;
     }
+    const fileTitle = party
+      ? ('Statement-' + String(party).replace(/[\\/]+/g, '-').slice(0, 40))
+      : 'General-Ledger';
+    try { document.title = fileTitle; } catch (_) {}
     const company = esc(profile?.businessName || profile?.name || 'SAI DURGA');
     const addr = esc([profile?.address, profile?.city, profile?.state, profile?.pincode].filter(Boolean).join(', '));
     const gstin = esc(profile?.gstin || '');
@@ -230,8 +243,28 @@ export default function GeneralLedgerView() {
   </script>
 </body></html>`);
     }
-    try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
+    try { toast('In the print dialog: turn Headers and footers OFF. Suggested name: ' + fileTitle, 'info'); } catch (_) {}
     w.document.close();
+    try {
+      const doc = frame.contentDocument || w.document;
+      if (doc) {
+        const t = doc.querySelector('title');
+        if (t) t.textContent = fileTitle;
+        else {
+          const el = doc.createElement('title');
+          el.textContent = fileTitle;
+          (doc.head || doc.documentElement).appendChild(el);
+        }
+      }
+    } catch (_) {}
+    const prevTitle = document.title;
+    const restore = () => { try { document.title = prevTitle && prevTitle !== fileTitle ? prevTitle : 'SD Dynamics'; } catch (_) {} };
+    try {
+      w.onafterprint = restore;
+      window.addEventListener('afterprint', restore, { once: true });
+    } catch (_) {}
+    setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 300);
+    setTimeout(restore, 60000);
   };
 
   return (

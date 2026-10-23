@@ -615,8 +615,18 @@ export default function VendorsView() {
       const payload = { ...formVendor, isVendor: true, type: 'vendor', partyType: 'vendor' };
       delete payload._identityLocked;
       if (editingVendorId) payload.id = editingVendorId;
+      if (!editingVendorId && !(payload.partyCode || payload.vendorCode)) {
+        const existing = (vendors || []).map(v => String(v.partyCode || v.vendorCode || ''));
+        let maxN = 0;
+        existing.forEach(c => {
+          const m = c.match(/^VEN-?0*(\d+)$/i);
+          if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+        });
+        payload.partyCode = 'VEN-' + String(maxN + 1).padStart(3, '0');
+        payload.vendorCode = payload.partyCode;
+      }
       await saveClient(payload);
-      toast(editingVendorId ? 'Vendor updated' : 'Vendor added', 'success');
+      toast(editingVendorId ? 'Vendor updated' : ('Vendor added' + (payload.partyCode ? ' · ' + payload.partyCode : '')), 'success');
       setShowModal(false);
       loadData();
     } catch (err) {
