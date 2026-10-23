@@ -568,9 +568,9 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
               Same journal source as General Ledger · From / As of apply
             </span>
           </div>
-          <div className="table-responsive">
-            <table className="data-table" style={{ width: '100%' }}>
-              <thead><tr><th>Date</th><th>Narration</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
+          <div className="table-responsive" style={{ maxHeight: 'min(60vh, 520px)', overflow: 'auto' }}>
+            <table className="data-table" style={{ width: '100%', tableLayout: 'fixed' }}>
+              <thead><tr><th style={{ width: '12%' }}>Date</th><th>Narration</th><th style={{ width: '14%' }}>Debit</th><th style={{ width: '14%' }}>Credit</th><th style={{ width: '14%' }}>Balance</th></tr></thead>
               <tbody>
                 {(() => {
                   if (!ledgerAccountId) {
@@ -587,37 +587,38 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                     const id = String(e.accountId || e.account_id || '').trim();
                     const code = String(e.accountCode || e.code || '').trim();
                     const nm = String(e.account || e.accountName || '').trim();
-                    // Extract leading CoA code from labels like "5100 — Direct Project / Material"
-                    const codeFromLabel = (s) => {
-                      const m = String(s || '').match(/^\s*(\d{3,6})\b/);
+                    const extractCode = (s) => {
+                      const m = String(s || '').match(/(?:^|acc_)(\d{3,6})\b/i);
                       return m ? m[1] : '';
                     };
-                    const nmCode = codeFromLabel(nm);
-                    const wantCodes = new Set(
-                      [selCode, selId, selAcc && selAcc.code, codeFromLabel(selId)]
-                        .map((x) => String(x || '').replace(/^acc_/i, '').trim())
-                        .filter(Boolean)
-                    );
-                    if (id && (id === selId || norm(id) === norm(selId))) return true;
-                    if (code && wantCodes.has(code.replace(/^acc_/i, ''))) return true;
-                    if (nmCode && wantCodes.has(nmCode)) return true;
-                    if (selAcc) {
-                      if (id && (id === selAcc.id || norm(id) === norm(selAcc.id) || id === selCode || norm(id) === norm(selCode))) return true;
-                      if (code && (code === selCode || norm(code) === norm(selCode))) return true;
-                      if (nm) {
-                        if (selCode && (nm.indexOf(selCode) === 0 || nm.indexOf(selCode + ' —') >= 0 || nm.indexOf(selCode + '—') >= 0 || nm.indexOf(selCode + ' -') >= 0)) return true;
-                        if (selName && nm.toLowerCase().indexOf(selName.toLowerCase()) >= 0) return true;
+                    // Selected account may be id "acc_5100" or code "5100"
+                    const want = new Set();
+                    const add = (x) => {
+                      const s = String(x || '').trim();
+                      if (!s) return;
+                      want.add(s);
+                      want.add(s.replace(/^acc_/i, ''));
+                      const c = extractCode(s);
+                      if (c) { want.add(c); want.add('acc_' + c); }
+                    };
+                    add(selId);
+                    add(selCode);
+                    if (selAcc) { add(selAcc.id); add(selAcc.code); add(selAcc.name); }
+                    // Match id / code / label code / name substring
+                    if (id && (want.has(id) || want.has(id.replace(/^acc_/i, '')))) return true;
+                    if (code && (want.has(code) || want.has(code.replace(/^acc_/i, '')))) return true;
+                    const nmCode = extractCode(nm);
+                    if (nmCode && want.has(nmCode)) return true;
+                    if (nm) {
+                      for (const w of want) {
+                        if (w.length >= 3 && nm.toLowerCase().includes(String(w).toLowerCase())) return true;
                       }
                     }
-                    if (nm && (nm === selId || nm.indexOf(selId) >= 0)) return true;
                     return false;
                   };
 
-                  // Flatten exactly like GeneralLedgerView
-                  // Account Ledger: prefer all journals when profile scope is empty/thin so CoA drill-down works
-                  const journalPool = (scopedJournals && scopedJournals.length)
-                    ? scopedJournals
-                    : (journals || []);
+                  // Account Ledger: use full journal list (profile scope can hide party-less expense/purchase lines)
+                  const journalPool = (journals && journals.length) ? journals : (scopedJournals || []);
                   let activeRaw = showGlReversals
                     ? (journalPool || []).filter(Boolean)
                     : activeGlJournals(journalPool || []);
@@ -665,8 +666,8 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                     bal += r.debit - r.credit;
                     return (
                       <tr key={(r.jid || 'j') + '-' + idx} style={r.faded ? { opacity: 0.65 } : undefined}>
-                        <td>{r.date}</td>
-                        <td>{r.narration + r.tag}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>{r.date}</td>
+                        <td title={r.narration + r.tag} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0 }}>{(r.narration + r.tag)}</td>
                         <td style={{ textAlign: 'right' }}>{formatCurrency(r.debit)}</td>
                         <td style={{ textAlign: 'right' }}>{formatCurrency(r.credit)}</td>
                         <td style={{ textAlign: 'right' }}>{formatCurrency(bal)}</td>

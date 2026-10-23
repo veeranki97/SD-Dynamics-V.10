@@ -227,8 +227,11 @@ export const getNextInvoiceNumber = async (prefix = 'INV', { peek = false, expli
 // bill (edit flow, bulk-status change, auto-fire re-process). Default is
 // to refuse silent overwrites — server returns 409 with an actionable
 // message that the UI can show as "Invoice number already exists".
-export const saveBill = async (bill, { overwrite = false } = {}) => {
-  const qs = overwrite ? '?overwrite=1' : '';
+export const saveBill = async (bill, { overwrite = false, force = false } = {}) => {
+  const params = [];
+  if (overwrite) params.push('overwrite=1');
+  if (force) params.push('force=1');
+  const qs = params.length ? ('?' + params.join('&')) : '';
   if (!bill.id) {
     bill.id = 'bill_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }

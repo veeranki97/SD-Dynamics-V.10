@@ -257,14 +257,13 @@ export default function GeneralLedgerView() {
         }
       }
     } catch (_) {}
-    const prevTitle = document.title;
-    const restore = () => { try { document.title = prevTitle && prevTitle !== fileTitle ? prevTitle : 'SD Dynamics'; } catch (_) {} };
-    try {
-      w.onafterprint = restore;
-      window.addEventListener('afterprint', restore, { once: true });
-    } catch (_) {}
+    // Do not restore title on parent afterprint (fires before Chrome reads Save-as name).
+    // Keep fileTitle until 90s fallback so print dialog suggests General-Ledger / Statement-*.
+    const prevTitle = 'SD Dynamics';
+    const restore = () => { try { document.title = prevTitle; } catch (_) {} };
+    try { w.onafterprint = function () { setTimeout(restore, 2000); }; } catch (_) {}
     setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 300);
-    setTimeout(restore, 60000);
+    setTimeout(restore, 90000);
   };
 
   return (
@@ -307,7 +306,7 @@ export default function GeneralLedgerView() {
           Closing <strong>{formatCurrency(Math.abs(partyTotals.bal))}</strong> ({partyTotals.bal > 0 ? 'Due' : partyTotals.bal < 0 ? 'Credit' : 'Paid'})
         </div>
       )}
-      <div className="table-responsive">
+      <div className="table-responsive" style={{ maxHeight: 'min(65vh, 560px)', overflow: 'auto' }}>
         <table className="data-table" style={{ width: '100%' }}>
           <thead>
             <tr>
@@ -324,7 +323,7 @@ export default function GeneralLedgerView() {
                 <td>{r.date || '—'}</td>
                 <td>{r.account || '—'}</td>
                 <td>{r.party || '—'}</td>
-                <td>{r.narration || '—'}</td>
+                <td title={r.narration || ''} style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.narration || '—'}</td>
                 <td>{r.refId || '—'}</td>
                 <td style={{ textAlign: 'right' }}>{r.debit ? formatCurrency(r.debit) : ''}</td>
                 <td style={{ textAlign: 'right' }}>{r.credit ? formatCurrency(r.credit) : ''}</td>

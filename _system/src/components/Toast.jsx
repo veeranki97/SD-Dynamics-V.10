@@ -9,10 +9,11 @@ const ICONS = {
 };
 
 const COLORS = {
-  success: { bg: 'var(--success-light)', border: 'var(--success)', text: 'var(--success)', icon: 'var(--success)' },
-  error: { bg: 'var(--danger-light)', border: 'var(--danger)', text: 'var(--danger)', icon: 'var(--danger)' },
-  warning: { bg: 'var(--warning-light)', border: 'var(--warning)', text: 'var(--warning)', icon: 'var(--warning)' },
-  info: { bg: 'var(--primary-light)', border: 'var(--primary)', text: 'var(--primary)', icon: 'var(--primary)' }
+  // Solid fills so toasts stay readable on light/dark/glass backgrounds (not transparent)
+  success: { bg: '#ecfdf5', border: '#059669', text: '#065f46', icon: '#059669' },
+  error: { bg: '#fef2f2', border: '#dc2626', text: '#991b1b', icon: '#dc2626' },
+  warning: { bg: '#fffbeb', border: '#d97706', text: '#92400e', icon: '#d97706' },
+  info: { bg: '#eff6ff', border: '#2563eb', text: '#1e40af', icon: '#2563eb' }
 };
 
 let toastId = 0;

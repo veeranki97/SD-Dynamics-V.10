@@ -2722,6 +2722,10 @@ kbd {
 }
 
 .toast-item {
+  background: #fff !important;
+  opacity: 1 !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18) !important;
+  z-index: 10050 !important;
   display: flex;
   align-items: center;
   gap: 0.75rem;

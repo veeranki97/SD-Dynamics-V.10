@@ -2012,6 +2012,8 @@ const validateForSave = useCallback(() => {
       id: finalInvoiceNumber,
       clientName: client.name,
       invoiceNumber: finalInvoiceNumber,
+      // Duplicate first save as draft (0) so date/lines editable until locked; unlocked Edit uses force=1
+      docstatus: (editingBill && editingBill._isDuplicate && !hasBeenSaved.current) ? 0 : 1,
       invoiceDate: details.invoiceDate,
       invoiceType,
       currency: invoiceOptions.currency || 'INR',
@@ -2189,7 +2191,7 @@ const validateForSave = useCallback(() => {
     // ===== END CEILING CHECK =====
 
     try {
-      await saveBill(bill, { overwrite: shouldOverwrite });
+      await saveBill(bill, { overwrite: shouldOverwrite, force: !formLocked && shouldOverwrite });
       // Simple double-entry journal (custom) — tax invoices only; non-blocking
       try {
         const t = String(invoiceType || bill.invoiceType || '').toLowerCase();

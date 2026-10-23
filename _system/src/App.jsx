@@ -809,6 +809,7 @@ function App() {
     clone._isDuplicate = true;
     delete clone.id;
     clone.invoiceNumber = '';
+    clone.docstatus = 0; // draft until first save of the NEW number — not locked like source
     if (clone.data) {
       clone.data = { ...clone.data };
       if (clone.data.details) {
@@ -858,6 +859,7 @@ function App() {
     const clone = JSON.parse(JSON.stringify(bill));
     const srcType = (bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
     clone._isDuplicate = true;
+    clone.docstatus = 0;
     clone._convertToType = toType;
     clone._sourceDocId = bill.id;
     clone._sourceDocNumber = bill.invoiceNumber || bill.id;
