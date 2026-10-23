@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, Plus, Edit3, Trash2, Play, Pause, X, Save } from 'lucide-react';
 import { getAllRecurring, saveRecurring, deleteRecurring, getAllClients, saveBill, getNextInvoiceNumber, getProfile } from '../store';
-import { formatCurrency, INVOICE_TYPES, belongsToProfile, isUnassignedToBusiness, addMonthsClamped, localToday } from '../utils';
+import { formatCurrency, INVOICE_TYPES, belongsToProfile, isUnassignedToBusiness } from '../utils';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
@@ -167,16 +167,15 @@ export default function RecurringInvoices() {
   const generateNow = async (tpl) => {
     try {
       const typeConfig = INVOICE_TYPES[tpl.invoiceType || 'tax-invoice'];
-      const isBos = String(tpl.invoiceType || '').toLowerCase().replace(/_/g, '-').includes('bill-of-supply');
       const invoiceNumber = await getNextInvoiceNumber(typeConfig.prefix);
-      const today = localToday();
+      const today = new Date().toISOString().split('T')[0];
 
       const items = (tpl.items || []).map(i => ({
-        name: i.name || i.description || '',
+        name: i.name,
         hsn: i.hsn || '',
         quantity: parseFloat(i.quantity) || 1,
         rate: parseFloat(i.rate) || 0,
-        taxPercent: isBos ? 0 : (parseFloat(i.taxPercent) || 0),
+        taxPercent: parseFloat(i.taxPercent) || 0,
         discount: parseFloat(i.discount) || 0,
       }));
 
@@ -211,18 +210,13 @@ export default function RecurringInvoices() {
       await saveBill(bill);
 
       // Advance next date
-      const nextBase = new Date(tpl.nextDate || today);
-      let next;
-      if (tpl.frequency === 'weekly') {
-        next = new Date(nextBase.getTime());
-        next.setDate(next.getDate() + 7);
-      } else if (tpl.frequency === 'monthly') next = addMonthsClamped(nextBase, 1);
-      else if (tpl.frequency === 'quarterly') next = addMonthsClamped(nextBase, 3);
-      else if (tpl.frequency === 'yearly') next = addMonthsClamped(nextBase, 12);
-      else next = addMonthsClamped(nextBase, 1);
+      const next = new Date(tpl.nextDate || today);
+      if (tpl.frequency === 'weekly') next.setDate(next.getDate() + 7);
+      else if (tpl.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+      else if (tpl.frequency === 'quarterly') next.setMonth(next.getMonth() + 3);
+      else if (tpl.frequency === 'yearly') next.setFullYear(next.getFullYear() + 1);
 
-      const ny = next.getFullYear(); const nm = String(next.getMonth()+1).padStart(2,'0'); const nd = String(next.getDate()).padStart(2,'0');
-      await saveRecurring({ ...tpl, nextDate: ny+'-'+nm+'-'+nd, lastGenerated: today });
+      await saveRecurring({ ...tpl, nextDate: next.toISOString().split('T')[0], lastGenerated: today });
 
       toast(`Invoice ${invoiceNumber} generated for ${tpl.clientName}`, 'success');
       load();
@@ -232,7 +226,7 @@ export default function RecurringInvoices() {
   };
 
   const getDueTemplates = () => {
-    const today = localToday();
+    const today = new Date().toISOString().split('T')[0];
     return templates.filter(t => t.active !== false && t.nextDate && t.nextDate <= today);
   };
 
@@ -359,8 +353,7 @@ export default function RecurringInvoices() {
 
       {/* Templates List */}
       <div className="glass-panel">
-        <div className="table-header"><h3>Recurring Templates</h3></div>
-        {templates.length === 0 ? (
+                {templates.length === 0 ? (
           <div className="empty-state">
             <RefreshCw size={48} />
             <p>No recurring invoices set up yet.</p>

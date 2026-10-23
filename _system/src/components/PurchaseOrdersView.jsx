@@ -950,8 +950,7 @@ export default function PurchaseOrdersView() {
         <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} /> New PO</button>
       </div>
       <div className="list-module po-list-module glass-panel">
-      <div className="table-header"><h3>Purchase Orders</h3></div>
-      <table className="data-table" style={{ width: '100%' }}>
+            <table className="data-table" style={{ width: '100%' }}>
         <thead>
           <tr>
             <th>PO #</th><th>Date</th><th>Vendor</th><th>Site</th><th>PO Status</th><th>Billing Status</th>

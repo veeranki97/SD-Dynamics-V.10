@@ -121,7 +121,7 @@ export default function PaymentRemindersView() {
   };
 
   return (
-    <div className="page" style={{ maxWidth: '100%', width: '100%', padding: '0 4px' }}>
+    <div className="page list-module-page" style={{ maxWidth: '100%', width: '100%', padding: '0 4px' }}>
       <div className="glass-panel" style={{ padding: '0.6rem 0.85rem', marginBottom: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
         <label style={{ fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={!!sched.enabled} onChange={(e) => saveSched({ enabled: e.target.checked })} />

@@ -308,8 +308,7 @@ export default function InventoryView({ embedded = false } = {}) {
 
       {/* Product Table */}
       <div className="glass-panel">
-        <div className="table-header"><h3>Services</h3></div>
-        {filtered.length === 0 ? (
+                {filtered.length === 0 ? (
           <div className="empty-state">
             <Package size={48} />
             <p>{products.length === 0 ? 'No products yet. Add your first product.' : 'No products match your search.'}</p>

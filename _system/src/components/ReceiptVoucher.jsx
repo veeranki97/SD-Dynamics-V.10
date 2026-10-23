@@ -630,8 +630,7 @@ export default function ReceiptVoucher() {
 
       {/* Receipts Table */}
       <div className="list-module receipts-list-module glass-panel">
-        <div className="table-header"><h3>Transaction History</h3></div>
-        {filtered.length === 0 ? (
+                {filtered.length === 0 ? (
           <div className="empty-state">
             <Receipt size={48} />
             <p>{receipts.length === 0 ? 'No transactions recorded yet.' : 'No transactions match your search.'}</p>
