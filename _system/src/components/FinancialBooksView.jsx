@@ -572,26 +572,47 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                 {(() => {
                   let bal = 0;
                   const rows = [];
-                  const selAcc = (accounts || []).find(a => a.id === ledgerAccountId);
+                  const selAcc = (accounts || []).find(a => a && (a.id === ledgerAccountId || String(a.code || '') === String(ledgerAccountId)));
                   const matchEntry = (e) => {
-                    if (!ledgerAccountId) return false;
-                    const id = String(e.accountId || '');
-                    const nm = String(e.account || e.accountName || '');
+                    if (!ledgerAccountId || !e) return false;
+                    const id = String(e.accountId || e.account_id || '').trim();
+                    const code = String(e.accountCode || e.code || '').trim();
+                    const nm = String(e.account || e.accountName || e.name || '').trim();
+                    const selId = String(ledgerAccountId).trim();
+                    const norm = (s) => String(s || '').replace(/^acc_/i, '').trim().toLowerCase();
+                    if (id && (id === selId || norm(id) === norm(selId))) return true;
                     if (selAcc) {
-                      if (id && (id === selAcc.id || id === String(selAcc.code || ''))) return true;
-                      if (nm && (nm === selAcc.name || nm === String(selAcc.code || ''))) return true;
-                      const label = (selAcc.code ? String(selAcc.code) + ' — ' : '') + String(selAcc.name || '');
-                      if (nm === label) return true;
-                      if (selAcc.code && nm.indexOf(String(selAcc.code)) === 0) return true;
-                      if (selAcc.name && nm.indexOf(String(selAcc.name)) >= 0) return true;
+                      const sc = String(selAcc.code || '').trim();
+                      const sn = String(selAcc.name || '').trim();
+                      const label = (sc ? (sc + ' — ' + sn) : sn);
+                      if (id && (id === selAcc.id || id === sc || norm(id) === norm(sc) || norm(id) === norm(selAcc.id))) return true;
+                      if (code && (code === sc || code === selAcc.id || norm(code) === norm(sc))) return true;
+                      if (nm) {
+                        if (nm === label || nm === sn || nm === sc) return true;
+                        if (sc && (nm.indexOf(sc + ' —') === 0 || nm.indexOf(sc + '—') === 0 || nm.indexOf(sc + ' ') === 0 || nm.indexOf(sc) === 0)) return true;
+                        if (sn && nm.toLowerCase().indexOf(sn.toLowerCase()) >= 0) return true;
+                      }
                     }
-                    if (id === ledgerAccountId || nm === ledgerAccountId) return true;
+                    if (nm && (nm === selId || nm.indexOf(selId) === 0)) return true;
                     return false;
                   };
                   const journalPool = (scopedJournals && scopedJournals.length) ? scopedJournals : (journals || []);
-                  const src = showGlReversals
-                    ? (journalPool || []).filter(j => j && (!asOf || String(j.date).slice(0, 10) <= asOf))
-                    : activeGlJournals(journalPool).filter(j => !asOf || String(j.date).slice(0, 10) <= asOf);
+                  let pool = showGlReversals
+                    ? (journalPool || []).filter(j => j)
+                    : activeGlJournals(journalPool || []);
+                  // Prefer GL-engine posts when any exist (same as General Ledger view)
+                  if (!showGlReversals && pool.some(j => j && j.glEngine === true)) {
+                    pool = pool.filter(j => j && j.glEngine === true);
+                  }
+                  const src = pool.filter(j => {
+                    if (!j) return false;
+                    const d = String(j.date || '').slice(0, 10);
+                    if (from && d && d < from) return false;
+                    if (asOf && d && d > asOf) return false;
+                    return true;
+                  });
+                  // Sort by date for running balance
+                  src.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
                   src.forEach(j => {
                     (j.entries || j.lines || []).forEach(e => {
                       if (!matchEntry(e)) return;
@@ -609,7 +630,7 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
                     });
                   });
                   if (!ledgerAccountId) return <tr><td colSpan={5} style={{ color: '#64748b' }}>Select an account above.</td></tr>;
-                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (check date range / GL engine posts).</td></tr>;
+                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (check From/As of dates, or open General Ledger to confirm posts).</td></tr>;
                   return rows;
                 })()}
               </tbody>

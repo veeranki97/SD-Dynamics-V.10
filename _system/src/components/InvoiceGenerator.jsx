@@ -4385,11 +4385,12 @@ const validateForSave = useCallback(() => {
                     return;
                   }
                   try {
-                    const list = workOrderList;
-                    let match = list.find(w => w && (w.id === q || String(w.woNumber || '') === q));
-                    if (!match && q.length >= 6) {
+                    const list = workOrderList || [];
+                    // Exact match only (id or full WO number). Partial typing must not auto-fill mid-keystroke.
+                    let match = list.find(w => w && (w.id === q || String(w.woNumber || '').trim() === q));
+                    if (!match) {
                       const ql = q.toLowerCase();
-                      const softHits = list.filter(w => w && String(w.woNumber || '').toLowerCase() === ql);
+                      const softHits = list.filter(w => w && String(w.woNumber || '').trim().toLowerCase() === ql);
                       if (softHits.length === 1) match = softHits[0];
                     }
                     if (!match) {

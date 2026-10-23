@@ -196,16 +196,38 @@ export function canInvoiceAgainstWO(wo, invoiceTotal, allBills, invoiceItems, op
 }
 
 export function woItemsToInvoiceItems(woItems, allBills, wo) {
-  const usage = wo ? calcWOUsage(wo, allBills) : { remainingByItem: [] };
-  const remMap = {};
-  (usage.remainingByItem || []).forEach(r => {
-    remMap[(r.description || '').trim().toLowerCase()] = r.remainingQty;
-  });
+  let remMap = {};
+  try {
+    const usage = wo ? calcWOUsage(wo, allBills || []) : { remainingByItem: [] };
+    (usage.remainingByItem || []).forEach(r => {
+      remMap[(r.description || '').trim().toLowerCase()] = r.remainingQty;
+    });
+  } catch (err) {
+    console.warn('[woItemsToInvoiceItems] usage calc failed', err);
+    remMap = {};
+  }
 
-  return (woItems || []).map((it, idx) => {
+  const mapped = (woItems || []).map((it, idx) => {
+    if (!it || typeof it !== 'object') {
+      return {
+        id: 'item_' + Date.now().toString(36) + '_' + idx,
+        name: '',
+        description: '',
+        hsn: '',
+        unit: 'Nos',
+        quantity: 1,
+        rate: 0,
+        discount: 0,
+        discountType: 'fixed',
+        taxPercent: 18,
+        cessPercent: 0,
+        costCenterId: '',
+      };
+    }
     const key = (it.description || it.name || '').trim().toLowerCase();
     const rem = remMap[key];
-    const qty = rem != null ? Math.min(Number(it.qty) || Number(it.quantity) || 0, rem) : (Number(it.qty) || Number(it.quantity) || 1);
+    const rawQty = Number(it.qty) || Number(it.quantity) || 0;
+    const qty = rem != null ? Math.min(rawQty || 0, rem) : (rawQty || 1);
     const rate = Number(it.rate) || 0;
     const desc = it.description || it.name || '';
     return {
@@ -222,7 +244,10 @@ export function woItemsToInvoiceItems(woItems, allBills, wo) {
       cessPercent: 0,
       costCenterId: it.costCenterId || it.costHead || '',
     };
-  }).filter(it => Number(it.quantity) > 0);
+  });
+  const positive = mapped.filter(it => Number(it.quantity) > 0);
+  // Never return empty — blank page risk if invoice lines collapse to zero
+  return positive.length ? positive : mapped.slice(0, 1).map(it => ({ ...it, quantity: Number(it.quantity) > 0 ? it.quantity : 1 }));
 }
 
 /**
