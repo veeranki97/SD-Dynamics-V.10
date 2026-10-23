@@ -247,6 +247,7 @@ function AppLockSettingsPanel() {
   const [status, setStatus] = useState({ enabled: false, configured: false, autoLockEnabled: true, autoLockMinutes: 15 });
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
+  const [currentPin, setCurrentPin] = useState('');
   const [busy, setBusy] = useState(false);
 
   const refresh = async () => {
@@ -271,12 +272,12 @@ function AppLockSettingsPanel() {
     try {
       const r = await fetch('/api/app-lock/set', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin, autoLockEnabled: status.autoLockEnabled !== false, autoLockMinutes: status.autoLockMinutes || 15 }),
+        body: JSON.stringify({ pin, currentPin: status.configured ? currentPin : undefined, autoLockEnabled: status.autoLockEnabled !== false, autoLockMinutes: status.autoLockMinutes || 15 }),
       });
       const j = await r.json();
       if (!r.ok) { toast(j.error || 'Could not set PIN', 'error'); setBusy(false); return; }
       toast('App lock enabled', 'success');
-      setPin(''); setPin2('');
+      setPin(''); setPin2(''); setCurrentPin('');
       window.dispatchEvent(new CustomEvent('sd-app-lock-prefs', { detail: { enabled: true, autoLockEnabled: j.autoLockEnabled, autoLockMinutes: j.autoLockMinutes } }));
       await refresh();
     } catch { toast('Could not set PIN', 'error'); }
@@ -319,6 +320,13 @@ function AppLockSettingsPanel() {
         Status: {status.enabled ? <strong style={{ color: 'var(--success, #15803d)' }}>On</strong> : <strong>Off</strong>}
         {status.configured ? ' (PIN saved in meta — survives port changes)' : ''}
       </p>
+      {status.configured && (
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Current PIN (required to change)</label>
+          <input type="password" inputMode="numeric" className="form-input" maxLength={8} value={currentPin}
+            onChange={e => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 8))} autoComplete="current-password" />
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">New PIN (6 or 8 digits)</label>

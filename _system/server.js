@@ -1696,8 +1696,58 @@ function appLockResetPinPaths() {
   ];
 }
 function hashPin(pin, salt) {
-  return crypto.createHash('sha256').update(String(salt) + String(pin), 'utf8').digest('hex');
+  // Prefer scrypt (built-in). Prefix "scrypt$" so verify can migrate old sha256 hashes.
+  try {
+    const buf = crypto.scryptSync(String(pin), String(salt), 32, { N: 16384, r: 8, p: 1 });
+    return 'scrypt$' + buf.toString('hex');
+  } catch (_) {
+    return 'sha256$' + crypto.createHash('sha256').update(String(salt) + String(pin), 'utf8').digest('hex');
+  }
 }
+function verifyPinHash(pin, salt, stored) {
+  if (!stored || !salt) return false;
+  const s = String(stored);
+  if (s.startsWith('scrypt$')) {
+    try {
+      const buf = crypto.scryptSync(String(pin), String(salt), 32, { N: 16384, r: 8, p: 1 });
+      return ('scrypt$' + buf.toString('hex')) === s;
+    } catch (_) { return false; }
+  }
+  // Legacy unsalted-style sha256(salt+pin) with or without prefix
+  const legacy = crypto.createHash('sha256').update(String(salt) + String(pin), 'utf8').digest('hex');
+  if (s === legacy || s === ('sha256$' + legacy)) return true;
+  return false;
+}
+
+/** In-memory brute-force guard for PIN verify (localhost offline app). */
+const PIN_FAIL = new Map(); // key -> { count, until }
+function pinFailKey(req) {
+  return String(req.ip || req.socket?.remoteAddress || 'local');
+}
+function checkPinRateLimit(req) {
+  const k = pinFailKey(req);
+  const row = PIN_FAIL.get(k);
+  if (!row) return { ok: true };
+  if (row.until && Date.now() < row.until) {
+    return { ok: false, retryAfterSec: Math.ceil((row.until - Date.now()) / 1000) };
+  }
+  if (row.until && Date.now() >= row.until) PIN_FAIL.delete(k);
+  return { ok: true };
+}
+function recordPinFailure(req) {
+  const k = pinFailKey(req);
+  const row = PIN_FAIL.get(k) || { count: 0, until: 0 };
+  row.count += 1;
+  if (row.count >= 5) {
+    row.until = Date.now() + 60_000; // 60s lockout after 5 failures
+    row.count = 0;
+  }
+  PIN_FAIL.set(k, row);
+}
+function clearPinFailures(req) {
+  PIN_FAIL.delete(pinFailKey(req));
+}
+
 function scrubAppLockForExport(meta) {
   if (!meta || typeof meta !== 'object') return meta;
   const out = { ...meta };
@@ -1769,6 +1819,14 @@ app.post('/api/app-lock/set', (req, res) => {
       return res.status(400).json({ error: 'PIN must be 6 or 8 digits' });
     }
     const meta = readJSON(META_PATH, {}) || {};
+    const prev = meta.appLock || {};
+    // If a PIN already exists, require currentPin (blocks silent overwrite bypass).
+    if (prev.pinHash && prev.pinSalt) {
+      const current = String(req.body?.currentPin || req.body?.oldPin || '').trim();
+      if (!verifyPinHash(current, prev.pinSalt, prev.pinHash)) {
+        return res.status(401).json({ ok: false, error: 'Current PIN required to change lock' });
+      }
+    }
     const salt = crypto.randomBytes(16).toString('hex');
     const pinHash = hashPin(pin, salt);
     meta.appLock = {
@@ -1788,6 +1846,15 @@ app.post('/api/app-lock/set', (req, res) => {
 
 app.post('/api/app-lock/verify', (req, res) => {
   try {
+    const limited = checkPinRateLimit(req);
+    if (!limited.ok) {
+      return res.status(429).json({
+        ok: false,
+        error: 'Too many failed PIN attempts. Try again in ' + limited.retryAfterSec + 's',
+        code: 'pin-rate-limited',
+        retryAfterSec: limited.retryAfterSec,
+      });
+    }
     const pin = String(req.body?.pin || '').trim();
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
@@ -1796,9 +1863,20 @@ app.post('/api/app-lock/verify', (req, res) => {
       res.setHeader('Set-Cookie', `sd_session=${encodeURIComponent(token)}; Path=/; SameSite=Lax; HttpOnly`);
       return res.json({ ok: true, unlocked: true, reason: 'not-configured', sessionToken: token, note: 'PIN is a screen lock only. Data files are not encrypted.' });
     }
-    const tryHash = hashPin(pin, lock.pinSalt);
-    if (tryHash !== lock.pinHash) {
+    if (!verifyPinHash(pin, lock.pinSalt, lock.pinHash)) {
+      recordPinFailure(req);
       return res.status(401).json({ ok: false, error: 'Incorrect PIN' });
+    }
+    clearPinFailures(req);
+    // Migrate legacy sha256 hash to scrypt on successful unlock
+    if (!String(lock.pinHash).startsWith('scrypt$')) {
+      try {
+        const salt = crypto.randomBytes(16).toString('hex');
+        lock.pinSalt = salt;
+        lock.pinHash = hashPin(pin, salt);
+        meta.appLock = { ...lock };
+        writeJSON(META_PATH, meta);
+      } catch (_) { /* non-fatal */ }
     }
     const token = issueSessionToken();
     res.setHeader('Set-Cookie', `sd_session=${encodeURIComponent(token)}; Path=/; SameSite=Lax; HttpOnly`);
@@ -1814,7 +1892,7 @@ app.post('/api/app-lock/disable', (req, res) => {
     const meta = readJSON(META_PATH, {}) || {};
     const lock = meta.appLock || {};
     if (lock.pinHash && lock.pinSalt) {
-      if (hashPin(pin, lock.pinSalt) !== lock.pinHash) {
+      if (!verifyPinHash(pin, lock.pinSalt, lock.pinHash)) {
         return res.status(401).json({ ok: false, error: 'Incorrect PIN' });
       }
     }
@@ -1925,6 +2003,7 @@ function isAppLockActive() {
 const APP_LOCK_PUBLIC = new Set([
   '/api/app-lock/status',
   '/api/app-lock/verify',
+  '/api/app-lock/logout',
   '/api/health',
   '/api/sqlite-status',
 ]);
@@ -1932,7 +2011,7 @@ const APP_LOCK_PUBLIC = new Set([
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
   if (APP_LOCK_PUBLIC.has(req.path)) return next();
-  if (req.path.startsWith('/api/app-lock/')) return next();
+  // set/disable/prefs require session when lock is active (prevents PIN overwrite without unlock)
   if (!isAppLockActive()) return next();
   const token = readSessionToken(req);
   if (token && touchSession(token)) return next();

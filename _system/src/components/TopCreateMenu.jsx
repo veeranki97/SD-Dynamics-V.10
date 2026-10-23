@@ -3,7 +3,7 @@
  * Wire: <TopCreateMenu onNewInvoice={handleNewInvoice} />
  */
 import { useState, useRef, useEffect } from 'react';
-import { Plus, ChevronDown, FileText, ShoppingCart, Wallet, Receipt, BookOpen } from 'lucide-react';
+import { Plus, ChevronDown, FileText, ShoppingCart, Wallet, Receipt, BookOpen, ClipboardList } from 'lucide-react';
 
 function go(view) {
   try {
@@ -26,6 +26,10 @@ export default function TopCreateMenu({ onNewInvoice }) {
 
   const items = [
     { label: 'New Invoice', icon: FileText, run: () => (onNewInvoice ? onNewInvoice() : go('new')) },
+    { label: 'Work Order', icon: ClipboardList, run: () => {
+      try { sessionStorage.setItem('sd_wo_open_new', '1'); } catch (_) {}
+      go('workorders');
+    } },
     { label: 'Purchase Order', icon: ShoppingCart, run: () => go('purchaseorders') },
     { label: 'Expense', icon: Wallet, run: () => go('expenses') },
     { label: 'Receipt / Payment', icon: Receipt, run: () => go('receipts') },

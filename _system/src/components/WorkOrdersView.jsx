@@ -182,6 +182,15 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('sd_wo_open_new') === '1') {
+        sessionStorage.removeItem('sd_wo_open_new');
+        setTimeout(() => { try { openNew(); } catch (_) {} }, 0);
+      }
+    } catch (_) {}
+  }, []);
+
 
   // Invoice → WO round-trip: open form prefilled from invoice
   useEffect(() => {

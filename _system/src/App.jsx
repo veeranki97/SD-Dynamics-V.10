@@ -1460,6 +1460,10 @@ function App() {
             onOpenNotifs={() => setShowNotifs(true)}
             darkMode={darkMode}
             onToggleTheme={() => setDarkMode(d => !d)}
+            onLogout={() => {
+              try { setUnlocked(false); } catch (_) {}
+              try { window.dispatchEvent(new CustomEvent('sd-app-lock-now')); } catch (_) {}
+            }}
           />
         )}
         {currentView === 'new' && (

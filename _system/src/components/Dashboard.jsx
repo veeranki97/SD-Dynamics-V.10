@@ -6,7 +6,8 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun } from 'lucide-react';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut} from 'lucide-react';
+// LogOut used for session lock button
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -222,7 +223,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -1650,6 +1651,12 @@ const openPaymentModal = (bill) => {
               <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
                 onClick={onToggleTheme} aria-label="Toggle theme">
                 {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            )}
+            {typeof onLogout === 'function' && (
+              <button type="button" className="icon-btn" title="Lock / Logout (PIN)"
+                onClick={onLogout} aria-label="Logout and lock app">
+                <LogOut size={18} />
               </button>
             )}
             <span style={{
