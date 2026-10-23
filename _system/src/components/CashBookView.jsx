@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Banknote } from 'lucide-react';
 import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals, getAllAccounts } from '../store';
 import { activeGlJournals } from '../utils/glPosting';
-import { formatCurrency, belongsToProfile } from '../utils';
+import { formatCurrency, belongsToProfile, localToday } from '../utils';
 import { toast } from './Toast';
 import PageHeader from './PageHeader';
 
@@ -137,7 +137,7 @@ export default function CashBookView() {
     try { return Number(localStorage.getItem('freegstbill_cashbook_ob') || 0); } catch { return 0; }
   });
   const [tab, setTab] = useState('ledger');
-  const [dayDate, setDayDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dayDate, setDayDate] = useState(() => (typeof localToday === 'function' ? localToday() : new Date().toISOString().slice(0, 10)));
   const [obDate, setObDate] = useState(() => {
     try { return localStorage.getItem('freegstbill_cashbook_ob_date') || '2024-04-01'; } catch { return '2024-04-01'; }
   });

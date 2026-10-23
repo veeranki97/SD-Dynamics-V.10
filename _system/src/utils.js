@@ -268,6 +268,38 @@ export function splitIntraStateTax(taxAmount) {
   };
 }
 
+
+/** Calendar date in local timezone (avoids UTC day-behind between 00:00–05:30 IST). */
+export function localToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+/** Add calendar months clamping day (31 Jan + 1 month → 28/29 Feb, not March). */
+export function addMonthsClamped(dateInput, months) {
+  const d = dateInput instanceof Date ? new Date(dateInput.getTime()) : new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return new Date();
+  const day = d.getDate();
+  const n = new Date(d.getFullYear(), d.getMonth() + Number(months) || 0, 1);
+  const last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+  n.setDate(Math.min(day, last));
+  return n;
+}
+
+/** Amount the client must pay for “Paid” status (grand total minus TDS withheld). */
+export function invoiceAmountDue(billOrTotals) {
+  if (!billOrTotals) return 0;
+  const tds = Number(billOrTotals.tdsAmount ?? billOrTotals.totals?.tdsAmount) || 0;
+  const net = billOrTotals.netReceivable ?? billOrTotals.totals?.netReceivable;
+  if (net != null && Number(net) > 0) return Math.round(Number(net) * 100) / 100;
+  const total = Number(billOrTotals.totalAmount ?? billOrTotals.total ?? billOrTotals.totals?.total) || 0;
+  if (tds > 0) return Math.round((total - tds) * 100) / 100;
+  return total;
+}
+
 export function computeInvoiceTotals(opts) {
   // v1.10.33 — Destructure defaults only fire on `undefined`, not `null`.
   // Callers that pass `profile: null` (e.g. InvoiceGenerator mounted
@@ -412,9 +444,12 @@ export function computeInvoiceTotals(opts) {
   const marginalTcsBase = tcsCumBefore >= TDS_TCS_THRESHOLD
     ? receiptIncludingGst
     : Math.max(0, (tcsCumBefore + receiptIncludingGst) - TDS_TCS_THRESHOLD);
+  // Section 194Q / contract TDS: base is taxable value WITHOUT GST (not receipt incl. tax).
+  // TCS 206C(1H) above still uses receiptIncludingGst per CBDT Circular 17/2020.
+  const tdsBaseExGst = r2(taxableAmount);
   const marginalTdsBase = tdsCumBefore >= TDS_TCS_THRESHOLD
-    ? receiptIncludingGst
-    : Math.max(0, (tdsCumBefore + receiptIncludingGst) - TDS_TCS_THRESHOLD);
+    ? tdsBaseExGst
+    : Math.max(0, (tdsCumBefore + tdsBaseExGst) - TDS_TCS_THRESHOLD);
 
   const tcsRate = Number(invoiceOptions.tcsRate) || 0;
   const tdsRate = Number(invoiceOptions.tdsRate) || 0;

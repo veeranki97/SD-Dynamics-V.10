@@ -8,7 +8,7 @@ import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
-import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
+import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney, invoiceAmountDue, localToday } from '../utils';
 import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTax } from '../utils/revenueFilter';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
@@ -472,7 +472,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         });
         setWorkOrderMap(map);
       } catch { /* ignore */ }
-      const today = new Date().toISOString().split('T')[0];
+      const today = (typeof localToday === 'function' ? localToday() : new Date().toISOString().split('T')[0]);
 
       // v1.10.41 — Orphaned-payment reconciliation. Reported: user
       // recorded a payment in an older version — the receipt file
@@ -1054,7 +1054,8 @@ const openPaymentModal = (bill) => {
     const payments = (bill.payments || []).filter((_, i) => i !== idx);
     const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const total = Number(bill.totalAmount) || 0;
-    const updated = { ...bill, payments, paidAmount: totalPaid, status: totalPaid >= total && total > 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid') };
+    const dueAmt = invoiceAmountDue({ ...bill, totalAmount: total, total, tdsAmount: (bill.tdsAmount || (bill.totals && bill.totals.tdsAmount) || (bill.data && bill.data.totals && bill.data.totals.tdsAmount) || 0) });
+    const updated = { ...bill, payments, paidAmount: totalPaid, status: (totalPaid + 0.01 >= dueAmt && dueAmt > 0) ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid') };
     await saveBill(updated, { overwrite: true });
     // v1.10.10 — Also remove the linked Receipt record so the Receipts
     // page stays in sync. Silently skips if this was a legacy payment
@@ -1115,7 +1116,8 @@ const openPaymentModal = (bill) => {
       ? { ...p, id: withId, amount: newAmount, date: form.date, mode: form.mode, note: form.note }
       : p);
     const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-    const status = totalPaid >= billTotal && billTotal > 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+    const dueAmt2 = invoiceAmountDue({ ...bill, totalAmount: billTotal });
+    const status = (totalPaid + 0.01 >= dueAmt2 && dueAmt2 > 0) ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
     const updated = { ...bill, payments, paidAmount: totalPaid, status };
     await saveBill(updated, { overwrite: true });
     // Also update the linked Receipt record so the Receipts page reflects the edit.
@@ -1729,6 +1731,9 @@ const openPaymentModal = (bill) => {
 
       {listMode ? null : (
       <div className="dashboard-kpi-block">
+      <p className="sd-dash-greeting text-muted" style={{ margin: '0 0 12px', fontSize: '0.9rem' }}>
+        {((activeProfile && activeProfile.businessName) ? ('Overview — ' + activeProfile.businessName) : 'Overview')} · real-time figures from your books (tax invoices only for sales KPIs).
+      </p>
 <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
         style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
         <div className="stat-card">
