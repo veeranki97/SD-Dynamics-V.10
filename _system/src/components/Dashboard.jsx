@@ -1592,31 +1592,27 @@ const openPaymentModal = (bill) => {
 
   return (
     <div className={`dashboard-container${listMode ? " dashboard-list-mode" : " dashboard-home"}`}>
+      {/* Home dashboard: brand bar is the top chrome (no "Dashboard / KPIs…" PageHeader). */}
+      {listMode && (
       <PageHeader
-        icon={listMode ? "📄" : "📊"}
-        title={listMode ? "Invoices" : "Dashboard"}
-        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "KPIs, trends and action centre"}
+        icon="📄"
+        title="Invoices"
+        subtitle="Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC"
         meta={`${bills.length} invoice${bills.length === 1 ? '' : 's'}`}>
-        <HelpButton title="Dashboard — how to use">
+        <HelpButton title="Invoices — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
             <li><strong>New Invoice</strong> — start a fresh tax invoice / proforma / credit note / bill of supply / delivery challan.</li>
             <li><strong>Filter row</strong> — search by client name, invoice #, or GSTIN; filter by type / status / financial year / date range.</li>
-            <li><strong>Row actions</strong> — Edit opens the invoice; MessageCircle sends via WhatsApp; Mail opens your email client; Record Payment logs a receipt; Trash soft-deletes for 30 days.</li>
-            <li><strong>WhatsApp share — mobile vs. desktop:</strong> on Android / iPhone the PDF attaches automatically via the OS share sheet (works with WhatsApp, Signal, Telegram, anywhere). On desktop, browsers block sending files to WhatsApp Web for security — we fall back to a text-only message with all invoice details. To send the PDF from desktop: click Download, then drag the file into WhatsApp Web.</li>
+            <li><strong>Row actions</strong> — Edit, PDF, payment, WhatsApp, Email, convert, cancel via ⋮ menu.</li>
             <li><strong>Bulk actions</strong> — select rows to export as one PDF or delete in a batch.</li>
-            <li><strong>Overdue banner</strong> — click it to jump to overdue invoices with one tap.</li>
-            <li><strong>Low-stock alert</strong> — appears when any product is at or below your threshold (Settings → Stock alert).</li>
           </ul>
         </HelpButton>
-        {listMode ? (
-          <>
-            <button type="button" className="btn btn-secondary" onClick={() => {
-              downloadSdExport('SD-Invoices-Export.csv', billsToSdCsv(bills));
-            }}>SD Export CSV</button>
-            <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
-          </>
-        ) : null}
+        <button type="button" className="btn btn-secondary" onClick={() => {
+          downloadSdExport('SD-Invoices-Export.csv', billsToSdCsv(bills));
+        }}>SD Export CSV</button>
+        <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
       </PageHeader>
+      )}
 
       {!listMode && (
         <div className="sd-dash-brand-bar dash-brand-bar" style={{
@@ -1648,6 +1644,13 @@ const openPaymentModal = (bill) => {
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
               {new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
             </span>
+            <HelpButton title="Dashboard — how to use">
+              <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
+                <li><strong>KPI cards</strong> — Billed / Tax / Received / Outstanding use tax invoices only (excl. quotation, proforma, DC; credit notes reduce).</li>
+                <li><strong>This month</strong> — calendar-month sales and purchases; click to open Invoices or Purchase Bills.</li>
+                <li><strong>Charts</strong> — sales vs purchases, GST split, top clients/sites (revenue rules same as KPIs).</li>
+              </ul>
+            </HelpButton>
           </div>
         </div>
       )}
