@@ -1729,6 +1729,9 @@ const openPaymentModal = (bill) => {
 
       {listMode ? null : (
       <div className="dashboard-kpi-block">
+      <p className="sd-dash-greeting text-muted" style={{ margin: '0 0 12px', fontSize: '0.9rem' }}>
+        {((activeProfile && activeProfile.businessName) ? ('Overview — ' + activeProfile.businessName) : 'Overview')} · real-time figures from your books (tax invoices only for sales KPIs).
+      </p>
 <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
         style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
         <div className="stat-card">

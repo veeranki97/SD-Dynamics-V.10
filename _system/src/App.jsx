@@ -5,7 +5,9 @@ import DataExportView from './components/DataExportView';
 import ActivityLogView from './components/ActivityLogView';
 import DashboardChartSettings from './components/DashboardChartSettings';
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
-import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity, Target, CheckSquare } from 'lucide-react';
+import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, ClipboardList, ShoppingBag, Banknote, Activity, Target, CheckSquare,
+  Scale, Landmark, ScrollText, Truck, Layers
+} from 'lucide-react';
 import { getAllProfiles, saveProfile, getEnabledModules, getAllBills, getAllProducts, getStockAlertSettings, getAllClients } from './store';
 import { isModuleEnabled, getUpcomingFilings } from './utils';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
@@ -917,51 +919,51 @@ function App() {
   // E-Invoice lives only under Settings (no duplicate System entry).
   // Services catalogue lives under Work → Master data → Services tab.
   const navItems = [
-    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Home' },
+    { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Overview' },
     // Sales — documents + clients
-    { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales' },
-    { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales', parent: 'invoices' },
-    { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring', group: 'Sales', parent: 'invoices' },
-    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales', parent: 'invoices' },
-    { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Sales' },
+    { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales & Receivables' },
+    { id: 'new', icon: Plus, label: 'New Invoice', onClick: handleNewInvoice, module: 'invoicing', group: 'Sales & Receivables', parent: 'invoices' },
+    { id: 'recurring', icon: RefreshCw, label: 'Recurring', module: 'recurring', group: 'Sales & Receivables', parent: 'invoices' },
+    { id: 'payment-reminders', icon: Bell, label: 'Payment reminders', module: 'invoicing', group: 'Sales & Receivables', parent: 'invoices' },
+    { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Sales & Receivables' },
     // Purchase — vendors + PO + bills + expenses
-    { id: 'vendors', icon: Users, label: 'Vendors', module: 'clients', group: 'Purchase' },
-    { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Purchase' },
-    { id: 'purchases', icon: ShoppingCart, label: 'Purchase Bills', module: 'purchases', group: 'Purchase' },
-    { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses', group: 'Purchase' },
+    { id: 'vendors', icon: Truck, label: 'Vendors', module: 'clients', group: 'Purchases & Expenses' },
+    { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Purchases & Expenses' },
+    { id: 'purchases', icon: ShoppingCart, label: 'Purchase Bills', module: 'purchases', group: 'Purchases & Expenses' },
+    { id: 'expenses', icon: Wallet, label: 'Expenses', module: 'expenses', group: 'Purchases & Expenses' },
     // Work — jobs + masters (Services tab inside Master data)
-    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Work' },
-    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Work' },
-    { id: 'inventory', icon: Package, label: 'Inventory', module: 'inventory', group: 'Work' },
+    { id: 'workorders', icon: ClipboardList, label: 'Work Orders', module: 'dashboard', group: 'Operations' },
+    { id: 'costcenters', icon: Building2, label: 'Master data', module: 'settings', group: 'Operations' },
+    { id: 'inventory', icon: Package, label: 'Inventory', module: 'inventory', group: 'Operations' },
     // Money
-    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Money' },
-    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Money' },
-    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Money' },
-    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Money' },
+    { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Cash & Banking' },
+    { id: 'payrecon', icon: Receipt, label: 'Payment Recon', module: 'reports', group: 'Cash & Banking' },
+    { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Cash & Banking' },
+    { id: 'bankfeed', icon: Banknote, label: 'Bank Feed', module: 'reports', group: 'Cash & Banking' },
     // Books
-    { id: 'vouchers', icon: BookOpen, label: 'Vouchers', module: 'reports', group: 'Books' },
-    { id: 'coa', icon: BookOpen, label: 'Chart of Accounts', module: 'reports', group: 'Books' },
-    { id: 'generalledger', icon: BookOpen, label: 'General Ledger', module: 'reports', group: 'Books' },
-    { id: 'finbooks', icon: BookOpen, label: 'Financial Books', module: 'reports', group: 'Books' },
-    { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Books' },
+    { id: 'vouchers', icon: Calculator, label: 'Vouchers', module: 'reports', group: 'Accounting' },
+    { id: 'coa', icon: Layers, label: 'Chart of Accounts', module: 'reports', group: 'Accounting' },
+    { id: 'generalledger', icon: ScrollText, label: 'General Ledger', module: 'reports', group: 'Accounting' },
+    { id: 'finbooks', icon: Landmark, label: 'Financial Books', module: 'reports', group: 'Accounting' },
+    { id: 'budgets', icon: Target, label: 'Budgets & Control', module: 'reports', group: 'Accounting' },
     // Compliance
-    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Compliance' },
-    { id: 'dataexport', icon: Download, label: 'Data export', module: 'reports', group: 'Compliance' },
-    { id: 'servicerev', icon: BarChart3, label: 'Service revenue', module: 'reports', group: 'Compliance' },
-    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Compliance' },
-    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Compliance' },
+    { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Tax & Compliance' },
+    { id: 'dataexport', icon: Download, label: 'Data export', module: 'reports', group: 'Tax & Compliance' },
+    { id: 'servicerev', icon: BarChart3, label: 'Service revenue', module: 'reports', group: 'Tax & Compliance' },
+    { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Tax & Compliance' },
+    { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Tax & Compliance' },
     // HR
-    { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR' },
+    { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR & Payroll' },
     // System — keep contiguous (Tasks before Notifications) so only ONE System group header
-    { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'System' },
-    { id: 'workflows', icon: CheckSquare, label: 'Workflow rules', module: 'dashboard', group: 'System' },
-    { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'System', onClick: () => setShowNotifs(true) },
-    { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'System', onClick: () => setDarkMode(d => !d) },
-    { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'System' },
-    { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'System' },
-    { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'System' },
-    { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'System' },
-    { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard', group: 'System' },
+    { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'Administration' },
+    { id: 'workflows', icon: CheckSquare, label: 'Workflow rules', module: 'dashboard', group: 'Administration' },
+    { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'Administration', onClick: () => setShowNotifs(true) },
+    { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'Administration', onClick: () => setDarkMode(d => !d) },
+    { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'Administration' },
+    { id: 'activity-log', icon: FileText, label: 'Activity log', module: 'settings', group: 'Administration' },
+    { id: 'system-health', icon: Activity, label: 'System health', module: 'settings', group: 'Administration' },
+    { id: 'settings', icon: Settings, label: 'Settings', module: 'settings', group: 'Administration' },
+    { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard', group: 'Administration' },
   ].filter(item => showIfModule(item.module));
 
   // Command palette actions — declared here (not earlier) because the deps
@@ -1307,7 +1309,7 @@ function App() {
             const groups = [];
             let cur = null;
             navItems.forEach((item) => {
-              const g = item.group || 'Home';
+              const g = item.group || 'Overview';
               if (!cur || cur.name !== g) {
                 cur = { name: g, items: [] };
                 groups.push(cur);
@@ -1318,7 +1320,7 @@ function App() {
               const open = expandedGroups[grp.name] !== false;
               return (
                 <div key={grp.name} className="nav-group">
-                  {grp.name !== 'Home' && (
+                  {grp.name !== 'Overview' && (
                     <button
                       type="button"
                       className={`nav-group-header${open ? ' open' : ''}`}
@@ -1337,7 +1339,7 @@ function App() {
                       <span className="nav-group-chevron">▸</span>
                     </button>
                   )}
-                  {(open || grp.name === 'Home') && grp.items.map((item) => {
+                  {(open || grp.name === 'Overview') && grp.items.map((item) => {
                     const isNested = !!item.parent;
                     // Keep the invoice section visibly active when one of its child workflows is open.
                     const isInvoiceParentActive = item.id === 'invoices'
