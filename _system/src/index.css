@@ -4518,3 +4518,91 @@ textarea.form-input:focus {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* ==========================================================================
+   Premium ERP UI polish — v2.5 audit pass
+   Additive overrides only: preserve existing page logic and component markup.
+   ========================================================================== */
+:root {
+  --ui-focus-ring: var(--primary, #2563eb);
+  --ui-surface-raised: var(--card-bg, var(--surface, #ffffff));
+  --ui-surface-hover: var(--surface-hover, #f1f5f9);
+  --ui-radius-card: var(--radius-lg, 12px);
+  --ui-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.035);
+}
+[data-theme="dark"] {
+  --ui-surface-raised: var(--card-bg, var(--surface, #151f32));
+  --ui-surface-hover: #26344a;
+  --ui-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.dashboard-container.dashboard-home {
+  width: min(100%, 1600px);
+  margin-inline: auto;
+  padding: clamp(12px, 1.5vw, 24px);
+  box-sizing: border-box;
+}
+.dashboard-home .dashboard-kpi-block .stat-card,
+.dashboard-home .stats-grid .stat-card,
+.dashboard-home .stats-card {
+  border-radius: var(--ui-radius-card);
+  box-shadow: var(--ui-shadow-card);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.dashboard-home .dashboard-kpi-block .stat-card:hover,
+.dashboard-home .stats-grid .stat-card:hover {
+  border-color: color-mix(in srgb, var(--primary, #2563eb) 32%, var(--border, #dbe3ee));
+}
+.dashboard-home .dashboard-kpi-block .stat-card[role="button"]:hover,
+.dashboard-home .stats-grid .stat-card[role="button"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.06), 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+.dashboard-home :is(button, a, input, select, textarea):focus-visible,
+.dashboard-home [role="button"]:focus-visible {
+  outline: 3px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+.dashboard-home .stats-grid.stats-grid-kpi-4 {
+  gap: clamp(8px, 0.8vw, 14px) !important;
+}
+.dashboard-home .stats-grid.stats-grid-kpi-4 .stat-card {
+  min-height: 104px;
+  padding: clamp(10px, 1vw, 16px) !important;
+}
+.dashboard-home :is(.data-table, table) {
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-home :is(.data-table th, table th) {
+  letter-spacing: 0.015em;
+}
+.dashboard-home .dashboard-kpi-block,
+.dashboard-home .dashboard-kpi-primary {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .dashboard-container.dashboard-home {
+    padding: 14px;
+  }
+}
+@media (max-width: 700px) {
+  .dashboard-container.dashboard-home {
+    padding: 10px;
+  }
+  .dashboard-home .stats-grid.stats-grid-kpi-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .dashboard-home .stats-grid.stats-grid-kpi-4 .stat-card {
+    min-height: 92px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-home .dashboard-kpi-block .stat-card,
+  .dashboard-home .stats-grid .stat-card {
+    transition: none !important;
+  }
+  .dashboard-home .dashboard-kpi-block .stat-card:hover,
+  .dashboard-home .stats-grid .stat-card:hover {
+    transform: none !important;
+  }
+}
