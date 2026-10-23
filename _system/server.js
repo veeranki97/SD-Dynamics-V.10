@@ -1850,20 +1850,58 @@ app.post('/api/app-lock/prefs', (req, res) => {
 // ========================
 // API session after PIN (screen lock) — not encryption
 // ========================
-const SD_SESSIONS = new Map(); // token -> { exp }
+// Durable signed tokens (survive server restart). In-memory map is optional cache only.
+const SD_SESSIONS = new Map(); // token -> { exp }  (legacy random tokens still accepted until expiry)
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+
+function getSessionSecret() {
+  try {
+    const meta = readJSON(META_PATH, {}) || {};
+    if (meta.sessionSecret && String(meta.sessionSecret).length >= 16) return String(meta.sessionSecret);
+    const secret = crypto.randomBytes(32).toString('hex');
+    meta.sessionSecret = secret;
+    writeJSON(META_PATH, meta);
+    return secret;
+  } catch (_) {
+    return crypto.createHash('sha256').update(String(__dirname) + '|sd-session').digest('hex');
+  }
+}
+
 function issueSessionToken() {
-  const token = crypto.randomBytes(24).toString('hex');
-  SD_SESSIONS.set(token, { exp: Date.now() + SESSION_TTL_MS });
+  const exp = Date.now() + SESSION_TTL_MS;
+  const payload = Buffer.from(JSON.stringify({ exp, v: 1 }), 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', getSessionSecret()).update(payload).digest('base64url');
+  const token = 'sd1.' + payload + '.' + sig;
+  SD_SESSIONS.set(token, { exp });
   return token;
 }
+
 function touchSession(token) {
+  if (!token) return false;
+  // Signed durable token (sd1.*)
+  if (String(token).startsWith('sd1.')) {
+    try {
+      const parts = String(token).split('.');
+      if (parts.length !== 3) return false;
+      const payload = parts[1];
+      const sig = parts[2];
+      const expect = crypto.createHmac('sha256', getSessionSecret()).update(payload).digest('base64url');
+      if (sig !== expect) return false;
+      const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      if (!data || !data.exp || Date.now() > Number(data.exp)) return false;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  // Legacy random tokens (pre-fix) held in memory only
   const s = SD_SESSIONS.get(token);
   if (!s) return false;
   if (Date.now() > s.exp) { SD_SESSIONS.delete(token); return false; }
   s.exp = Date.now() + SESSION_TTL_MS;
   return true;
 }
+
 function readSessionToken(req) {
   const h = req.headers['authorization'] || '';
   const m = /^Bearer\s+(.+)$/i.exec(h);
@@ -1873,6 +1911,7 @@ function readSessionToken(req) {
   if (cm) return decodeURIComponent(cm[1].trim());
   return (req.headers['x-sd-session'] || '').toString().trim() || null;
 }
+
 function isAppLockActive() {
   try {
     const meta = readJSON(META_PATH, {}) || {};
@@ -1882,12 +1921,14 @@ function isAppLockActive() {
     return false;
   }
 }
+
 const APP_LOCK_PUBLIC = new Set([
   '/api/app-lock/status',
   '/api/app-lock/verify',
   '/api/health',
   '/api/sqlite-status',
 ]);
+
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
   if (APP_LOCK_PUBLIC.has(req.path)) return next();
@@ -1898,7 +1939,7 @@ app.use((req, res, next) => {
   return res.status(401).json({
     error: 'App locked — unlock with PIN first',
     code: 'app-locked',
-    note: 'PIN is a screen lock only. Data files are not encrypted.',
+    note: 'PIN is a screen lock only. Data files are not encrypted. Enter PIN again after server restart.',
   });
 });
 

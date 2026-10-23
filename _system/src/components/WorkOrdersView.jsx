@@ -718,6 +718,9 @@ const updateItem = (idx, field, value) => {
                                 title: woRow.title || woRow.workDetails,
                                 costCenterId: woRow.costCenterId,
                                 targetType,
+                                items: Array.isArray(woRow.items) ? woRow.items : [],
+                                periodStart: woRow.periodStart || '',
+                                periodEnd: woRow.periodEnd || '',
                               }));
                             } catch {}
                             toast('Open New Invoice — Work Order will pre-fill if conversion is wired in App', 'info');

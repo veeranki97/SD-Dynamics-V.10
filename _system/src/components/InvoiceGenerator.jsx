@@ -518,6 +518,32 @@ const LineItem = memo(function LineItem({
   );
 });
 
+
+/** Site master may store strings or { name, gstin, address } objects (multi-site GSTIN). */
+function siteToLabel(s) {
+  if (s == null || s === '') return '';
+  if (typeof s === 'string' || typeof s === 'number') return String(s).trim();
+  if (typeof s === 'object') {
+    return String(s.name || s.site || s.label || s.title || '').trim();
+  }
+  return String(s).trim();
+}
+function normalizeSitesList(sites, extra) {
+  const out = [];
+  const seen = new Set();
+  const push = (x) => {
+    const lab = siteToLabel(x);
+    if (!lab) return;
+    const k = lab.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(lab);
+  };
+  (Array.isArray(sites) ? sites : []).forEach(push);
+  if (extra != null) push(extra);
+  return out;
+}
+
 export default function InvoiceGenerator({ onBack, profile: profileProp, editingBill }) {
   const draft = loadDraft();
   const [allProfiles, setAllProfiles] = useState([]);
@@ -1726,7 +1752,8 @@ const validateForSave = useCallback(() => {
       email: cli.email || '',
       phone: cli.phone || '',
       isSEZ: !!cli.isSEZ,
-      site: cli.site || (Array.isArray(cli.sites) && cli.sites[0]) || '',
+      site: siteToLabel(cli.site) || siteToLabel(Array.isArray(cli.sites) && cli.sites[0]) || '',
+      sites: Array.isArray(cli.sites) ? cli.sites : undefined,
     });
     // Place of Supply from client state / GSTIN (still overridable in dropdown)
     const STATE_BY_GST = {
@@ -1854,8 +1881,7 @@ const validateForSave = useCallback(() => {
       (c.name || '').trim().toLowerCase() === (client.name || '').trim().toLowerCase()
     );
     const sites = master?.sites || (master?.site ? [master.site] : []) || (client.sites || []);
-    const arr = Array.isArray(sites) ? sites.filter(Boolean) : [];
-    if (client.site && !arr.includes(client.site)) arr.unshift(client.site);
+    const arr = normalizeSitesList(sites, client.site);
     return arr.length ? arr : ['Main Site'];
   }, [clientOnlyList, client.name, client.site, client.sites]);
   const stateOptionsForFilter = useMemo(() => {
@@ -4280,7 +4306,7 @@ const validateForSave = useCallback(() => {
                       name: c.name || '', address: c.address || '', city: c.city || '', pin: c.pin || '',
                       state: c.state || '', gstin: c.gstin || '', country: c.country || client.country || '',
                       email: c.email || '', phone: c.phone || '', isSEZ: !!c.isSEZ,
-                      site: c.site || (c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
+                      site: siteToLabel(c.site) || siteToLabel(c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
                     });
                     if (c.state) setFilterState(c.state);
                   }}>
@@ -4292,13 +4318,16 @@ const validateForSave = useCallback(() => {
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Site *</label>
-                <select className="form-input" value={client.site || details.site || ''}
+                <select className="form-input" value={siteToLabel(client.site) || siteToLabel(details.site) || ''}
                   onChange={e => {
                     const site = e.target.value;
                     setClient(prev => ({ ...prev, site }));
                     setDetails(prev => ({ ...prev, site }));
                   }}>
-                  {clientSites.map(s => <option key={s} value={s}>{s}</option>)}
+                  {clientSites.map(s => {
+                    const lab = siteToLabel(s);
+                    return <option key={lab} value={lab}>{lab}</option>;
+                  })}
                 </select>
               </div>
             </div>

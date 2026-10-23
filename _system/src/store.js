@@ -12,18 +12,30 @@ async function apiFetch(url, options = {}) {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
   };
-  if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+  if (sessionToken) {
+    headers['Authorization'] = 'Bearer ' + sessionToken;
+    headers['X-SD-Session'] = sessionToken;
+  }
   const res = await fetch(url, {
     credentials: 'same-origin',
     ...options,
     headers,
   });
   if (!res.ok) {
-    // Preserve server-provided error message (used e.g. for 409 duplicate
-    // invoice number). Attach status so callers can branch on it.
     let body = null;
     try { body = await res.json(); } catch { /* non-JSON body */ }
-    const err = new Error(body?.error || `API error: ${res.status}`);
+    // PIN screen lock: UI thought it was unlocked but server rejected the session
+    // (common after node server restart — old random tokens were memory-only).
+    if (res.status === 401 && (body?.code === 'app-locked' || /app locked/i.test(String(body?.error || '')))) {
+      try {
+        sessionStorage.removeItem('sd_app_unlocked');
+        sessionStorage.removeItem('sd_session_token');
+      } catch (_) {}
+      try {
+        window.dispatchEvent(new CustomEvent('sd-app-lock-required', { detail: body }));
+      } catch (_) {}
+    }
+    const err = new Error(body?.error || ('API error: ' + res.status));
     err.status = res.status;
     err.body = body;
     throw err;

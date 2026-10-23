@@ -554,84 +554,111 @@ table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px so
       {tab === 'ledger' && (
         <div className="glass-panel" style={{ padding: 12 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <select className="form-input" style={{ minWidth: 220 }} value={ledgerAccountId} onChange={e => setLedgerAccountId(e.target.value)}>
+            <select className="form-input" style={{ minWidth: 260 }} value={ledgerAccountId} onChange={e => setLedgerAccountId(e.target.value)}>
               <option value="">Select account</option>
-              {(accounts || []).filter(a => !a.isGroup && a.isActive !== false).map(a => (
-                <option key={a.id} value={a.id}>{(a.code ? a.code + ' — ' : '') + a.name}</option>
+              {(accounts || []).filter(a => a && !a.isGroup && a.isActive !== false).map(a => (
+                <option key={a.id || a.code} value={a.id || a.code}>{(a.code ? String(a.code) + ' — ' : '') + (a.name || a.id)}</option>
               ))}
             </select>
             <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, color: '#64748b' }}>
               <input type="checkbox" checked={showGlReversals} onChange={e => setShowGlReversals(e.target.checked)} />
               Show reversals
             </label>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>
+              Same journal source as General Ledger · From / As of apply
+            </span>
           </div>
           <div className="table-responsive">
             <table className="data-table" style={{ width: '100%' }}>
               <thead><tr><th>Date</th><th>Narration</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
               <tbody>
                 {(() => {
-                  let bal = 0;
-                  const rows = [];
-                  const selAcc = (accounts || []).find(a => a && (a.id === ledgerAccountId || String(a.code || '') === String(ledgerAccountId)));
+                  if (!ledgerAccountId) {
+                    return <tr><td colSpan={5} style={{ color: '#64748b' }}>Select an account above.</td></tr>;
+                  }
+                  const selAcc = (accounts || []).find(a => a && (a.id === ledgerAccountId || String(a.code) === String(ledgerAccountId)));
+                  const selCode = selAcc ? String(selAcc.code || '').trim() : '';
+                  const selName = selAcc ? String(selAcc.name || '').trim() : '';
+                  const selId = String(ledgerAccountId).trim();
+                  const norm = (s) => String(s || '').replace(/^acc_/i, '').trim().toLowerCase();
+
                   const matchEntry = (e) => {
-                    if (!ledgerAccountId || !e) return false;
+                    if (!e) return false;
                     const id = String(e.accountId || e.account_id || '').trim();
                     const code = String(e.accountCode || e.code || '').trim();
-                    const nm = String(e.account || e.accountName || e.name || '').trim();
-                    const selId = String(ledgerAccountId).trim();
-                    const norm = (s) => String(s || '').replace(/^acc_/i, '').trim().toLowerCase();
+                    const nm = String(e.account || e.accountName || '').trim();
                     if (id && (id === selId || norm(id) === norm(selId))) return true;
                     if (selAcc) {
-                      const sc = String(selAcc.code || '').trim();
-                      const sn = String(selAcc.name || '').trim();
-                      const label = (sc ? (sc + ' — ' + sn) : sn);
-                      if (id && (id === selAcc.id || id === sc || norm(id) === norm(sc) || norm(id) === norm(selAcc.id))) return true;
-                      if (code && (code === sc || code === selAcc.id || norm(code) === norm(sc))) return true;
+                      if (id && (id === selAcc.id || norm(id) === norm(selAcc.id) || id === selCode || norm(id) === norm(selCode))) return true;
+                      if (code && (code === selCode || norm(code) === norm(selCode))) return true;
                       if (nm) {
-                        if (nm === label || nm === sn || nm === sc) return true;
-                        if (sc && (nm.indexOf(sc + ' —') === 0 || nm.indexOf(sc + '—') === 0 || nm.indexOf(sc + ' ') === 0 || nm.indexOf(sc) === 0)) return true;
-                        if (sn && nm.toLowerCase().indexOf(sn.toLowerCase()) >= 0) return true;
+                        if (selCode && nm.indexOf(selCode) === 0) return true;
+                        if (selCode && nm.indexOf(selCode + ' —') >= 0) return true;
+                        if (selCode && nm.indexOf(selCode + '—') >= 0) return true;
+                        if (selName && nm.toLowerCase().indexOf(selName.toLowerCase()) >= 0) return true;
                       }
                     }
-                    if (nm && (nm === selId || nm.indexOf(selId) === 0)) return true;
+                    if (nm && (nm === selId || nm.indexOf(selId) >= 0)) return true;
                     return false;
                   };
+
+                  // Flatten exactly like GeneralLedgerView
                   const journalPool = (scopedJournals && scopedJournals.length) ? scopedJournals : (journals || []);
-                  let pool = showGlReversals
-                    ? (journalPool || []).filter(j => j)
+                  let activeRaw = showGlReversals
+                    ? (journalPool || []).filter(Boolean)
                     : activeGlJournals(journalPool || []);
-                  // Prefer GL-engine posts when any exist (same as General Ledger view)
-                  if (!showGlReversals && pool.some(j => j && j.glEngine === true)) {
-                    pool = pool.filter(j => j && j.glEngine === true);
+                  if (!showGlReversals && activeRaw.some(j => j && j.glEngine === true)) {
+                    activeRaw = activeRaw.filter(j => j && j.glEngine === true);
                   }
-                  const src = pool.filter(j => {
-                    if (!j) return false;
+
+                  const flat = [];
+                  activeRaw.forEach(j => {
+                    if (!j) return;
+                    if (!showGlReversals && (j.isReversed || j.IsReversed)) return;
                     const d = String(j.date || '').slice(0, 10);
-                    if (from && d && d < from) return false;
-                    if (asOf && d && d > asOf) return false;
-                    return true;
-                  });
-                  // Sort by date for running balance
-                  src.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-                  src.forEach(j => {
-                    (j.entries || j.lines || []).forEach(e => {
+                    if (from && d && d < from) return;
+                    if (asOf && d && d > asOf) return;
+                    const ents = j.entries || j.lines || [];
+                    ents.forEach(e => {
                       if (!matchEntry(e)) return;
-                      bal += (Number(e.debit) || 0) - (Number(e.credit) || 0);
-                      const tag = j.isReversal ? ' [REV]' : (j.isReversed ? ' [REVERSED]' : '');
-                      rows.push(
-                        <tr key={(j.id || 'j') + '-' + rows.length} style={j.isReversal || j.isReversed ? { opacity: 0.65 } : undefined}>
-                          <td>{j.date}</td>
-                          <td>{(j.narration || '') + tag}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(e.debit)}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(e.credit)}</td>
-                          <td style={{ textAlign: 'right' }}>{formatCurrency(bal)}</td>
-                        </tr>
-                      );
+                      flat.push({
+                        date: j.date,
+                        narration: j.narration || '',
+                        debit: Number(e.debit) || 0,
+                        credit: Number(e.credit) || 0,
+                        tag: j.isReversal ? ' [REV]' : (j.isReversed ? ' [REVERSED]' : ''),
+                        jid: j.id,
+                        faded: !!(j.isReversal || j.isReversed),
+                      });
                     });
                   });
-                  if (!ledgerAccountId) return <tr><td colSpan={5} style={{ color: '#64748b' }}>Select an account above.</td></tr>;
-                  if (!rows.length) return <tr><td colSpan={5} style={{ color: '#64748b' }}>No lines for this account (check From/As of dates, or open General Ledger to confirm posts).</td></tr>;
-                  return rows;
+                  flat.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+
+                  if (!flat.length) {
+                    const totalJ = (journalPool || []).length;
+                    const totalE = (journalPool || []).reduce((s, j) => s + ((j && (j.entries || j.lines)) || []).length, 0);
+                    return (
+                      <tr>
+                        <td colSpan={5} style={{ color: '#64748b' }}>
+                          No lines for this account. Journals loaded: {totalJ}, entry lines: {totalE}.
+                          Try another account (e.g. 1300 Sundry Debtors / 1210 Bank) or open Books → General Ledger.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  let bal = 0;
+                  return flat.map((r, idx) => {
+                    bal += r.debit - r.credit;
+                    return (
+                      <tr key={(r.jid || 'j') + '-' + idx} style={r.faded ? { opacity: 0.65 } : undefined}>
+                        <td>{r.date}</td>
+                        <td>{r.narration + r.tag}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCurrency(r.debit)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCurrency(r.credit)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCurrency(bal)}</td>
+                      </tr>
+                    );
+                  });
                 })()}
               </tbody>
             </table>

@@ -94,7 +94,9 @@ function PinLockGate({ onUnlock, autoLockMinutes, autoLockEnabled }) {
     setBusy(true); setErr('');
     try {
       const r = await fetch('/api/app-lock/verify', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: p }),
       });
       const j = await r.json().catch(() => ({}));
@@ -307,9 +309,21 @@ function App() {
           setAppLockEnabled(true);
           // Keep session unlock across refresh; only force lock if never unlocked this tab
           let sessionOk = false;
-          try { sessionOk = sessionStorage.getItem(PIN_SESSION_KEY) === '1'; } catch {}
-          if (!sessionOk) setUnlocked(false);
-          else setAppUnlocked(true);
+          let hasToken = false;
+          try {
+            sessionOk = sessionStorage.getItem(PIN_SESSION_KEY) === '1';
+            hasToken = !!(sessionStorage.getItem('sd_session_token') || '');
+          } catch {}
+          // Need both UI unlock flag AND API session token (token survives restart only if signed)
+          if (!sessionOk || !hasToken) {
+            try {
+              sessionStorage.removeItem(PIN_SESSION_KEY);
+              sessionStorage.removeItem('sd_session_token');
+            } catch {}
+            setUnlocked(false);
+          } else {
+            setAppUnlocked(true);
+          }
         } else {
           setAppLockEnabled(false);
           setUnlocked(true); // lock off → always open
@@ -348,9 +362,12 @@ function App() {
       if (e?.detail?.enabled === true) { setAppLockEnabled(true); setUnlocked(true); }
     };
     window.addEventListener('sd-app-lock-now', onLock);
+    const onNeedPin = () => { if (appLockEnabled) setUnlocked(false); };
+    window.addEventListener('sd-app-lock-required', onNeedPin);
     window.addEventListener('sd-app-lock-prefs', onPrefs);
     return () => {
       window.removeEventListener('sd-app-lock-now', onLock);
+      window.removeEventListener('sd-app-lock-required', onNeedPin);
       window.removeEventListener('sd-app-lock-prefs', onPrefs);
     };
   }, [appLockEnabled]);
