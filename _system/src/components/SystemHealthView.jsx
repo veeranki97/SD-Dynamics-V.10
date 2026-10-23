@@ -58,7 +58,7 @@ export default function SystemHealthView() {
   const countEntries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="page" style={{ maxWidth: 960 }}>
+    <div className="page list-module-page" style={{ maxWidth: "none", width: "100%" }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <div style={{
           width: 40, height: 40, borderRadius: 10,

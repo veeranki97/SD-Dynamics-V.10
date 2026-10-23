@@ -4,7 +4,9 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
+import DashboardHomeExtras from './DashboardHomeExtras';
+import TopCreateMenu from './TopCreateMenu';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -220,7 +222,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -1630,7 +1632,26 @@ const openPaymentModal = (bill) => {
               <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>Service ERP</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {typeof onOpenSearch === 'function' && (
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
+                onClick={onOpenSearch} title="Search (Ctrl+K)">
+                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                Search… Ctrl+K
+              </button>
+            )}
+            <TopCreateMenu onNewInvoice={onNew} />
+            {typeof onOpenNotifs === 'function' && (
+              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
+                <Bell size={18} />
+              </button>
+            )}
+            {typeof onToggleTheme === 'function' && (
+              <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
+                onClick={onToggleTheme} aria-label="Toggle theme">
+                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            )}
             <span style={{
               fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
               background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid var(--border)'
@@ -1732,8 +1753,7 @@ const openPaymentModal = (bill) => {
       <p className="sd-dash-greeting text-muted" style={{ margin: '0 0 12px', fontSize: '0.9rem' }}>
         {((activeProfile && activeProfile.businessName) ? ('Overview — ' + activeProfile.businessName) : 'Overview')} · real-time figures from your books (tax invoices only for sales KPIs).
       </p>
-<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
+<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary">
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
@@ -1785,7 +1805,7 @@ const openPaymentModal = (bill) => {
       </div>
 
       {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
         <div className="stat-card" role="button" tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -1879,6 +1899,11 @@ const openPaymentModal = (bill) => {
         </div>
       )}
 
+      {/* Spec regions 12–14: Recent Activity, Quick Actions, Compliance */}
+      {!listMode && (
+        <DashboardHomeExtras onNew={onNew} secondaryKpis={secondaryKpis} />
+      )}
+
       {/* Low Stock Alerts */}
       {lowStockProducts.length > 0 && (
         <div className="glass-panel" style={{ marginBottom: '1.25rem', padding: '1rem 1.25rem' }}>
@@ -1937,7 +1962,7 @@ const openPaymentModal = (bill) => {
       )}
 {listMode && (
 <div className="glass-panel invoice-list-panel list-module" data-testid="invoice-list">
-                <div className="filters-bar invoice-list-toolbar list-module-toolbar">
+        <div className="filters-bar invoice-list-toolbar list-module-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search client or invoice..." data-list-anchor="1" value={search}

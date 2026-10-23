@@ -15,7 +15,7 @@ export default function WorkflowRulesView() {
   return (
     <div className="page">
       <h2>Workflow Rules</h2>
-      <table className="data-table" style={{ width: '100%', maxWidth: 720 }}>
+      <table className="data-table" style={{ width: '100%' }}>
         <thead><tr><th>On</th><th>Rule</th><th>Days</th><th>Channel</th></tr></thead>
         <tbody>
           {rules.map((r, i) => (

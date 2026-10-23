@@ -181,7 +181,7 @@ export default function UserGuideView() {
   };
 
   return (
-    <div className="dashboard-container" style={{ maxWidth: '900px' }}>
+    <div className="dashboard-container dashboard-list-mode">
       <div className="page-header">
         <div>
           <h1 className="page-title">User Guide</h1>
