@@ -689,20 +689,6 @@ function App() {
     sessionStorage.setItem('gst_currentView', currentView);
   }, [currentView]);
 
-  // Keep heavy list views mounted after first visit so tab switches are instant
-  const [mountedViews, setMountedViews] = useState(() => ({ dashboard: true }));
-  useEffect(() => {
-    setMountedViews((m) => {
-      const next = { ...m, [currentView]: true };
-      if (currentView === 'dashboard' || currentView === 'invoices') {
-        next.dashboard = true;
-        next.invoices = true;
-      }
-      return next;
-    });
-  }, [currentView]);
-
-
   useEffect(() => {
     if (editingBill) {
       sessionStorage.setItem('gst_editingBill', JSON.stringify(editingBill));
@@ -1490,9 +1476,8 @@ function App() {
         </div>
       )}
       <div className="main-content">
-        {(mountedViews.dashboard || mountedViews.invoices) && (
-          <div style={{ display: (currentView === 'dashboard' || currentView === 'invoices') ? undefined : 'none' }} aria-hidden={!(currentView === 'dashboard' || currentView === 'invoices')}>
-            <Dashboard
+        {(currentView === 'dashboard' || currentView === 'invoices') && (
+          <Dashboard
             listMode={currentView === 'invoices'}
             onNew={handleNewInvoice}
             onEdit={handleEditInvoice}
@@ -1502,6 +1487,7 @@ function App() {
             activeProfile={profile}
             onOpenSearch={() => setShowPalette(true)}
             onOpenNotifs={() => setShowNotifs(true)}
+            notifCount={notifTotal}
             darkMode={darkMode}
             onToggleTheme={() => setDarkMode(d => !d)}
             onLogout={() => {
@@ -1509,7 +1495,6 @@ function App() {
               try { window.dispatchEvent(new CustomEvent('sd-app-lock-now')); } catch (_) {}
             }}
           />
-          </div>
         )}
         {currentView === 'new' && (
           <InvoiceGenerator
@@ -1520,15 +1505,11 @@ function App() {
         {/* v1.10.4 — All lazy views under one Suspense boundary. Only the
              matched view's chunk actually loads; others stay unfetched. */}
         <Suspense fallback={<ViewLoading />}>
-        {mountedViews.vendors && (
-          <div style={{ display: currentView === 'vendors' ? undefined : 'none' }} aria-hidden={currentView !== 'vendors'}>
-            <VendorsView key={businessKey} />
-          </div>
+        {currentView === 'vendors' && (
+          <VendorsView key={businessKey} />
         )}
-        {mountedViews.clients && (
-          <div style={{ display: currentView === 'clients' ? undefined : 'none' }} aria-hidden={currentView !== 'clients'}>
-            <ClientsView onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} />
-          </div>
+        {currentView === 'clients' && (
+          <ClientsView onNew={handleNewInvoice} onEdit={handleEditInvoice} onDuplicate={handleDuplicateInvoice} />
         )}
         {currentView === 'inventory' && (
           <InventoryView />
@@ -1538,25 +1519,17 @@ function App() {
             opens, so a switch left the previous company's records on screen,
             and a record added straight after switching was saved under the OLD
             business. Remounting makes every one of them read it again. */}
-        {mountedViews.expenses && (
-          <div style={{ display: currentView === 'expenses' ? undefined : 'none' }} aria-hidden={currentView !== 'expenses'}>
-            <ExpenseTracker key={businessKey} />
-          </div>
+        {currentView === 'expenses' && (
+          <ExpenseTracker key={businessKey} />
         )}
-        {mountedViews.purchases && (
-          <div style={{ display: currentView === 'purchases' ? undefined : 'none' }} aria-hidden={currentView !== 'purchases'}>
-            <PurchaseBills key={businessKey} />
-          </div>
+        {currentView === 'purchases' && (
+          <PurchaseBills key={businessKey} />
         )}
-        {mountedViews.workorders && (
-          <div style={{ display: currentView === 'workorders' ? undefined : 'none' }} aria-hidden={currentView !== 'workorders'}>
-            <WorkOrdersView key={businessKey} onConvertToInvoice={handleWoConvertToInvoice} onOpenInvoice={handleEditInvoice} />
-          </div>
+        {currentView === 'workorders' && (
+          <WorkOrdersView key={businessKey} onConvertToInvoice={handleWoConvertToInvoice} onOpenInvoice={handleEditInvoice} />
         )}
-        {mountedViews.purchaseorders && (
-          <div style={{ display: currentView === 'purchaseorders' ? undefined : 'none' }} aria-hidden={currentView !== 'purchaseorders'}>
-            <PurchaseOrdersView key={businessKey} />
-          </div>
+        {currentView === 'purchaseorders' && (
+          <PurchaseOrdersView key={businessKey} />
         )}
         {currentView === 'cashbook' && (
           <CashBookView key={businessKey} />
@@ -1591,10 +1564,8 @@ function App() {
         {currentView === 'recurring' && (
           <RecurringInvoices key={businessKey} onEdit={handleEditInvoice} />
         )}
-        {mountedViews.receipts && (
-          <div style={{ display: currentView === 'receipts' ? undefined : 'none' }} aria-hidden={currentView !== 'receipts'}>
-            <ReceiptVoucher key={businessKey} />
-          </div>
+        {currentView === 'receipts' && (
+          <ReceiptVoucher key={businessKey} />
         )}
         {currentView === 'reports' && (
           <ReportsView key={businessKey} />

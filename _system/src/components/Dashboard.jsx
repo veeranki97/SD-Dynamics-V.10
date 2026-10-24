@@ -215,7 +215,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, notifCount = 0, darkMode = false, onToggleTheme, onLogout }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -1575,8 +1575,16 @@ const openPaymentModal = (bill) => {
             )}
             <TopCreateMenu onNewInvoice={onNew} />
             {typeof onOpenNotifs === 'function' && (
-              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
+              <button type="button" className="icon-btn" title={notifCount > 0 ? `Notifications (${notifCount})` : 'Notifications'} onClick={onOpenNotifs} aria-label="Notifications" style={{ position: 'relative' }}>
                 <Bell size={18} />
+                {notifCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, padding: '0 5px',
+                    borderRadius: 9, background: 'var(--danger, #dc2626)', color: '#fff',
+                    fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    lineHeight: 1, boxShadow: '0 0 0 2px var(--surface, #fff)',
+                  }}>{notifCount > 99 ? '99+' : notifCount}</span>
+                )}
               </button>
             )}
             {typeof onToggleTheme === 'function' && (
