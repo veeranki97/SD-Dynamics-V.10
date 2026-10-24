@@ -5034,3 +5034,27 @@ html:not([data-theme="dark"]) .mobile-topbar-btn,
   background: #FFFFFF !important;
   color: #0f172a !important;
 }
+
+/* ===== SD-UI-LAYOUT-FIX: invoice list search full width ===== */
+.invoice-list-panel input[type="search"],
+.invoice-list-panel input.search-input,
+.invoice-list-panel .search-box input,
+.list-module input[placeholder*="Search" i],
+.main-content input[placeholder*="Search client" i],
+.main-content input[placeholder*="Search" i].form-input {
+  flex: 1 1 240px !important;
+  min-width: 200px !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box;
+  border: 1px solid var(--border, #e2e8f0) !important;
+  background: var(--surface, #fff) !important;
+  color: var(--text, #172033) !important;
+  opacity: 1 !important;
+}
+.invoice-list-panel,
+.list-module {
+  overflow: visible;
+  width: 100%;
+  max-width: none;
+}

@@ -16,6 +16,7 @@ window.addEventListener('unhandledrejection', (ev) => {
   console.error('[App rejection]', ev.reason)
 })
 import './index.css'
+import './styles/design-system.css'
 import './styles/sidebar-autohide.css'
 import './styles/dashboard-home-spec.css'
 
