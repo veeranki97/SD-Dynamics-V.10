@@ -123,8 +123,13 @@ export default function DashboardHomeExtras({ onNew, secondaryKpis }) {
         </div>
       </div>
 
-      <div className="sd-dash-extras-bottom">
-        <div className="sd-dash-activity glass-panel">
+      <div className="sd-dash-extras-bottom" style={{
+        display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) minmax(240px, 300px)',
+        gap: 12,
+        alignItems: 'stretch',
+      }}>
+        <div className="sd-dash-activity glass-panel" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div className="sd-dash-section-head">
             <span className="sd-dash-section-title">Recent Activity</span>
             <button type="button" className="btn-link" onClick={() => navigate('activity-log')}>View All</button>
@@ -132,7 +137,7 @@ export default function DashboardHomeExtras({ onNew, secondaryKpis }) {
           {feed.length === 0 ? (
             <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>No recent activity yet.</p>
           ) : (
-            <ul className="sd-dash-activity-list">
+            <ul className="sd-dash-activity-list" style={{ flex: 1, margin: 0 }}>
               {feed.map((item) => (
                 <li key={item.id}>
                   <span className="sd-dash-activity-dot" data-kind={item.kind} />
@@ -147,23 +152,46 @@ export default function DashboardHomeExtras({ onNew, secondaryKpis }) {
           )}
         </div>
 
-        <div className="sd-dash-compliance">
-          <div className="sd-dash-compliance-inner">
-            <ShieldCheck size={22} />
+        {/* Stretch with activity column — no empty white gap under the card */}
+        <div className="sd-dash-compliance" style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-start',
+          gap: 12,
+          height: '100%',
+          minHeight: '100%',
+          padding: '14px 16px',
+          borderRadius: 12,
+          background: 'linear-gradient(160deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%)',
+          color: '#fff',
+          boxSizing: 'border-box',
+        }}>
+          <div className="sd-dash-compliance-inner" style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <ShieldCheck size={22} style={{ flexShrink: 0, marginTop: 2 }} />
             <div>
-              <div className="sd-dash-compliance-title">Stay Compliant</div>
-              <div className="sd-dash-compliance-text">Keep your books, returns and taxes up to date.</div>
+              <div className="sd-dash-compliance-title" style={{ fontWeight: 700, fontSize: '0.95rem' }}>Stay Compliant</div>
+              <div className="sd-dash-compliance-text" style={{ fontSize: '0.78rem', opacity: 0.92, marginTop: 4, lineHeight: 1.35 }}>
+                Keep books, GST returns and taxes up to date.
+              </div>
             </div>
           </div>
-          <button type="button" className="btn btn-secondary sd-dash-compliance-btn" onClick={() => navigate('filing')}>
+          <button type="button" className="btn btn-secondary sd-dash-compliance-btn" onClick={() => navigate('filing')}
+            style={{ width: '100%', background: '#fff', color: '#1e40af', border: 'none', fontWeight: 600 }}>
             View Compliance →
           </button>
-          {secondaryKpis && secondaryKpis.openInv != null ? (
-            <p className="sd-dash-compliance-meta text-muted">
-              Open invoices: {secondaryKpis.openInv}
-              {secondaryKpis.drafts != null ? ' · Drafts: ' + secondaryKpis.drafts : ''}
-            </p>
-          ) : null}
+          <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.22)', fontSize: '0.78rem', opacity: 0.95 }}>
+            {secondaryKpis && secondaryKpis.openInv != null ? (
+              <>
+                <div>Open invoices: <strong>{secondaryKpis.openInv}</strong></div>
+                {secondaryKpis.drafts != null ? <div style={{ marginTop: 2 }}>Drafts: <strong>{secondaryKpis.drafts}</strong></div> : null}
+                {secondaryKpis.monthSales != null ? (
+                  <div style={{ marginTop: 2 }}>This month sales: <strong>{formatCurrency(secondaryKpis.monthSales)}</strong></div>
+                ) : null}
+              </>
+            ) : (
+              <div style={{ opacity: 0.85 }}>GST filing · GSTR-1 / 3B reminders</div>
+            )}
+          </div>
         </div>
       </div>
     </div>

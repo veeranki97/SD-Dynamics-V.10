@@ -11,7 +11,7 @@ const CHARTS = [
   { key: 'aging', label: 'Aging' },
 ];
 
-const TYPES = ['line', 'bar', 'pie', 'doughnut'];
+const TYPES = ['line', 'bar', 'area', 'pie', 'doughnut', 'horizontalBar', 'stacked'];
 
 export default function DashboardChartSettings() {
   const [prefs, setPrefs] = useState(() => getChartPrefs());

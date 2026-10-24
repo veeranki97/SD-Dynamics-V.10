@@ -6,7 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut } from 'lucide-react';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut, Calendar, ShoppingCart } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -1552,7 +1552,7 @@ const openPaymentModal = (bill) => {
       {!listMode && (
         <div className="sd-dash-brand-bar dash-brand-bar" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-          marginBottom: 16, padding: '12px 16px', borderRadius: 12,
+          marginBottom: 10, padding: '10px 14px', borderRadius: 12,
           background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1567,10 +1567,10 @@ const openPaymentModal = (bill) => {
           </div>
           <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {typeof onOpenSearch === 'function' && (
-              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem', minWidth: 300, width: 300, maxWidth: '36vw', padding: '0.35rem 0.85rem', justifyContent: 'flex-start', height: 34, lineHeight: 1 }}
                 onClick={onOpenSearch} title="Search (Ctrl+K)">
-                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                Search… Ctrl+K
+                <Search size={14} style={{ marginRight: 8, verticalAlign: 'middle', opacity: 0.65, flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Search invoices, clients, WO…  Ctrl+K</span>
               </button>
             )}
             <TopCreateMenu onNewInvoice={onNew} />
@@ -1652,13 +1652,13 @@ const openPaymentModal = (bill) => {
 
       {overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
-          style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
+          style={{ background: 'var(--danger-light)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 8, padding: '0.28rem 0.75rem', marginBottom: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', minHeight: 0, lineHeight: 1.25 }}>
+          <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, color: '#dc2626' }}>
+            <span style={{ fontWeight: 700, color: '#dc2626', fontSize: '0.82rem' }}>
               {overdueBills.length} overdue invoice{overdueBills.length > 1 ? 's' : ''}
             </span>
-            <span style={{ color: '#991b1b', marginLeft: 8, fontSize: '0.85rem' }}>
+            <span style={{ color: '#991b1b', marginLeft: 6, fontSize: '0.78rem' }}>
               — {overdueStr} outstanding
             </span>
           </div>
@@ -1775,8 +1775,8 @@ const openPaymentModal = (bill) => {
         </div>
       </div>
 
-      {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
+      {/* A) Second KPI row — same stamp as primary (icon + label + value) */}
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: '0.5rem' }}>
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
@@ -1796,14 +1796,20 @@ const openPaymentModal = (bill) => {
             setDateTo(dateTo);
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">This month sales</p>
-          <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
+          <div className="stat-icon stat-icon-blue"><Calendar size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">This month sales</p>
+            <div className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</div>
+          </div>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
           onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">This month purchases</p>
-          <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
+          <div className="stat-icon stat-icon-purple"><ShoppingCart size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">This month purchases</p>
+            <div className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</div>
+          </div>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
           onClick={() => {
@@ -1815,10 +1821,13 @@ const openPaymentModal = (bill) => {
             setStatusFilter('draft');
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">Drafts</p>
-          <p className="stat-value">{secondaryKpis.drafts}</p>
+          <div className="stat-icon"><FileText size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">Drafts</p>
+            <div className="stat-value">{secondaryKpis.drafts}</div>
+          </div>
         </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance > ₹1"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));
@@ -1828,8 +1837,11 @@ const openPaymentModal = (bill) => {
             setTypeFilter('tax-invoice'); setStatusFilter('unpaid');
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">Open invoices</p>
-          <p className="stat-value">{secondaryKpis.openInv}</p>
+          <div className="stat-icon stat-icon-amber"><Clock size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">Open invoices</p>
+            <div className="stat-value">{secondaryKpis.openInv}</div>
+          </div>
         </div>
       </div>
       </div>

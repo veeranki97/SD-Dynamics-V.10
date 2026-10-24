@@ -1,13 +1,29 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getChartPrefs, chartColor } from '../utils/chartPrefs';
 
 /**
- * Home dashboard charts — layout aligned to SD GAS dashboard:
- * Sales Trend (line) | GST Breakdown (stacked by month)
- * Top Clients (horizontal bar) | Top Sites (pie)
- * Sales by State (horizontal bar) | Aging (tax invoices only) Summary (bar buckets)
- * KPI numbers stay in Dashboard.jsx (unchanged).
+ * Resolve chart type from settings (ChartSettingsPanel + DashboardChartSettings).
+ * Supports: line, bar, area, pie, doughnut, horizontalBar, stacked.
  */
+function resolveType(prefs, candidates, fallback = 'bar') {
+  for (const c of candidates) {
+    if (c == null || c === '') continue;
+    const t = String(c).toLowerCase();
+    if (['line', 'bar', 'area', 'pie', 'doughnut', 'horizontalbar', 'stacked'].includes(t)) {
+      return t === 'horizontalbar' ? 'horizontalBar' : t;
+    }
+  }
+  return fallback;
+}
+
+function chartJsType(t) {
+  if (t === 'area') return 'line';
+  if (t === 'horizontalBar' || t === 'stacked') return 'bar';
+  if (t === 'pie' || t === 'doughnut') return t;
+  if (t === 'line' || t === 'bar') return t;
+  return 'bar';
+}
+
 export default function DashboardCharts({ stats }) {
   const salesRef = useRef(null);
   const gstRef = useRef(null);
@@ -16,6 +32,17 @@ export default function DashboardCharts({ stats }) {
   const stateRef = useRef(null);
   const agingRef = useRef(null);
   const charts = useRef([]);
+  const [prefsTick, setPrefsTick] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setPrefsTick((n) => n + 1);
+    window.addEventListener('sd-chart-prefs-changed', bump);
+    window.addEventListener('storage', bump);
+    return () => {
+      window.removeEventListener('sd-chart-prefs-changed', bump);
+      window.removeEventListener('storage', bump);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +52,7 @@ export default function DashboardCharts({ stats }) {
         if (cancelled) return;
         Chart.register(...registerables);
 
-        charts.current.forEach(c => { try { c.destroy(); } catch {} });
+        charts.current.forEach((c) => { try { c.destroy(); } catch {} });
         charts.current = [];
 
         const prefs = getChartPrefs() || {};
@@ -47,45 +74,61 @@ export default function DashboardCharts({ stats }) {
           return String(n);
         };
 
-        // 1) Sales Trend — line/bar with purchases second series
+        const theme = prefs.theme || 'blue';
+
+        // —— 1) Sales vs purchases ——
         if (prefs.showSalesTrend !== false) {
           let labels = [];
           let data = [];
           if (s.monthKeys?.length && s.byMonth) {
             labels = s.monthKeys;
-            data = s.monthKeys.map(k => Number(s.byMonth[k]) || 0);
+            data = s.monthKeys.map((k) => Number(s.byMonth[k]) || 0);
           } else if (s.salesTrend?.length) {
-            labels = s.salesTrend.map(x => x.label || x.month || '');
-            data = s.salesTrend.map(x => x.value || x.amount || 0);
+            labels = s.salesTrend.map((x) => x.label || x.month || '');
+            data = s.salesTrend.map((x) => x.value || x.amount || 0);
           }
           if (!labels.length) { labels = ['No revenue data']; data = [0]; }
           const purchMap = s.byMonthPurchases || {};
-          const purchData = labels.map(k => Number(purchMap[k]) || 0);
+          const purchData = labels.map((k) => Number(purchMap[k]) || 0);
+
+          const salesType = resolveType(prefs, [
+            prefs.salesChart,
+            prefs.salesTrend?.type,
+          ], 'line');
+          const jsType = chartJsType(salesType);
+          const isArea = salesType === 'area';
+          const isHoriz = salesType === 'horizontalBar';
+
           mk(salesRef.current, {
-            type: prefs.salesChart === 'bar' ? 'bar' : 'line',
+            type: jsType,
             data: {
               labels,
               datasets: [
                 {
                   label: 'Sales',
                   data,
-                  borderColor: chartColor('blue') || '#3b82f6',
-                  backgroundColor: 'rgba(59,130,246,0.15)',
+                  borderColor: chartColor(theme) || '#3b82f6',
+                  backgroundColor: isArea || jsType === 'bar'
+                    ? 'rgba(59,130,246,0.35)'
+                    : 'rgba(59,130,246,0.15)',
                   tension: 0.3,
-                  fill: true,
+                  fill: isArea || salesType === 'line',
                 },
                 {
                   label: 'Purchases',
                   data: purchData,
                   borderColor: chartColor('amber') || '#f59e0b',
-                  backgroundColor: 'rgba(245,158,11,0.12)',
+                  backgroundColor: isArea || jsType === 'bar'
+                    ? 'rgba(245,158,11,0.35)'
+                    : 'rgba(245,158,11,0.12)',
                   tension: 0.3,
-                  fill: false,
+                  fill: isArea,
                 },
               ],
             },
             options: {
               ...baseOpts,
+              indexAxis: isHoriz ? 'y' : 'x',
               plugins: {
                 legend: { display: true, position: 'bottom' },
                 tooltip: {
@@ -94,173 +137,276 @@ export default function DashboardCharts({ stats }) {
                   },
                 },
               },
-              scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
+              scales: jsType === 'pie' || jsType === 'doughnut' ? undefined : {
+                [isHoriz ? 'x' : 'y']: { beginAtZero: true, ticks: { callback: inrTick } },
+              },
             },
           });
         }
 
-        // 2) GST Breakdown — stacked bar by month (IGST / CGST / SGST) like GAS
+        // —— 2) GST breakdown ——
         if (prefs.showGstBreakdown !== false) {
           const gbm = s.gstByMonth || {};
           let months = (s.monthKeys && s.monthKeys.length)
             ? s.monthKeys
             : Object.keys(gbm).sort().slice(-6);
           if (!months.length) months = ['No data'];
-          const hasMonthly = months.some(m => gbm[m] && (gbm[m].cgst || gbm[m].sgst || gbm[m].igst));
-          if (hasMonthly) {
+          const hasMonthly = months.some((m) => gbm[m] && (gbm[m].cgst || gbm[m].sgst || gbm[m].igst));
+
+          const gstType = resolveType(prefs, [
+            prefs.gstBreakdown?.type,
+            prefs.gstChart,
+          ], 'bar');
+          const jsType = chartJsType(gstType);
+          const stacked = gstType === 'stacked' || gstType === 'bar';
+
+          if (hasMonthly && (jsType === 'bar' || jsType === 'line')) {
             mk(gstRef.current, {
-              type: 'bar',
+              type: jsType,
               data: {
                 labels: months,
                 datasets: [
-                  { label: 'IGST', data: months.map(m => Number(gbm[m]?.igst) || 0), backgroundColor: chartColor('purple'), stack: 'gst' },
-                  { label: 'CGST', data: months.map(m => Number(gbm[m]?.cgst) || 0), backgroundColor: chartColor('blue'), stack: 'gst' },
-                  { label: 'SGST', data: months.map(m => Number(gbm[m]?.sgst) || 0), backgroundColor: chartColor('green'), stack: 'gst' },
+                  { label: 'IGST', data: months.map((m) => Number(gbm[m]?.igst) || 0), backgroundColor: chartColor('purple'), borderColor: chartColor('purple'), stack: stacked ? 'gst' : undefined, fill: gstType === 'area' },
+                  { label: 'CGST', data: months.map((m) => Number(gbm[m]?.cgst) || 0), backgroundColor: chartColor('blue'), borderColor: chartColor('blue'), stack: stacked ? 'gst' : undefined, fill: gstType === 'area' },
+                  { label: 'SGST', data: months.map((m) => Number(gbm[m]?.sgst) || 0), backgroundColor: chartColor('green'), borderColor: chartColor('green'), stack: stacked ? 'gst' : undefined, fill: gstType === 'area' },
                 ],
               },
               options: {
                 ...baseOpts,
-                plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
                 scales: {
-                  x: { stacked: true, ticks: { maxRotation: 0 } },
-                  y: { stacked: true, beginAtZero: true, ticks: { callback: inrTick } },
+                  x: { stacked: stacked },
+                  y: { stacked: stacked, beginAtZero: true, ticks: { callback: inrTick } },
                 },
               },
             });
           } else {
-            // Fallback: single totals bar (legacy)
-            const gst = s.gstBreakdown || {};
+            // pie / doughnut of total IGST/CGST/SGST
+            const totI = months.reduce((a, m) => a + (Number(gbm[m]?.igst) || 0), 0)
+              + (Number(s.gstBreakdown?.igst) || 0);
+            const totC = months.reduce((a, m) => a + (Number(gbm[m]?.cgst) || 0), 0)
+              + (Number(s.gstBreakdown?.cgst) || 0);
+            const totS = months.reduce((a, m) => a + (Number(gbm[m]?.sgst) || 0), 0)
+              + (Number(s.gstBreakdown?.sgst) || 0);
+            const gb = s.gstBreakdown || {};
+            const iVal = totI || Number(gb.igst) || 0;
+            const cVal = totC || Number(gb.cgst) || 0;
+            const sVal = totS || Number(gb.sgst) || 0;
             mk(gstRef.current, {
-              type: 'bar',
+              type: (jsType === 'pie' || jsType === 'doughnut') ? jsType : 'doughnut',
               data: {
-                labels: ['CGST', 'SGST', 'IGST'],
+                labels: ['IGST', 'CGST', 'SGST'],
                 datasets: [{
-                  label: 'GST',
-                  data: [Number(gst.cgst) || 0, Number(gst.sgst) || 0, Number(gst.igst) || 0],
-                  backgroundColor: [chartColor('blue'), chartColor('green'), chartColor('purple')],
+                  data: [iVal, cVal, sVal],
+                  backgroundColor: [chartColor('purple'), chartColor('blue'), chartColor('green')],
                 }],
               },
               options: {
                 ...baseOpts,
-                plugins: { legend: { display: false } },
-                scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
               },
             });
           }
         }
 
-        // 3) Top Clients — horizontal bar (GAS style)
+        // —— 3) Top clients ——
         if (prefs.showTopClients !== false) {
-          const tc = (s.topClients || []).map(x => Array.isArray(x) ? { name: x[0], amount: x[1] } : x);
-          const horiz = prefs.clientsChart !== 'pie';
-          mk(clientsRef.current, {
-            type: prefs.clientsChart === 'pie' ? 'pie' : 'bar',
-            data: {
-              labels: tc.length ? tc.map(x => {
-                const n = x.name || '—';
-                return n.length > 18 ? n.slice(0, 16) + '…' : n;
-              }) : ['No data'],
-              datasets: [{
-                label: 'Revenue',
-                data: tc.length ? tc.map(x => Number(x.amount) || 0) : [0],
-                backgroundColor: tc.length
-                  ? tc.map((_, i) => chartColor(['purple', 'blue', 'green', 'amber', 'cyan'][i % 5]))
-                  : [chartColor('purple')],
-              }],
-            },
-            options: {
-              ...baseOpts,
-              indexAxis: horiz && prefs.clientsChart !== 'pie' ? 'y' : 'x',
-              plugins: { legend: { display: prefs.clientsChart === 'pie', position: 'bottom' } },
-              scales: prefs.clientsChart === 'pie' ? undefined : {
-                x: { beginAtZero: true, ticks: { callback: inrTick } },
-                y: { ticks: { font: { size: 10 } } },
+          const tc = s.topClients || [];
+          const clientsType = resolveType(prefs, [
+            prefs.clientsChart,
+            prefs.topClients?.type,
+          ], 'bar');
+          const jsType = chartJsType(clientsType);
+          const isHoriz = clientsType === 'horizontalBar';
+          const labels = tc.length ? tc.map((x) => x.name || '—') : ['No client data'];
+          const values = tc.length ? tc.map((x) => Number(x.amount) || 0) : [0];
+          const colors = labels.map((_, i) => chartColor(['purple', 'blue', 'green', 'amber', 'cyan', 'red'][i % 6]));
+
+          if (jsType === 'pie' || jsType === 'doughnut') {
+            mk(clientsRef.current, {
+              type: jsType,
+              data: {
+                labels,
+                datasets: [{ data: values, backgroundColor: colors }],
               },
-            },
-          });
+              options: { ...baseOpts, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
+            });
+          } else {
+            mk(clientsRef.current, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [{
+                  label: 'Billed',
+                  data: values,
+                  backgroundColor: chartColor(theme) || colors[0],
+                }],
+              },
+              options: {
+                ...baseOpts,
+                indexAxis: isHoriz ? 'y' : 'x',
+                plugins: { legend: { display: false } },
+                scales: {
+                  [isHoriz ? 'x' : 'y']: { beginAtZero: true, ticks: { callback: inrTick } },
+                  [isHoriz ? 'y' : 'x']: { ticks: { font: { size: 10 } } },
+                },
+              },
+            });
+          }
         }
 
-        // 4) Top Sites — pie
+        // —— 4) Top sites ——
         if (prefs.showTopSites !== false) {
           const ts = s.topSites || [];
-          mk(sitesRef.current, {
-            type: 'pie',
-            data: {
-              labels: ts.length ? ts.map(x => x.name || '—') : ['No site data'],
-              datasets: [{
-                data: ts.length ? ts.map(x => Number(x.amount) || 0) : [1],
-                backgroundColor: ts.length
-                  ? ts.map((_, i) => chartColor(['green', 'blue', 'purple', 'amber', 'cyan', 'red'][i % 6]))
-                  : ['#e2e8f0'],
-              }],
-            },
-            options: { ...baseOpts, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
-          });
+          const sitesType = resolveType(prefs, [
+            prefs.topSites?.type,
+            prefs.sitesChart,
+          ], 'pie');
+          const jsType = chartJsType(sitesType);
+          const isHoriz = sitesType === 'horizontalBar';
+          const labels = ts.length ? ts.map((x) => x.name || '—') : ['No site data'];
+          const values = ts.length ? ts.map((x) => Number(x.amount) || 0) : [1];
+          const colors = ts.length
+            ? ts.map((_, i) => chartColor(['green', 'blue', 'purple', 'amber', 'cyan', 'red'][i % 6]))
+            : ['#e2e8f0'];
+
+          if (jsType === 'pie' || jsType === 'doughnut') {
+            mk(sitesRef.current, {
+              type: jsType,
+              data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+              options: { ...baseOpts, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
+            });
+          } else {
+            mk(sitesRef.current, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [{ label: 'Revenue', data: values, backgroundColor: chartColor(theme) || colors[0] }],
+              },
+              options: {
+                ...baseOpts,
+                indexAxis: isHoriz ? 'y' : 'x',
+                plugins: { legend: { display: false } },
+                scales: {
+                  [isHoriz ? 'x' : 'y']: { beginAtZero: true, ticks: { callback: inrTick } },
+                },
+              },
+            });
+          }
         }
 
-        // 5) Sales by State — horizontal bar (GAS style)
+        // —— 5) Sales by state ——
         if (prefs.showSalesByState !== false) {
           const ss = s.salesByState || [];
-          mk(stateRef.current, {
-            type: 'bar',
-            data: {
-              labels: ss.length ? ss.map(x => x.name || '—') : ['No state data'],
-              datasets: [{
-                label: 'Sales',
-                data: ss.length ? ss.map(x => Number(x.amount) || 0) : [0],
-                backgroundColor: chartColor(prefs.theme || 'blue'),
-              }],
-            },
-            options: {
-              ...baseOpts,
-              indexAxis: 'y',
-              plugins: { legend: { display: false } },
-              scales: {
-                x: { beginAtZero: true, ticks: { callback: inrTick } },
-                y: { ticks: { font: { size: 10 } } },
+          const stateType = resolveType(prefs, [
+            prefs.salesByState?.type,
+            prefs.stateChart,
+          ], 'horizontalBar');
+          const jsType = chartJsType(stateType);
+          const isHoriz = stateType === 'horizontalBar' || (jsType === 'bar' && stateType !== 'bar');
+          const labels = ss.length ? ss.map((x) => x.name || '—') : ['No state data'];
+          const values = ss.length ? ss.map((x) => Number(x.amount) || 0) : [0];
+          const colors = labels.map((_, i) => chartColor(['blue', 'green', 'purple', 'amber', 'cyan', 'red'][i % 6]));
+
+          if (jsType === 'pie' || jsType === 'doughnut') {
+            mk(stateRef.current, {
+              type: jsType,
+              data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+              options: { ...baseOpts, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 10 } } } } },
+            });
+          } else {
+            mk(stateRef.current, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [{
+                  label: 'Sales',
+                  data: values,
+                  backgroundColor: chartColor(theme),
+                }],
               },
-            },
-          });
+              options: {
+                ...baseOpts,
+                indexAxis: isHoriz || stateType === 'horizontalBar' ? 'y' : 'x',
+                plugins: { legend: { display: false } },
+                scales: {
+                  x: { beginAtZero: true, ticks: { callback: inrTick } },
+                  y: { ticks: { font: { size: 10 } } },
+                },
+              },
+            });
+          }
         }
 
-        // 6) Aging Summary — Not Due / 0-30 / 31-60 / 61-90 / 90+
+        // —— 6) Aging ——
         if (prefs.showAging !== false) {
           const a = s.aging || {};
-          mk(agingRef.current, {
-            type: 'bar',
-            data: {
-              labels: ['Not Due', '0-30d', '31-60d', '61-90d', '90d+'],
-              datasets: [{
-                label: 'Outstanding (₹)',
-                data: [
-                  Number(a.notDue) || 0,
-                  Number(a.d0_30) || 0,
-                  Number(a.d31_60) || 0,
-                  Number(a.d61_90) || 0,
-                  Number(a.d90p) || 0,
-                ],
-                backgroundColor: [
-                  chartColor('blue') || '#3b82f6',
-                  chartColor('green') || '#10b981',
-                  chartColor('amber') || '#f59e0b',
-                  chartColor('purple') || '#8b5cf6',
-                  chartColor('red') || '#ef4444',
-                ],
-              }],
-            },
-            options: {
-              ...baseOpts,
-              plugins: {
-                legend: { display: false },
-                tooltip: {
-                  callbacks: {
-                    label: (ctx) => `Outstanding: ₹${(ctx.raw || 0).toLocaleString('en-IN')}`,
+          const agingType = resolveType(prefs, [
+            prefs.agingChart,
+            prefs.aging?.type,
+          ], 'bar');
+          const jsType = chartJsType(agingType);
+          const isHoriz = agingType === 'horizontalBar';
+          const labels = ['Not Due', '0-30d', '31-60d', '61-90d', '90d+'];
+          const values = [
+            Number(a.notDue) || 0,
+            Number(a.d0_30) || 0,
+            Number(a.d31_60) || 0,
+            Number(a.d61_90) || 0,
+            Number(a.d90p) || 0,
+          ];
+          const colors = [
+            chartColor('blue') || '#3b82f6',
+            chartColor('green') || '#10b981',
+            chartColor('amber') || '#f59e0b',
+            chartColor('purple') || '#8b5cf6',
+            chartColor('red') || '#ef4444',
+          ];
+
+          if (jsType === 'pie' || jsType === 'doughnut') {
+            mk(agingRef.current, {
+              type: jsType,
+              data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
+              options: {
+                ...baseOpts,
+                plugins: {
+                  legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } },
+                  tooltip: {
+                    callbacks: {
+                      label: (ctx) => `Outstanding: ₹${(ctx.raw || 0).toLocaleString('en-IN')}`,
+                    },
                   },
                 },
               },
-              scales: { y: { beginAtZero: true, ticks: { callback: inrTick } } },
-            },
-          });
+            });
+          } else {
+            mk(agingRef.current, {
+              type: 'bar',
+              data: {
+                labels,
+                datasets: [{
+                  label: 'Outstanding (₹)',
+                  data: values,
+                  backgroundColor: colors,
+                }],
+              },
+              options: {
+                ...baseOpts,
+                indexAxis: isHoriz ? 'y' : 'x',
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    callbacks: {
+                      label: (ctx) => `Outstanding: ₹${(ctx.raw || 0).toLocaleString('en-IN')}`,
+                    },
+                  },
+                },
+                scales: {
+                  [isHoriz ? 'x' : 'y']: { beginAtZero: true, ticks: { callback: inrTick } },
+                },
+              },
+            });
+          }
         }
       } catch (e) {
         console.warn('[DashboardCharts]', e);
@@ -268,10 +414,10 @@ export default function DashboardCharts({ stats }) {
     })();
     return () => {
       cancelled = true;
-      charts.current.forEach(c => { try { c.destroy(); } catch {} });
+      charts.current.forEach((c) => { try { c.destroy(); } catch {} });
       charts.current = [];
     };
-  }, [stats]);
+  }, [stats, prefsTick]);
 
   const prefs = getChartPrefs() || {};
   const card = (title, subtitle, show, ref) => (
@@ -328,8 +474,8 @@ export default function DashboardCharts({ stats }) {
         stateRef,
       )}
       {card(
-        'Aging summary',
-        'Open tax-invoice balances only (not quotation / proforma / challan).',
+        'Receivables aging',
+        'Open tax-invoice balances by due-date bucket.',
         prefs.showAging,
         agingRef,
       )}

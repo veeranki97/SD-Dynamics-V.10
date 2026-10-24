@@ -51,6 +51,9 @@ export function setChartPrefs(patch) {
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch { /* ignore */ }
+  try {
+    window.dispatchEvent(new CustomEvent('sd-chart-prefs-changed', { detail: next }));
+  } catch { /* ignore */ }
   return next;
 }
 

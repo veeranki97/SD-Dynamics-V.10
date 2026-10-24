@@ -3,12 +3,12 @@ import { getChartPrefs, setChartPrefs } from '../utils/chartPrefs';
 import { toast } from './Toast';
 
 const CHARTS = [
-  { showKey: 'showSalesTrend', typeKey: 'salesChart', label: 'Sales trend', types: ['line', 'bar'] },
-  { showKey: 'showGstBreakdown', typeKey: null, label: 'GST breakdown', types: ['bar', 'pie'] },
-  { showKey: 'showTopClients', typeKey: 'clientsChart', label: 'Top clients', types: ['bar', 'pie'] },
-  { showKey: 'showTopSites', typeKey: null, label: 'Top sites', types: ['pie', 'doughnut', 'bar'] },
-  { showKey: 'showSalesByState', typeKey: null, label: 'Sales by state', types: ['bar', 'pie'] },
-  { showKey: 'showAging', typeKey: 'agingChart', label: 'Aging', types: ['bar', 'doughnut'] },
+  { showKey: 'showSalesTrend', typeKey: 'salesChart', label: 'Sales vs purchases', types: ['line', 'bar', 'area'] },
+  { showKey: 'showGstBreakdown', typeKey: null, label: 'GST breakdown', types: ['bar', 'pie', 'doughnut', 'stacked'] },
+  { showKey: 'showTopClients', typeKey: 'clientsChart', label: 'Top clients', types: ['bar', 'pie', 'doughnut', 'horizontalBar'] },
+  { showKey: 'showTopSites', typeKey: null, label: 'Top sites', types: ['pie', 'doughnut', 'bar', 'horizontalBar'] },
+  { showKey: 'showSalesByState', typeKey: null, label: 'Sales by state', types: ['bar', 'pie', 'doughnut', 'horizontalBar'] },
+  { showKey: 'showAging', typeKey: 'agingChart', label: 'Receivables aging', types: ['bar', 'doughnut', 'pie', 'horizontalBar'] },
 ];
 
 export default function ChartSettingsPanel() {
@@ -68,10 +68,13 @@ export default function ChartSettingsPanel() {
           <label className="form-label">Color theme</label>
           <select className="form-input" value={prefs.theme || 'blue'}
             onChange={e => update({ theme: e.target.value })}>
-            <option value="blue">Blue</option>
+            <option value="blue">Blue (default)</option>
             <option value="green">Green</option>
             <option value="purple">Purple</option>
             <option value="slate">Slate</option>
+            <option value="cyan">Cyan</option>
+            <option value="amber">Amber</option>
+            <option value="red">Red</option>
           </select>
         </div>
       </div>
