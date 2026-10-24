@@ -4865,3 +4865,172 @@ a:focus-visible,
   background: rgba(100, 116, 139, 0.45);
   border-radius: 8px;
 }
+
+
+/* ===== SD-THEME-SIDEBAR-LIGHT-DARK v1 =====
+   Root cause: .sidebar used hardcoded #0f172a + color:white in both themes.
+   Light mode: light rail, dark text. Dark mode: keep navy rail, improve module contrast.
+   Dashboard brand bar / KPI / charts / invoices list: untouched (CSS only shell).
+   ================================================================== */
+
+/* --- Light theme sidebar --- */
+html:not([data-theme="dark"]) .sidebar,
+[data-theme="light"] .sidebar {
+  background: #FFFFFF !important;
+  color: #172033 !important;
+  border-right: 1px solid #E2E8F0 !important;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+html:not([data-theme="dark"]) .sidebar-title,
+[data-theme="light"] .sidebar-title {
+  color: #172033 !important;
+}
+html:not([data-theme="dark"]) .sidebar-subtitle,
+[data-theme="light"] .sidebar-subtitle {
+  color: #64748B !important;
+}
+html:not([data-theme="dark"]) .nav-group-header,
+[data-theme="light"] .nav-group-header {
+  color: #64748B !important;
+}
+html:not([data-theme="dark"]) .nav-group-header:hover,
+[data-theme="light"] .nav-group-header:hover {
+  background: rgba(29, 78, 216, 0.06) !important;
+  color: #172033 !important;
+}
+html:not([data-theme="dark"]) .nav-btn,
+[data-theme="light"] .nav-btn {
+  color: #334155 !important;
+}
+html:not([data-theme="dark"]) .nav-btn:hover,
+[data-theme="light"] .nav-btn:hover {
+  background: rgba(29, 78, 216, 0.08) !important;
+  color: #1D4ED8 !important;
+}
+html:not([data-theme="dark"]) .nav-btn.nav-btn-active,
+[data-theme="light"] .nav-btn.nav-btn-active {
+  background: rgba(29, 78, 216, 0.12) !important;
+  color: #1D4ED8 !important;
+  font-weight: 600;
+}
+html:not([data-theme="dark"]) .profile-switcher-btn,
+[data-theme="light"] .profile-switcher-btn {
+  background: #F4F6FA !important;
+  border-color: #E2E8F0 !important;
+  color: #172033 !important;
+}
+html:not([data-theme="dark"]) .profile-switcher-edit,
+[data-theme="light"] .profile-switcher-edit {
+  background: #F4F6FA !important;
+  border-color: #E2E8F0 !important;
+  color: #64748B !important;
+}
+html:not([data-theme="dark"]) .profile-switcher-menu,
+[data-theme="light"] .profile-switcher-menu {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12) !important;
+  color: #172033 !important;
+}
+html:not([data-theme="dark"]) .mobile-topbar,
+[data-theme="light"] .mobile-topbar {
+  background: #FFFFFF !important;
+  color: #172033 !important;
+  border-bottom: 1px solid #E2E8F0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+html:not([data-theme="dark"]) .mobile-topbar-btn,
+[data-theme="light"] .mobile-topbar-btn {
+  background: #F4F6FA !important;
+  color: #172033 !important;
+}
+
+/* --- Dark theme sidebar: keep navy, clearer active/hover --- */
+[data-theme="dark"] .sidebar {
+  background: #0f172a !important;
+  color: #F1F5F9 !important;
+  border-right: 1px solid #334155 !important;
+}
+[data-theme="dark"] .sidebar-title { color: #F8FAFC !important; }
+[data-theme="dark"] .sidebar-subtitle { color: #94A3B8 !important; }
+[data-theme="dark"] .nav-group-header { color: #94A3B8 !important; }
+[data-theme="dark"] .nav-group-header:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #E2E8F0 !important;
+}
+[data-theme="dark"] .nav-btn { color: #CBD5E1 !important; }
+[data-theme="dark"] .nav-btn:hover {
+  background: rgba(59, 130, 246, 0.15) !important;
+  color: #F1F5F9 !important;
+}
+[data-theme="dark"] .nav-btn.nav-btn-active {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #FFFFFF !important;
+}
+
+/* --- Dark mode module surfaces (readability) ---
+   Earlier rules forced pure white tables/cards/invoice even under dark theme. */
+[data-theme="dark"] .main-content {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+[data-theme="dark"] .page {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+[data-theme="dark"] .glass-panel,
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .list-module,
+[data-theme="dark"] .invoice-list-panel {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+[data-theme="dark"] .page-header,
+[data-theme="dark"] .page-header .page-title,
+[data-theme="dark"] .page-header h1 {
+  color: var(--text) !important;
+}
+[data-theme="dark"] .page-header .page-subtitle,
+[data-theme="dark"] .page-subtitle {
+  color: var(--text-muted) !important;
+}
+[data-theme="dark"] .data-table {
+  background: var(--card-bg) !important;
+  color: var(--text) !important;
+}
+[data-theme="dark"] .data-table th {
+  background: rgba(30, 41, 59, 0.85) !important;
+  color: #94A3B8 !important;
+  border-color: var(--border) !important;
+}
+[data-theme="dark"] .data-table td {
+  color: var(--text) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.12) !important;
+}
+[data-theme="dark"] .form-label,
+[data-theme="dark"] .section-title {
+  color: var(--text-secondary) !important;
+}
+/* Invoice editor in dark: use card surface, not forced white */
+[data-theme="dark"] .sd-inv-form,
+[data-theme="dark"] .invoice-form-compact,
+[data-theme="dark"] .invoice-workspace,
+[data-theme="dark"] .main-content:has(.sd-inv-form),
+[data-theme="dark"] .main-content:has(.invoice-form-compact) {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+}
+[data-theme="dark"] .main-content:has(.sd-inv-form) .glass-panel,
+[data-theme="dark"] .main-content:has(.invoice-form-compact) .glass-panel {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+/* Keep print/PDF invoice white even in dark UI */
+[data-theme="dark"] .invoice-preview,
+[data-theme="dark"] #invoice-preview,
+[data-theme="dark"] .inv-preview-root {
+  background: #FFFFFF !important;
+  color: #0f172a !important;
+}
