@@ -29,7 +29,8 @@ import TopCreateMenu from './components/TopCreateMenu';
 import InvoiceGenerator from './components/InvoiceGenerator';
 import SetupWizard from './components/SetupWizard';
 import ToastContainer, { toast } from './components/Toast';
-import { shouldNagBackup, backupNagMessage } from './utils/backupNag';
+import { shouldNagBackup, backupNagMessage } from './utils/backupNag'
+import { getSesReminderBuckets, consumeDailySesNag } from './utils/sesTasks';;
 import ConfirmModalContainer from './components/ConfirmModal';
 import WelcomeGuide from './components/WelcomeGuide';
 const SettingsView = lazy(() => import('./components/SettingsView'));
@@ -451,7 +452,7 @@ function App() {
   // Computed from server data on app boot + every 10 minutes; tucked under a
   // bell icon next to dark-mode toggle in the sidebar. Each section is one
   // click away from the relevant page.
-  const [notifications, setNotifications] = useState({ overdue: [], dueSoon: [], lowStock: [], filings: [], autoFire: null });
+  const [notifications, setNotifications] = useState({ overdue: [], dueSoon: [], lowStock: [], filings: [], autoFire: null, sesOverdue: [], sesDueToday: [] });
   const [showNotifs, setShowNotifs] = useState(false);
 
   // v1.10.62 — reported (#53, @sangwanmail-eng): "Notifications should clear
@@ -485,6 +486,8 @@ function App() {
     lowStock: notifications.lowStock.map(p => `${p.id || p.name}:${p.stock ?? ''}`).sort().join('|'),
     filings: notifications.filings.map(f => f.label || f.id || String(f)).sort().join('|'),
     autoFire: notifications.autoFire?.count > 0 ? `autofire:${notifications.autoFire.count}` : '',
+    sesOverdue: (notifications.sesOverdue || []).map(t => t.id || t.invoiceNo).sort().join('|'),
+    sesDueToday: (notifications.sesDueToday || []).map(t => t.id || t.invoiceNo).sort().join('|'),
   }), [notifications]);
 
   // A section counts toward the badge only when it has content AND that
@@ -495,7 +498,9 @@ function App() {
     + (isLive('dueSoon') ? notifications.dueSoon.length : 0)
     + (isLive('lowStock') ? notifications.lowStock.length : 0)
     + (isLive('filings') ? notifications.filings.length : 0)
-    + (isLive('autoFire') ? 1 : 0);
+    + (isLive('autoFire') ? 1 : 0)
+    + (isLive('sesOverdue') ? (notifications.sesOverdue || []).length : 0)
+    + (isLive('sesDueToday') ? (notifications.sesDueToday || []).length : 0);
 
   // How many sections are currently showing something that could be cleared.
   const dismissableCount = ['overdue', 'dueSoon', 'lowStock', 'filings', 'autoFire']
@@ -547,13 +552,32 @@ function App() {
             if (j.value && j.value.date === today && j.value.count > 0) autoFire = j.value;
           }
         } catch { /* fine */ }
-        setNotifications({ overdue, dueSoon, lowStock, filings, autoFire });
+        let sesOverdue = [], sesDueToday = [];
+        try {
+          const ses = getSesReminderBuckets();
+          sesOverdue = ses.overdue || [];
+          sesDueToday = ses.dueToday || [];
+        } catch (_) {}
+        setNotifications({ overdue, dueSoon, lowStock, filings, autoFire, sesOverdue, sesDueToday });
       } catch { /* offline / server down — leave previous counts */ }
     };
     compute();
     const interval = setInterval(compute, 10 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [currentView]); // recompute on view change so the bell stays fresh after the user records a payment
+
+  // Ariba SES daily reminder toast (once per calendar day if overdue/due today)
+  useEffect(() => {
+    try {
+      const msg = consumeDailySesNag();
+      if (msg) {
+        setTimeout(() => {
+          try { toast(msg, 'warning', 9000); } catch (_) {}
+        }, 1800);
+      }
+    } catch (_) {}
+  }, []);
+
 
   // ---- Keyboard shortcuts + command palette ----
   // Ctrl+K opens a Spotlight-style command palette; Ctrl+N starts a new
@@ -1660,6 +1684,26 @@ function App() {
                     </div>
                   </button>
                 )}
+                
+                {isLive('sesOverdue') && (
+                  <button type="button" className="notice notice-error" onClick={() => { setShowNotifs(false); setCurrentView('tasks'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">📋</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{(notifications.sesOverdue || []).length} Ariba SES upload{(notifications.sesOverdue || []).length !== 1 ? 's' : ''} overdue</strong>
+                      <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>Upload invoice in Ariba after SES — open Tasks</div>
+                    </div>
+                  </button>
+                )}
+                {isLive('sesDueToday') && (
+                  <button type="button" className="notice notice-warning" onClick={() => { setShowNotifs(false); setCurrentView('tasks'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">📋</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{(notifications.sesDueToday || []).length} Ariba SES due today</strong>
+                      <div style={{ fontSize: '0.8rem', opacity: 0.85 }}>Follow up SES → invoice upload</div>
+                    </div>
+                  </button>
+                )}
+
                 {isLive('lowStock') && (
                   <button type="button" className="notice notice-note" onClick={() => { setShowNotifs(false); try { sessionStorage.setItem('sd_master_tab', 'services'); } catch (_) {} setCurrentView('costcenters'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
                     <span className="notice-icon">📦</span>

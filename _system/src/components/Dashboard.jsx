@@ -2240,7 +2240,7 @@ const openPaymentModal = (bill) => {
                             try {
                               const r = createSesFollowUpFromBill(bill);
                               if (r.skipped) toast('Open Ariba follow-up already exists for this invoice', 'info');
-                              else toast('Ariba SES follow-up created — open Tasks to track', 'success');
+                              else toast('Ariba SES reminder set (due in 3 days) — Tasks + Notifications bell', 'success');
                             } catch (e) { toast(e.message || 'Could not create task', 'error'); }
                           } },
                           { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },
