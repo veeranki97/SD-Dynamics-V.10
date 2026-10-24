@@ -6,7 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun } from 'lucide-react';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -1583,6 +1583,12 @@ const openPaymentModal = (bill) => {
               <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
                 onClick={onToggleTheme} aria-label="Toggle theme">
                 {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            )}
+            {typeof onLogout === 'function' && (
+              <button type="button" className="icon-btn" title="Lock / Logout"
+                onClick={onLogout} aria-label="Logout">
+                <LogOut size={18} />
               </button>
             )}
             <span style={{
