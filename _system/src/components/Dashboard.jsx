@@ -4,7 +4,9 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
+import DashboardHomeExtras from './DashboardHomeExtras';
+import TopCreateMenu from './TopCreateMenu';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -213,7 +215,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -1545,13 +1547,73 @@ const openPaymentModal = (bill) => {
   const overdueStr = Object.entries(overdueByCurrency).map(([cur, amt]) => formatCurrency(amt, cur)).join(' + ');
 
   return (
-    <div className={`dashboard-container${listMode ? " dashboard-list-mode" : " dashboard-home"}`}>
+        <div className={`dashboard-container${listMode ? " dashboard-list-mode" : " dashboard-home"}`}>
+      {/* Home: brand bar with Search / Create / Bell / Theme (yesterday restore) */}
+      {!listMode && (
+        <div className="sd-dash-brand-bar dash-brand-bar" style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+          marginBottom: 16, padding: '12px 16px', borderRadius: 12,
+          background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'linear-gradient(135deg, #4F46E5, #2563EB)', color: '#fff', fontWeight: 800, fontSize: 13
+            }}>SD</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{(activeProfile && activeProfile.businessName) || 'SD Dynamics'}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>Service ERP</div>
+            </div>
+          </div>
+          <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {typeof onOpenSearch === 'function' && (
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
+                onClick={onOpenSearch} title="Search (Ctrl+K)">
+                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                Search… Ctrl+K
+              </button>
+            )}
+            <TopCreateMenu onNewInvoice={onNew} />
+            {typeof onOpenNotifs === 'function' && (
+              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
+                <Bell size={18} />
+              </button>
+            )}
+            {typeof onToggleTheme === 'function' && (
+              <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
+                onClick={onToggleTheme} aria-label="Toggle theme">
+                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
+            )}
+            <span style={{
+              fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
+              background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid var(--border)'
+            }}>{(() => {
+              const d = new Date();
+              const y = d.getFullYear();
+              const m = d.getMonth();
+              const fyStart = m >= 3 ? y : y - 1;
+              return 'FY ' + String(fyStart).slice(-2) + '-' + String(fyStart + 1).slice(-2);
+            })()}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+              {new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
+            </span>
+            <HelpButton title="Dashboard — how to use">
+              <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
+                <li><strong>KPI cards</strong> — tax invoices only (excl. quotation, proforma, DC; CN reduces).</li>
+                <li><strong>Quick Actions / Activity</strong> — below charts.</li>
+              </ul>
+            </HelpButton>
+          </div>
+        </div>
+      )}
+      {listMode && (
       <PageHeader
-        icon={listMode ? "📄" : "📊"}
-        title={listMode ? "Invoices" : "Dashboard"}
-        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "Overview of your invoices"}
-        meta={`${bills.length} invoice${bills.length === 1 ? '' : 's'}`}>
-        <HelpButton title="Dashboard — how to use">
+        icon={"📄"}
+        title={"Invoices"}
+        subtitle={"Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC"}
+      >
+        <HelpButton title="Invoices — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
             <li><strong>New Invoice</strong> — start a fresh tax invoice / proforma / credit note / bill of supply / delivery challan.</li>
             <li><strong>Filter row</strong> — search by client name, invoice #, or GSTIN; filter by type / status / financial year / date range.</li>
@@ -1570,7 +1632,9 @@ const openPaymentModal = (bill) => {
             <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
           </>
         ) : null}
+      
       </PageHeader>
+      )}
 
       {overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
@@ -1646,8 +1710,7 @@ const openPaymentModal = (bill) => {
 
       {listMode ? null : (
       <div className="dashboard-kpi-block">
-<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
+<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary">
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
@@ -1699,7 +1762,7 @@ const openPaymentModal = (bill) => {
       </div>
 
       {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
@@ -1765,6 +1828,10 @@ const openPaymentModal = (bill) => {
         </div>
       )}
 
+      {!listMode && (
+        <DashboardHomeExtras onNew={onNew} secondaryKpis={secondaryKpis} />
+      )}
+
       {/* Low Stock Alerts */}
       {lowStockProducts.length > 0 && (
         <div className="glass-panel" style={{ marginBottom: '1.25rem', padding: '1rem 1.25rem' }}>
@@ -1823,8 +1890,7 @@ const openPaymentModal = (bill) => {
       )}
 {listMode && (
 <div className="glass-panel invoice-list-panel" data-testid="invoice-list">
-        <div className="table-header"><h3>Invoices</h3></div>
-        <div className="filters-bar invoice-list-toolbar">
+                <div className="filters-bar invoice-list-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search client or invoice..." data-list-anchor="1" value={search}
