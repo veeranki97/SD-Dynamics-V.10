@@ -759,7 +759,7 @@ export default function VendorsView() {
 
       {/* Search Bar — Phase 4 list toolbar */}
       <div className="list-module-toolbar glass-panel mb-6" style={{ marginBottom: '1rem' }}>
-        <div className="search-box" style={{ maxWidth: '400px' }}>
+        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
           <Search size={16} className="search-icon" />
           <input 
             type="text" 

@@ -418,7 +418,7 @@ export default function ReportsView() {
 
           {/* Search */}
           <div className="list-module-toolbar glass-panel mb-6" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
-            <div className="search-box" style={{ maxWidth: '350px' }}>
+            <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
               <Search size={16} className="search-icon" />
               <input type="text" placeholder="Filter by client name..." value={agingSearch}
                 onChange={e => setAgingSearch(e.target.value)} className="search-input" />

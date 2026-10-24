@@ -803,7 +803,7 @@ Regards`;
       {/* Search */}
       <div className="glass-panel p-4 mb-6">
         <div className="clients-search-sticky list-module-toolbar" style={{ position: 'sticky', top: 0, zIndex: 16, background: 'var(--surface, var(--card, #fff))', padding: '0.5rem 0', marginBottom: '0.5rem', borderBottom: '1px solid var(--border, #e2e8f0)' }}>
-        <div className="search-box" style={{ maxWidth: '400px' }}>
+        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search clients..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />

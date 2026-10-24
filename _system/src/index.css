@@ -4527,9 +4527,13 @@ textarea.form-input:focus {
   z-index: 12;
 }
 .list-module-toolbar .search-box {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 200px;
-  max-width: 420px;
+  max-width: none; /* fill gray toolbar — was 420px leaving ~30% empty */
+  width: 100%;
+}
+.list-module-toolbar .search-box .search-input {
+  width: 100%;
 }
 .list-module-toolbar .search-input,
 .list-module-toolbar .filter-select,
@@ -5057,4 +5061,16 @@ html:not([data-theme="dark"]) .mobile-topbar-btn,
   overflow: visible;
   width: 100%;
   max-width: none;
+}
+
+/* Search fills entire list toolbar (no short bar + empty gray) */
+.list-module-toolbar > .search-box,
+.list-module-toolbar .search-box {
+  flex: 1 1 100% !important;
+  max-width: none !important;
+  width: 100% !important;
+}
+.list-module-toolbar .search-input {
+  width: 100% !important;
+  box-sizing: border-box;
 }

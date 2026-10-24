@@ -354,7 +354,7 @@ export default function ExpenseTracker() {
       {/* Filters — Phase 4 list toolbar */}
       <div className="list-module-toolbar glass-panel mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
-          <div className="search-box" style={{ maxWidth: '350px' }}>
+          <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />

@@ -36,6 +36,7 @@ export default function ChartOfAccountsView() {
   const [editCode, setEditCode] = useState('');
   const [editType, setEditType] = useState('expense');
   const [editParentId, setEditParentId] = useState('');
+  const [editIsSystem, setEditIsSystem] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -92,15 +93,12 @@ export default function ChartOfAccountsView() {
     setEditCode(node.code || '');
     setEditType(normType(node.type));
     setEditParentId(node.parentId || '');
+    setEditIsSystem(!!node.isSystem);
   };
 
   const saveEdit = async () => {
     const acc = accounts.find((a) => a.id === editId);
     if (!acc) return;
-    if (acc.isSystem) {
-      toast('System accounts cannot be edited', 'warning');
-      return;
-    }
     const name = editName.trim();
     if (!name) {
       toast('Name required', 'warning');
@@ -108,14 +106,17 @@ export default function ChartOfAccountsView() {
     }
     setSaving(true);
     try {
-      await saveAccount({
-        ...acc,
-        name,
-        code: (editCode || '').trim() || acc.code,
-        type: editType,
-        parentId: editParentId || null,
-        updatedAt: new Date().toISOString(),
-      });
+      const patch = acc.isSystem
+        ? { ...acc, name, updatedAt: new Date().toISOString() } // system: rename only
+        : {
+            ...acc,
+            name,
+            code: (editCode || '').trim() || acc.code,
+            type: editType,
+            parentId: editParentId || null,
+            updatedAt: new Date().toISOString(),
+          };
+      await saveAccount(patch);
       setEditId(null);
       toast('Account updated', 'success');
       await load();
@@ -129,7 +130,7 @@ export default function ChartOfAccountsView() {
   const renderNode = (node, depth) => {
     const kids = roots[node.id] || [];
     const isGroup = !!(node.isGroup || node.leaf === false);
-    const canEdit = !node.isSystem;
+    const canEdit = true; // system: name-only; user: full
     return (
       <div key={node.id}>
         <div
@@ -153,16 +154,15 @@ export default function ChartOfAccountsView() {
           {node.isSystem ? (
             <span style={{ fontSize: 10, padding: '2px 6px', background: '#e2e8f0', borderRadius: 4 }}>system</span>
           ) : null}
-          {canEdit ? (
-            <>
-              <button
-                type="button"
-                className="btn btn-sm btn-secondary"
-                title="Edit account"
-                onClick={() => openEdit(node)}
-              >
-                <Pencil size={12} />
-              </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            title={node.isSystem ? 'Rename system account' : 'Edit account'}
+            onClick={() => openEdit(node)}
+          >
+            <Pencil size={12} />
+          </button>
+          {!node.isSystem ? (
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
@@ -180,7 +180,6 @@ export default function ChartOfAccountsView() {
               >
                 <Trash2 size={12} />
               </button>
-            </>
           ) : null}
         </div>
         {kids.map((c) => renderNode(c, depth + 1))}
@@ -275,19 +274,20 @@ export default function ChartOfAccountsView() {
       {editId ? (
         <div className="modal-overlay" style={{ zIndex: 50 }} onClick={() => !saving && setEditId(null)}>
           <div className="modal-content glass-panel" style={{ maxWidth: 400, padding: 16 }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Edit account</h3>
+            <h3 style={{ marginTop: 0 }}>{editIsSystem ? 'Rename system account' : 'Edit account'}</h3>
+            {editIsSystem ? <p style={{ fontSize: 12, color: '#64748b', marginTop: 0 }}>System rows: name only (code / type locked). Add a custom account below for full control.</p> : null}
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Code</label>
-            <input className="form-input" style={{ marginBottom: 10 }} value={editCode} onChange={(e) => setEditCode(e.target.value)} placeholder="e.g. 5100" />
+            <input className="form-input" style={{ marginBottom: 10 }} value={editCode} disabled={editIsSystem} onChange={(e) => setEditCode(e.target.value)} placeholder="e.g. 5100" />
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name *</label>
             <input className="form-input" style={{ marginBottom: 10 }} value={editName} onChange={(e) => setEditName(e.target.value)} />
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Type</label>
-            <select className="form-input" style={{ marginBottom: 10 }} value={editType} onChange={(e) => setEditType(e.target.value)}>
+            <select className="form-input" style={{ marginBottom: 10 }} value={editType} disabled={editIsSystem} onChange={(e) => setEditType(e.target.value)}>
               {TYPES.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Parent</label>
-            <select className="form-input" style={{ marginBottom: 14 }} value={editParentId} onChange={(e) => setEditParentId(e.target.value)}>
+            <select className="form-input" style={{ marginBottom: 14 }} value={editParentId} disabled={editIsSystem} onChange={(e) => setEditParentId(e.target.value)}>
               <option value="">— No parent —</option>
               {groups.filter((g) => g.id !== editId).map((g) => (
                 <option key={g.id} value={g.id}>

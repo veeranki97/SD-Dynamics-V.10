@@ -217,7 +217,7 @@ export default function InventoryView({ embedded = false } = {}) {
         display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
         marginBottom: 12, width: '100%',
       }}>
-        <div className="search-box" style={{ flex: '1 1 200px', minWidth: 160, maxWidth: embedded ? 'none' : 400 }}>
+        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search by name or SAC/HSN..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />

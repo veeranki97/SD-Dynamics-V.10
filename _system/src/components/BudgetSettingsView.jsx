@@ -266,12 +266,14 @@ export default function BudgetSettingsView() {
                     </span>
                   </td>
                   <td className="text-end">
-                    <button type="button" className="btn-icon" onClick={() => openEdit(b)} title="Edit">
-                      <Edit3 size={15} />
-                    </button>
-                    <button type="button" className="btn-icon" onClick={() => handleDelete(b.id)} title="Delete" style={{ color: '#ef4444', marginLeft: 8 }}>
-                      <Trash2 size={15} />
-                    </button>
+                    <div className="table-actions">
+                      <button type="button" className="icon-btn" onClick={() => openEdit(b)} title="Edit">
+                        <Edit3 size={15} />
+                      </button>
+                      <button type="button" className="icon-btn icon-btn-red" onClick={() => handleDelete(b.id)} title="Delete">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

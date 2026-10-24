@@ -1003,7 +1003,7 @@ export default function PurchaseBills() {
       {/* Filters */}
       <div className="list-module-toolbar glass-panel mb-6">
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="search-box" style={{ maxWidth: '300px' }}>
+          <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search supplier, invoice..." value={search}
               onChange={e => setSearch(e.target.value)} className="search-input" />
