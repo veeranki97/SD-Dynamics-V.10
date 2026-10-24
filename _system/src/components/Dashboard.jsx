@@ -4,20 +4,18 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
-import DashboardHomeExtras from './DashboardHomeExtras';
-import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut} from 'lucide-react';
-// LogOut used for session lock button
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
-import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney , invoiceAmountDue } from '../utils';
-import { isRevenueDocument, isCreditNote, isReceivableDocument, revenueSignedAmount, revenueSignedTax } from '../utils/revenueFilter';
+import { formatCurrency, INVOICE_TYPES, getFYOptions, numberToWords, belongsToProfile, parseMoney } from '../utils';
+import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/revenueFilter';
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
 import { sendMailSmart } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
+import { createSesFollowUpFromBill } from '../utils/sesTasks';
 import { runWorkflowRules } from './WorkflowRulesView';
 import { billsToSdCsv, downloadSdExport } from '../utils/sdExport';
 import { confirmAction, promptAction } from './ConfirmModal';
@@ -30,20 +28,12 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // alpha lets the underlying row bg show through and works in both
 // themes.
 const isPaymentDocType = (t) => {
-  // Tax invoice: receipt vs Sundry Debtors.
-  // Proforma / PI: advance receipt (allowed; GL uses Advance from Customers).
-  // Quotation, Delivery Challan, Credit/Debit note: no payment from this menu.
+  // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
   const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
   if (!s || s === 'invoice') return true;
-  if (s.includes('proforma')) return true;
-  if (s.includes('quotation') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
-  // bare "estimate" without proforma → treat as quotation-like
-  if (s.includes('estimate') && !s.includes('proforma')) return false;
+  if (s.includes('proforma') || s.includes('quotation') || s.includes('estimate') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
   return s === 'tax-invoice' || s.includes('tax-invoice') || (s.includes('tax') && !s.includes('credit'));
 };
-
-const isProformaDocType = (t) => String(t || '').toLowerCase().includes('proforma');
-
 
 const STATUS_CONFIG = {
   unpaid:  { label: 'Unpaid',  icon: Clock,          color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)' },
@@ -223,7 +213,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -270,56 +260,46 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     const aging = { notDue: 0, d0_30: 0, d31_60: 0, d61_90: 0, d90p: 0 };
     const today = new Date();
     today.setHours(0,0,0,0);
-    // Phase A (DASH-001): primary KPIs use revenueFilter — same rules as
-    // secondary month sales / GSTR-oriented charts (exclude QUO/PI/DC/cancelled/converted).
     for (const b of bills) {
+      if ((b.invoiceType || '').toLowerCase().includes('proforma') || (b.invoiceType || '').toLowerCase().includes('quotation')) continue;
       const cur = b.currency || b.data?.invoiceOptions?.currency || 'INR';
       if (!byCurrency[cur]) byCurrency[cur] = { total: 0, tax: 0, unpaid: 0, received: 0 };
-
-      const signedAmt = revenueSignedAmount(b);
-      const signedTax = revenueSignedTax(b);
-      if (signedAmt !== 0 || signedTax !== 0) {
-        byCurrency[cur].total += signedAmt;
-        byCurrency[cur].tax += signedTax;
+      // Skip cancelled for KPIs
+      if ((b.status || '') === 'cancelled') continue;
+      byCurrency[cur].total += Number(b.totalAmount) || 0;
+      byCurrency[cur].tax += Number(b.totalTaxAmount) || 0;
+      // Total Received = sum of all paid amounts (partial + full). Prior bug only
+      // counted paidAmount when status !== 'paid', so fully paid invoices showed ₹0.
+      const paid = Number(b.paidAmount) || 0;
+      byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
+      const due = (Number(b.totalAmount) || 0) - paid;
+      if (b.status !== 'paid' && due > 0.01) {
+        byCurrency[cur].unpaid += due;
+        const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
+        if (dueDate) {
+          const dd = new Date(dueDate);
+          const days = Math.floor((today - dd) / 86400000);
+          if (days < 0) aging.notDue += due;
+          else if (days <= 30) aging.d0_30 += due;
+          else if (days <= 60) aging.d31_60 += due;
+          else if (days <= 90) aging.d61_90 += due;
+          else aging.d90p += due;
+        } else aging.d0_30 += due;
       }
-
-      // Received / AR only on receivable tax invoices (not PI/QUO/DC/CN).
-      if (isReceivableDocument(b)) {
-        const paid = Number(b.paidAmount) || 0;
-        byCurrency[cur].received = (byCurrency[cur].received || 0) + paid;
-        const due = Math.max(0, ((typeof invoiceAmountDue === "function" ? invoiceAmountDue(b) : (Number(b.netReceivable) || Number(b.totalAmount) || 0)) - paid));
-        if (b.status !== 'paid' && due > 0.01) {
-          byCurrency[cur].unpaid += due;
-          const dueDate = b.data?.details?.dueDate || b.dueDate || b.data?.details?.invoiceDate;
-          if (dueDate) {
-            const dd = new Date(dueDate);
-            const days = Math.floor((today - dd) / 86400000);
-            if (days < 0) aging.notDue += due;
-            else if (days <= 30) aging.d0_30 += due;
-            else if (days <= 60) aging.d31_60 += due;
-            else if (days <= 90) aging.d61_90 += due;
-            else aging.d90p += due;
-          } else aging.d0_30 += due;
-        }
-      }
-
       const idate = b.data?.details?.invoiceDate || b.invoiceDate || '';
       if (idate.length >= 7) {
         const m = idate.slice(0, 7);
-        const monthAdd = revenueSignedAmount(b);
-        if (monthAdd !== 0) byMonth[m] = (byMonth[m] || 0) + monthAdd;
+        byMonth[m] = (byMonth[m] || 0) + (b.totalAmount || 0);
       }
-      if (isRevenueDocument(b) || isCreditNote(b)) {
-        const cn = b.clientName || b.data?.client?.name || 'Unknown';
-        byClient[cn] = (byClient[cn] || 0) + revenueSignedAmount(b);
-      }
+      const cn = b.clientName || b.data?.client?.name || 'Unknown';
+      byClient[cn] = (byClient[cn] || 0) + (b.totalAmount || 0);
     }
     const monthKeys = Object.keys(byMonth).sort().slice(-6);
     const topClients = Object.entries(byClient).sort((a,b) => b[1]-a[1]).slice(0, 5).map(([name, amount]) => ({ name, amount }));
     const bySite = {};
     const byState = {};
     bills.forEach(b => {
-      if (!isRevenueDocument(b)) return;
+      if ((b.invoiceType || 'tax-invoice') !== 'tax-invoice' || b.status === 'cancelled') return;
       const site = b.data?.site || b.data?.details?.site || 'Unassigned';
       bySite[site] = (bySite[site] || 0) + (Number(b.totalAmount) || 0);
       const st = b.data?.client?.state || b.data?.details?.placeOfSupply || 'Unknown';
@@ -696,10 +676,8 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       paidAmount: totalPaid,
       status: totalPaid >= billTotal ? 'paid' : 'partial',
     };
-    // CRITICAL: save receipt WHILE bill still has pre-payment paidAmount.
-    // If saveBill runs first, store.js ceiling sees outstanding ≈ 0 and rejects the receipt
-    // (status becomes paid but Money → Payment Receipts stays empty).
-    let receiptSaved = false;
+    await saveBill(updatedBill, { overwrite: true });
+
     try {
       await saveReceipt({
         id: paymentEntry.id,
@@ -719,34 +697,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         ownerName: profile?.businessName || '',
         profileId: profile?.id || '',
       });
-      receiptSaved = true;
-    } catch (e) {
-      console.warn('[receipt] save failed', e);
-      toast(e?.message || 'Payment receipt could not be saved — check Money → Payment Receipts', 'warning');
-    }
-
-    await saveBill(updatedBill, { overwrite: true });
-    if (!receiptSaved) {
-      try {
-        await saveReceipt({
-          id: paymentEntry.id,
-          date: paymentEntry.date,
-          receiptNo: paymentEntry.receiptNo,
-          clientName: bill.data?.client?.name || bill.clientName || '',
-          amount: paymentEntry.amount,
-          paymentMode: paymentEntry.mode,
-          againstInvoice: bill.invoiceNumber || bill.id || '',
-          note: (paymentEntry.note || '') + ' (retry after bill update)',
-          currency: bill.currency || 'INR',
-          source,
-          billId: bill.id,
-          advanceCredit: true,
-        });
-        receiptSaved = true;
-      } catch (e2) {
-        console.warn('[receipt] retry failed', e2);
-      }
-    }
+    } catch { /* non-fatal */ }
 
     try {
       const isAdvanceApply = /advance\s*apply|from convert|_fromConvert/i.test(String(paymentEntry.note || ''))
@@ -775,7 +726,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   const changeStatus = async (bill, newStatus) => {
     const alreadyPaid = (bill.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
       || Number(bill.paidAmount) || 0;
-    const billTotal = (typeof invoiceAmountDue === "function" ? invoiceAmountDue(bill) : (Number(bill.netReceivable) || Number(bill.totalAmount) || 0));
+    const billTotal = Number(bill.totalAmount) || 0;
     const outstanding = Math.max(0, billTotal - alreadyPaid);
     const today = new Date().toISOString().split('T')[0];
     let updated = { ...bill, status: newStatus };
@@ -1595,95 +1546,33 @@ const openPaymentModal = (bill) => {
 
   return (
     <div className={`dashboard-container${listMode ? " dashboard-list-mode" : " dashboard-home"}`}>
-      {/* Home dashboard: brand bar is the top chrome (no "Dashboard / KPIs…" PageHeader). */}
-      {listMode && (
       <PageHeader
-        icon="📄"
-        title="Invoices"
-        subtitle="Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC"
+        icon={listMode ? "📄" : "📊"}
+        title={listMode ? "Invoices" : "Dashboard"}
+        subtitle={listMode ? "Use type tabs below (counts shown). All / Tax Invoice / Quotation / Proforma / DC" : "Overview of your invoices"}
         meta={`${bills.length} invoice${bills.length === 1 ? '' : 's'}`}>
-        <HelpButton title="Invoices — how to use">
+        <HelpButton title="Dashboard — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
             <li><strong>New Invoice</strong> — start a fresh tax invoice / proforma / credit note / bill of supply / delivery challan.</li>
             <li><strong>Filter row</strong> — search by client name, invoice #, or GSTIN; filter by type / status / financial year / date range.</li>
-            <li><strong>Row actions</strong> — Edit, PDF, payment, WhatsApp, Email, convert, cancel via ⋮ menu.</li>
+            <li><strong>Row actions</strong> — Edit opens the invoice; MessageCircle sends via WhatsApp; Mail opens your email client; Record Payment logs a receipt; Trash soft-deletes for 30 days.</li>
+            <li><strong>WhatsApp share — mobile vs. desktop:</strong> on Android / iPhone the PDF attaches automatically via the OS share sheet (works with WhatsApp, Signal, Telegram, anywhere). On desktop, browsers block sending files to WhatsApp Web for security — we fall back to a text-only message with all invoice details. To send the PDF from desktop: click Download, then drag the file into WhatsApp Web.</li>
             <li><strong>Bulk actions</strong> — select rows to export as one PDF or delete in a batch.</li>
+            <li><strong>Overdue banner</strong> — click it to jump to overdue invoices with one tap.</li>
+            <li><strong>Low-stock alert</strong> — appears when any product is at or below your threshold (Settings → Stock alert).</li>
           </ul>
         </HelpButton>
-        <button type="button" className="btn btn-secondary" onClick={() => {
-          downloadSdExport('SD-Invoices-Export.csv', billsToSdCsv(bills));
-        }}>SD Export CSV</button>
-        <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
+        {listMode ? (
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => {
+              downloadSdExport('SD-Invoices-Export.csv', billsToSdCsv(bills));
+            }}>SD Export CSV</button>
+            <button className="btn btn-primary" onClick={onNew}><Plus size={18} /> New Invoice</button>
+          </>
+        ) : null}
       </PageHeader>
-      )}
 
-      {!listMode && (
-        <div className="sd-dash-brand-bar dash-brand-bar" style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-          marginBottom: 16, padding: '12px 16px', borderRadius: 12,
-          background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'linear-gradient(135deg, #4F46E5, #2563EB)', color: '#fff', fontWeight: 800, fontSize: 13
-            }}>SD</div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>{(activeProfile && activeProfile.businessName) || 'SD Dynamics'}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted, #64748b)' }}>Service ERP</div>
-            </div>
-          </div>
-          <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {typeof onOpenSearch === 'function' && (
-              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
-                onClick={onOpenSearch} title="Search (Ctrl+K)">
-                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                Search… Ctrl+K
-              </button>
-            )}
-            <TopCreateMenu onNewInvoice={onNew} />
-            {typeof onOpenNotifs === 'function' && (
-              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
-                <Bell size={18} />
-              </button>
-            )}
-            {typeof onToggleTheme === 'function' && (
-              <button type="button" className="icon-btn" title={darkMode ? 'Light mode' : 'Dark mode'}
-                onClick={onToggleTheme} aria-label="Toggle theme">
-                {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-              </button>
-            )}
-            {typeof onLogout === 'function' && (
-              <button type="button" className="icon-btn" title="Lock / Logout (PIN)"
-                onClick={onLogout} aria-label="Logout and lock app">
-                <LogOut size={18} />
-              </button>
-            )}
-            <span style={{
-              fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 999,
-              background: 'var(--primary-light)', color: 'var(--primary)', border: '1px solid var(--border)'
-            }}>{(() => {
-              const d = new Date();
-              const y = d.getFullYear();
-              const m = d.getMonth();
-              const fyStart = m >= 3 ? y : y - 1;
-              return 'FY ' + String(fyStart).slice(-2) + '-' + String(fyStart + 1).slice(-2);
-            })()}</span>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-              {new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'medium' })}
-            </span>
-            <HelpButton title="Dashboard — how to use">
-              <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
-                <li><strong>KPI cards</strong> — Billed / Tax / Received / Outstanding use tax invoices only (excl. quotation, proforma, DC; credit notes reduce).</li>
-                <li><strong>This month</strong> — calendar-month sales and purchases; click to open Invoices or Purchase Bills.</li>
-                <li><strong>Charts</strong> — sales vs purchases, GST split, top clients/sites (revenue rules same as KPIs).</li>
-              </ul>
-            </HelpButton>
-          </div>
-        </div>
-      )}
-
-{overdueBills.length > 0 && (
+      {overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
           style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
@@ -1757,14 +1646,12 @@ const openPaymentModal = (bill) => {
 
       {listMode ? null : (
       <div className="dashboard-kpi-block">
-      <p className="sd-dash-greeting text-muted" style={{ margin: '0 0 12px', fontSize: '0.9rem' }}>
-        {((activeProfile && activeProfile.businessName) ? ('Overview — ' + activeProfile.businessName) : 'Overview')} · real-time figures from your books (tax invoices only for sales KPIs).
-      </p>
-<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary">
+<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.65rem', marginBottom: '0.65rem' }}>
         <div className="stat-card">
           <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
           <div style={{ flex: 1 }}>
-            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · excl. QUO/PI/DC · CN reduces)</span></p>
+            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · incl. GST)</span></p>
             {Object.entries(stats.byCurrency).map(([cur, v]) => (
               <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
                 {formatCurrency(v.total, cur)}
@@ -1812,15 +1699,8 @@ const openPaymentModal = (bill) => {
       </div>
 
       {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
-        <div className="stat-card" role="button" tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.currentTarget.click();
-            }
-          }}
-          title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: 0, marginBottom: 0 }}>
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
             const last = new Date(Number(y), Number(mth), 0).getDate();
@@ -1842,27 +1722,13 @@ const openPaymentModal = (bill) => {
           <p className="stat-label">This month sales</p>
           <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.currentTarget.click();
-            }
-          }}
-          title="Purchase bills dated this month"
+        <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
           onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
           style={{ cursor: 'pointer' }}>
           <p className="stat-label">This month purchases</p>
           <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.currentTarget.click();
-            }
-          }}
-          title="Draft documents"
+        <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ statusFilter: 'draft' }));
@@ -1875,14 +1741,7 @@ const openPaymentModal = (bill) => {
           <p className="stat-label">Drafts</p>
           <p className="stat-value">{secondaryKpis.drafts}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.currentTarget.click();
-            }
-          }}
-          title="Tax invoices with balance &gt; ₹1"
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));
@@ -1904,11 +1763,6 @@ const openPaymentModal = (bill) => {
         <div className="dashboard-charts-wrap">
         <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} />
         </div>
-      )}
-
-      {/* Spec regions 12–14: Recent Activity, Quick Actions, Compliance */}
-      {!listMode && (
-        <DashboardHomeExtras onNew={onNew} secondaryKpis={secondaryKpis} />
       )}
 
       {/* Low Stock Alerts */}
@@ -1968,8 +1822,9 @@ const openPaymentModal = (bill) => {
         </div>
       )}
 {listMode && (
-<div className="glass-panel invoice-list-panel list-module" data-testid="invoice-list">
-        <div className="filters-bar invoice-list-toolbar list-module-toolbar">
+<div className="glass-panel invoice-list-panel" data-testid="invoice-list">
+        <div className="table-header"><h3>Invoices</h3></div>
+        <div className="filters-bar invoice-list-toolbar">
           <div className="search-box">
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search client or invoice..." data-list-anchor="1" value={search}
@@ -2301,7 +2156,7 @@ const openPaymentModal = (bill) => {
                             && !bill.data?.convertedLocked
                             && (!(String(bill.invoiceType||'').includes('quot')) || String(bill.status||'').toLowerCase() === 'accepted')
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
-                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: isProformaDocType(bill.invoiceType) ? 'Record Advance' : 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
                           (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Draft', onClick: () => handleStatusChange(bill, 'draft') } : null,
@@ -2309,6 +2164,13 @@ const openPaymentModal = (bill) => {
                           (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Accepted', onClick: () => handleStatusChange(bill, 'accepted') } : null,
                           isPaymentDocType(bill.invoiceType) && (status === 'overdue' || status === 'unpaid' || status === 'partial') && ((bill.totalAmount || 0) - (bill.paidAmount || 0) > 0.01)
                             ? { label: 'Send Reminder', onClick: () => sendReminder({ ...bill, clientPhone: getClientPhone(bill) }) } : null,
+                          { label: 'Ariba SES follow-up', onClick: () => {
+                            try {
+                              const r = createSesFollowUpFromBill(bill);
+                              if (r.skipped) toast('Open Ariba follow-up already exists for this invoice', 'info');
+                              else toast('Ariba SES follow-up created — open Tasks to track', 'success');
+                            } catch (e) { toast(e.message || 'Could not create task', 'error'); }
+                          } },
                           { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },
                         ].filter(Boolean)} />
                       </td>}

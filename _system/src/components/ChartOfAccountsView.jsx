@@ -1,15 +1,26 @@
 /**
  * Chart of Accounts — server-backed (accounts collection + coaSeed).
- * Replaces localStorage-only tree. System accounts cannot be deleted if isSystem.
- * No template literals in JSX strings (Vite-safe concatenation).
+ * Add + Edit (name, code, type) for non-system accounts including groups.
+ * System accounts: view only (no delete/edit of core flags).
  */
 import { useState, useEffect, useMemo } from 'react';
 import { Pencil, Trash2, Plus, FolderTree, Leaf } from 'lucide-react';
 import { toast } from './Toast';
 import { getAllAccounts, saveAccount } from '../store';
-import { COA_SEED, ensureCoaSeeded } from '../utils/coaSeed';
+import { COA_SEED } from '../utils/coaSeed';
 
 const TYPES = ['asset', 'liability', 'equity', 'income', 'expense'];
+
+function normType(t) {
+  const s = String(t || '').toLowerCase();
+  if (TYPES.includes(s)) return s;
+  if (/asset/i.test(s)) return 'asset';
+  if (/liab/i.test(s)) return 'liability';
+  if (/equity|capital/i.test(s)) return 'equity';
+  if (/income|revenue|sales/i.test(s)) return 'income';
+  if (/expense|cost/i.test(s)) return 'expense';
+  return 'expense';
+}
 
 export default function ChartOfAccountsView() {
   const [accounts, setAccounts] = useState([]);
@@ -18,16 +29,21 @@ export default function ChartOfAccountsView() {
   const [newCode, setNewCode] = useState('');
   const [newType, setNewType] = useState('expense');
   const [parentId, setParentId] = useState('');
+  const [newIsGroup, setNewIsGroup] = useState(false);
+
   const [editId, setEditId] = useState(null);
   const [editName, setEditName] = useState('');
+  const [editCode, setEditCode] = useState('');
+  const [editType, setEditType] = useState('expense');
+  const [editParentId, setEditParentId] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       let list = await getAllAccounts();
       if (!Array.isArray(list)) list = [];
-      if (!list.length) {
-        // Client-side seed via API if server returned empty (before bridge boot)
+      if (!list.length && Array.isArray(COA_SEED) && COA_SEED.length) {
         const now = new Date().toISOString();
         for (const row of COA_SEED) {
           try {
@@ -42,7 +58,7 @@ export default function ChartOfAccountsView() {
         }
         list = await getAllAccounts();
       }
-      setAccounts(Array.isArray(list) ? list : []);
+      setAccounts(Array.isArray(list) ? list.filter((a) => a && a.isActive !== false) : []);
     } catch (e) {
       toast('Failed to load Chart of Accounts', 'error');
       setAccounts([]);
@@ -68,10 +84,52 @@ export default function ChartOfAccountsView() {
     return byParent;
   }, [accounts]);
 
-  const groups = (accounts || []).filter((a) => a.isGroup);
+  const groups = (accounts || []).filter((a) => a.isGroup || a.leaf === false);
+
+  const openEdit = (node) => {
+    setEditId(node.id);
+    setEditName(node.name || '');
+    setEditCode(node.code || '');
+    setEditType(normType(node.type));
+    setEditParentId(node.parentId || '');
+  };
+
+  const saveEdit = async () => {
+    const acc = accounts.find((a) => a.id === editId);
+    if (!acc) return;
+    if (acc.isSystem) {
+      toast('System accounts cannot be edited', 'warning');
+      return;
+    }
+    const name = editName.trim();
+    if (!name) {
+      toast('Name required', 'warning');
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveAccount({
+        ...acc,
+        name,
+        code: (editCode || '').trim() || acc.code,
+        type: editType,
+        parentId: editParentId || null,
+        updatedAt: new Date().toISOString(),
+      });
+      setEditId(null);
+      toast('Account updated', 'success');
+      await load();
+    } catch (e) {
+      toast(e.message || 'Update failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const renderNode = (node, depth) => {
     const kids = roots[node.id] || [];
+    const isGroup = !!(node.isGroup || node.leaf === false);
+    const canEdit = !node.isSystem;
     return (
       <div key={node.id}>
         <div
@@ -86,32 +144,29 @@ export default function ChartOfAccountsView() {
             fontSize: 13,
           }}
         >
-          {node.isGroup ? <FolderTree size={14} /> : <Leaf size={14} />}
-          <span style={{ fontFamily: 'ui-monospace, monospace', width: 48, color: 'var(--text-muted)' }}>
+          {isGroup ? <FolderTree size={14} /> : <Leaf size={14} />}
+          <span style={{ fontFamily: 'ui-monospace, monospace', width: 56, color: 'var(--text-muted)' }}>
             {node.code || '—'}
           </span>
-          <span style={{ flex: 1, fontWeight: node.isGroup ? 600 : 400 }}>{node.name}</span>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{node.type}</span>
+          <span style={{ flex: 1, fontWeight: isGroup ? 600 : 400 }}>{node.name}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'capitalize' }}>{normType(node.type)}</span>
           {node.isSystem ? (
             <span style={{ fontSize: 10, padding: '2px 6px', background: '#e2e8f0', borderRadius: 4 }}>system</span>
           ) : null}
-          {!node.isGroup && !node.isSystem ? (
+          {canEdit ? (
             <>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
-                title="Edit"
-                onClick={() => {
-                  setEditId(node.id);
-                  setEditName(node.name);
-                }}
+                title="Edit account"
+                onClick={() => openEdit(node)}
               >
                 <Pencil size={12} />
               </button>
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
-                title="Delete"
+                title="Deactivate"
                 onClick={async () => {
                   if (!window.confirm('Deactivate account ' + node.name + '?')) return;
                   try {
@@ -135,7 +190,7 @@ export default function ChartOfAccountsView() {
 
   const topLevel = roots[''] || roots[null] || [];
 
-  const addLeaf = async () => {
+  const addAccount = async () => {
     const name = newName.trim();
     if (!name) {
       toast('Account name required', 'warning');
@@ -149,7 +204,8 @@ export default function ChartOfAccountsView() {
       parentId: parentId || null,
       type: newType,
       accountType: 'user',
-      isGroup: false,
+      isGroup: !!newIsGroup,
+      leaf: !newIsGroup,
       isSystem: false,
       isActive: true,
       companyId: 'default',
@@ -158,25 +214,13 @@ export default function ChartOfAccountsView() {
     };
     try {
       await saveAccount(row);
-      toast('Account added', 'success');
+      toast(newIsGroup ? 'Group added' : 'Account added', 'success');
       setNewName('');
       setNewCode('');
+      setNewIsGroup(false);
       load();
     } catch (e) {
       toast(e.message || 'Save failed', 'error');
-    }
-  };
-
-  const saveEdit = async () => {
-    const acc = accounts.find((a) => a.id === editId);
-    if (!acc) return;
-    try {
-      await saveAccount({ ...acc, name: editName.trim() || acc.name, updatedAt: new Date().toISOString() });
-      setEditId(null);
-      toast('Updated', 'success');
-      load();
-    } catch (e) {
-      toast(e.message || 'Update failed', 'error');
     }
   };
 
@@ -185,31 +229,29 @@ export default function ChartOfAccountsView() {
       <div className="page-header" style={{ marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 20 }}>Chart of Accounts</h2>
         <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-          Server-backed CoA. System accounts are protected. GL engine maps use these codes when enabled.
+          Server-backed CoA. System accounts are protected. Use Edit (pencil) to rename / change code or type.
         </p>
       </div>
 
       {loading ? (
         <p>Loading…</p>
       ) : (
-        <div className="glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="glass-panel" style={{ padding: 0, overflow: 'auto', maxHeight: 'min(55vh, 480px)' }}>
           {(topLevel.length ? topLevel : accounts.filter((a) => !a.parentId)).map((n) => renderNode(n, 0))}
           {!accounts.length ? (
-            <p style={{ padding: 16, color: 'var(--text-muted)' }}>No accounts. Restart server after installing gl bridge to seed.</p>
+            <p style={{ padding: 16, color: 'var(--text-muted)' }}>No accounts. Restart server after installing GL bridge to seed.</p>
           ) : null}
         </div>
       )}
 
       <div className="glass-panel" style={{ marginTop: 16, padding: 12 }}>
-        <strong style={{ fontSize: 13 }}>Add leaf account</strong>
+        <strong style={{ fontSize: 13 }}>Add account</strong>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 8 }}>
           <input className="form-input" placeholder="Code (optional)" value={newCode} onChange={(e) => setNewCode(e.target.value)} />
           <input className="form-input" placeholder="Name *" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <select className="form-input" value={newType} onChange={(e) => setNewType(e.target.value)}>
             {TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
+              <option key={t} value={t}>{t}</option>
             ))}
           </select>
           <select className="form-input" value={parentId} onChange={(e) => setParentId(e.target.value)}>
@@ -220,23 +262,43 @@ export default function ChartOfAccountsView() {
               </option>
             ))}
           </select>
-          <button type="button" className="btn btn-primary" onClick={addLeaf}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+            <input type="checkbox" checked={newIsGroup} onChange={(e) => setNewIsGroup(e.target.checked)} />
+            Group (folder)
+          </label>
+          <button type="button" className="btn btn-primary" onClick={addAccount}>
             <Plus size={14} /> Add
           </button>
         </div>
       </div>
 
       {editId ? (
-        <div className="modal-overlay" style={{ zIndex: 50 }} onClick={() => setEditId(null)}>
-          <div className="modal-content glass-panel" style={{ maxWidth: 360, padding: 16 }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Rename account</h3>
-            <input className="form-input" value={editName} onChange={(e) => setEditName(e.target.value)} />
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setEditId(null)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" onClick={saveEdit}>
-                Save
+        <div className="modal-overlay" style={{ zIndex: 50 }} onClick={() => !saving && setEditId(null)}>
+          <div className="modal-content glass-panel" style={{ maxWidth: 400, padding: 16 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Edit account</h3>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Code</label>
+            <input className="form-input" style={{ marginBottom: 10 }} value={editCode} onChange={(e) => setEditCode(e.target.value)} placeholder="e.g. 5100" />
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name *</label>
+            <input className="form-input" style={{ marginBottom: 10 }} value={editName} onChange={(e) => setEditName(e.target.value)} />
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Type</label>
+            <select className="form-input" style={{ marginBottom: 10 }} value={editType} onChange={(e) => setEditType(e.target.value)}>
+              {TYPES.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Parent</label>
+            <select className="form-input" style={{ marginBottom: 14 }} value={editParentId} onChange={(e) => setEditParentId(e.target.value)}>
+              <option value="">— No parent —</option>
+              {groups.filter((g) => g.id !== editId).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {(g.code ? g.code + ' ' : '') + g.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setEditId(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={saveEdit}>
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
