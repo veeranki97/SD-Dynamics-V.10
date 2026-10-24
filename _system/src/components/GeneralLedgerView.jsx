@@ -129,18 +129,26 @@ export default function GeneralLedgerView() {
       doc.setFont('helvetica', 'bold');
       doc.text(String(company).toUpperCase(), pageW / 2, y, { align: 'center' });
       y += 6;
-      doc.setFontSize(9);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'normal');
+      // Address on its own line(s) so GSTIN never overlaps the street block
       const addr = [profile?.address, profile?.city, profile?.state, profile?.pincode]
         .filter(Boolean)
         .join(', ');
       if (addr) {
-        doc.text(addr, pageW / 2, y, { align: 'center' });
-        y += 5;
+        const addrLines = doc.splitTextToSize(addr, pageW - margin * 2);
+        addrLines.slice(0, 3).forEach((line) => {
+          doc.text(line, pageW / 2, y, { align: 'center' });
+          y += 4;
+        });
       }
       if (profile?.gstin) {
-        doc.text('GSTIN: ' + profile.gstin, pageW / 2, y, { align: 'center' });
+        y += 1;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('GSTIN: ' + String(profile.gstin), pageW / 2, y, { align: 'center' });
         y += 5;
+        doc.setFont('helvetica', 'normal');
       }
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
@@ -164,9 +172,11 @@ export default function GeneralLedgerView() {
       doc.line(margin, y, pageW - margin, y);
       y += 5;
 
+      // Landscape GL: give Narration more width; Debit/Credit stay right-aligned
       const colX = party
-        ? [margin, margin + 22, margin + 95, margin + 125, margin + 155]
-        : [margin, margin + 18, margin + 55, margin + 95, margin + 145, margin + 185, margin + 220];
+        ? [margin, margin + 22, margin + 100, margin + 132, margin + 162]
+        : [margin, margin + 16, margin + 52, margin + 88, margin + 168, margin + 210, margin + 248];
+      const narrMaxW = party ? 72 : 76; // mm available for narration before Ref
       const headers = party
         ? ['Date', 'Particulars', 'Debit', 'Credit', 'Balance']
         : ['Date', 'Account', 'Party', 'Narration', 'Ref', 'Debit', 'Credit'];
@@ -194,8 +204,31 @@ export default function GeneralLedgerView() {
       const fmt = (n) =>
         Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+      // Page + grand totals: earlier builds only printed Totals on the last page
+      // because ensureSpace never closed the previous page with running totals.
+      let pageDr = 0;
+      let pageCr = 0;
+      const footerReserve = 22;
+
+      const drawPageTotals = () => {
+        if (party) return; // party statement uses running balance per row
+        y += 1;
+        doc.setDrawColor(148, 163, 184);
+        doc.setLineWidth(0.3);
+        doc.line(margin, y, pageW - margin, y);
+        y += 4;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.text('Page totals', pageW - margin - 70, y, { align: 'right' });
+        doc.text(fmt(pageDr), pageW - margin - 35, y, { align: 'right' });
+        doc.text(fmt(pageCr), pageW - margin, y, { align: 'right' });
+        pageDr = 0;
+        pageCr = 0;
+      };
+
       const ensureSpace = () => {
-        if (y > pageH - 18) {
+        if (y > pageH - footerReserve) {
+          drawPageTotals();
           doc.addPage();
           y = margin;
           drawHeader();
@@ -203,57 +236,85 @@ export default function GeneralLedgerView() {
       };
 
       sorted.forEach((r) => {
-        ensureSpace();
         const dr = Number(r.debit) || 0;
         const cr = Number(r.credit) || 0;
         if (party) {
+          ensureSpace();
+          pageDr += dr;
+          pageCr += cr;
           run += dr - cr;
-          const narr = String(r.narration || r.account || '').slice(0, 48);
+          // On-screen table trims; PDF keeps fuller particulars (wrap up to 2 lines)
+          const narrFull = String(r.narration || r.account || '');
+          const narrLines = doc.splitTextToSize(narrFull, narrMaxW).slice(0, 2);
+          const rowH = Math.max(5, narrLines.length * 3.6);
+          if (y + rowH > pageH - footerReserve) {
+            ensureSpace();
+          }
           doc.setFontSize(8);
           doc.text(String(r.date || ''), colX[0], y);
-          doc.text(narr, colX[1], y);
+          narrLines.forEach((ln, i) => doc.text(ln, colX[1], y + i * 3.6));
           if (dr) doc.text(fmt(dr), pageW - margin - 55, y, { align: 'right' });
           if (cr) doc.text(fmt(cr), pageW - margin - 28, y, { align: 'right' });
           doc.text(fmt(Math.abs(run)), pageW - margin, y, { align: 'right' });
+          y += rowH;
         } else {
+          const narrFull = String(r.narration || '');
           doc.setFontSize(7);
+          const narrLines = doc.splitTextToSize(narrFull || '—', narrMaxW).slice(0, 3);
+          const rowH = Math.max(5, narrLines.length * 3.4 + 0.5);
+          // Need room for wrapped narration before page break
+          if (y + rowH > pageH - footerReserve) {
+            drawPageTotals();
+            doc.addPage();
+            y = margin;
+            drawHeader();
+          }
+          pageDr += dr;
+          pageCr += cr;
           doc.text(String(r.date || ''), colX[0], y);
-          doc.text(String(r.account || '').slice(0, 22), colX[1], y);
-          doc.text(String(r.party || '').slice(0, 18), colX[2], y);
-          doc.text(String(r.narration || '').slice(0, 28), colX[3], y);
-          doc.text(String(r.refId || '').slice(0, 16), colX[4], y);
-          if (dr) doc.text(fmt(dr), pageW - margin - 35, y, { align: 'right' });
+          doc.text(String(r.account || '').slice(0, 24), colX[1], y);
+          doc.text(String(r.party || '').slice(0, 20), colX[2], y);
+          narrLines.forEach((ln, i) => doc.text(ln, colX[3], y + i * 3.4));
+          doc.text(String(r.refId || '').slice(0, 18), colX[4], y);
+          if (dr) doc.text(fmt(dr), pageW - margin - 38, y, { align: 'right' });
           if (cr) doc.text(fmt(cr), pageW - margin, y, { align: 'right' });
+          y += rowH;
         }
-        y += 5;
       });
 
+      // Final page: page totals + grand totals
       if (!party) {
-        ensureSpace();
+        if (pageDr || pageCr) drawPageTotals();
         y += 2;
-        doc.setDrawColor(148, 163, 184);
+        doc.setDrawColor(30, 58, 95);
+        doc.setLineWidth(0.5);
         doc.line(margin, y, pageW - margin, y);
         y += 5;
         const sumDr = filtered.reduce((s, r) => s + (Number(r.debit) || 0), 0);
         const sumCr = filtered.reduce((s, r) => s + (Number(r.credit) || 0), 0);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
-        doc.text('Totals', pageW - margin - 70, y, { align: 'right' });
+        doc.text('Grand totals', pageW - margin - 70, y, { align: 'right' });
         doc.text(fmt(sumDr), pageW - margin - 35, y, { align: 'right' });
         doc.text(fmt(sumCr), pageW - margin, y, { align: 'right' });
       }
 
-      y = pageH - 10;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(148, 163, 184);
-      doc.text(
-        'Computer-generated from ' + company + ' · ' + new Date().toLocaleDateString('en-IN'),
-        pageW / 2,
-        y,
-        { align: 'center' }
-      );
-      doc.setTextColor(0, 0, 0);
+      // Footer on every page (page number + brand line)
+      const pageCount = doc.internal.getNumberOfPages();
+      const genLine =
+        'Computer-generated from ' +
+        company +
+        ' · ' +
+        new Date().toLocaleDateString('en-IN');
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(genLine, pageW / 2, pageH - 8, { align: 'center' });
+        doc.text('Page ' + p + ' of ' + pageCount, pageW - margin, pageH - 8, { align: 'right' });
+        doc.setTextColor(0, 0, 0);
+      }
 
       const name = stem + '.pdf';
       doc.save(name);
@@ -417,7 +478,7 @@ export default function GeneralLedgerView() {
                 <td>{r.party || '—'}</td>
                 <td
                   title={r.narration || ''}
-                  style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
                   {r.narration || '—'}
                 </td>
