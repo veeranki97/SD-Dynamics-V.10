@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, ClipboardList } from 'lucide-react';
+import { Plus, Trash2, ClipboardList, Search, X, Target, IndianRupee, TrendingUp } from 'lucide-react';
 import {
   getAllWorkOrders, getAllExpenses, getAllPurchases, getAllPurchaseOrders, saveWorkOrder, deleteWorkOrder,
   getAllBills, getAllClients, getAllCostCenters, getAllProducts,
 } from '../store';
 import { calcWOUsage, emptyWOItem, calcItemAmount, deriveWOStatus, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
-import { formatCurrency } from '../utils';
+import { formatCurrency, getFYOptions } from '../utils';
 import { toast } from './Toast';
 import { downloadCsv } from '../utils/exportData';
 import { confirmAction } from './ConfirmModal';
@@ -150,6 +150,12 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   const [expenses, setExpenses] = useState([]);
   const [dossierWo, setDossierWo] = useState(null);
   const [dossierTab, setDossierTab] = useState('invoices');
+  const [woSearch, setWoSearch] = useState('');
+  const [clientFilter, setClientFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [fyFilter, setFyFilter] = useState('');
+  const fyOptions = getFYOptions();
+
 
   useEffect(() => {
     setHsnMaster(getHsnMaster());
@@ -182,6 +188,13 @@ export default function WorkOrdersView({ onConvertToInvoice, onOpenInvoice }) {
   };
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    try {
+      const opts = getFYOptions();
+      if (opts?.[0]?.value && !fyFilter) setFyFilter(opts[0].value);
+    } catch (_) {}
+  }, []);
+
   useEffect(() => {
     try {
       if (sessionStorage.getItem('sd_wo_open_new') === '1') {
@@ -356,6 +369,47 @@ const updateItem = (idx, field, value) => {
       toast(e.message || 'Delete failed', 'error');
     }
   };
+
+
+  const clientNames = Array.from(new Set((list || []).map(w => (w.clientName || '').trim()).filter(Boolean))).sort();
+
+  const filteredList = (list || []).filter(wo => {
+    if (woSearch.trim()) {
+      const q = woSearch.trim().toLowerCase();
+      const hay = [wo.woNumber, wo.id, wo.clientName, wo.site, wo.title, wo.notes].map(x => String(x || '').toLowerCase()).join(' ');
+      if (!hay.includes(q)) return false;
+    }
+    if (clientFilter && String(wo.clientName || '') !== clientFilter) return false;
+    if (statusFilter && statusFilter !== 'all') {
+      const st = String(deriveWOStatus(wo, bills) || wo.status || '').toLowerCase();
+      if (statusFilter === 'open') {
+        if (st === 'completed' || st === 'cancelled' || st === 'closed') return false;
+      } else if (!st.includes(statusFilter.toLowerCase())) {
+        return false;
+      }
+    }
+    if (fyFilter) {
+      const fy = fyOptions.find(f => f.value === fyFilter);
+      if (fy && wo.date) {
+        if (wo.date < fy.from || wo.date > fy.to) return false;
+      }
+    }
+    return true;
+  });
+
+  const woKpis = (() => {
+    let budget = 0, billed = 0, remaining = 0, margin = 0, openCount = 0;
+    for (const wo of filteredList) {
+      const u = calcWOUsage(wo, bills, purchaseOrders, purchases, expenses);
+      budget += Number(wo.approvedBudget) || 0;
+      billed += Number(u.billedAmount) || 0;
+      remaining += Number(u.remaining) || 0;
+      margin += Number(u.margin ?? u.projectedProfit) || 0;
+      const st = String(deriveWOStatus(wo, bills) || '').toLowerCase();
+      if (st !== 'completed' && st !== 'cancelled' && st !== 'closed') openCount += 1;
+    }
+    return { budget, billed, remaining, margin, openCount, total: filteredList.length };
+  })();
 
   if (loading) return <div className="page"><p>Loading…</p></div>;
 
@@ -555,20 +609,107 @@ const updateItem = (idx, field, value) => {
   return (
     <>
     
-    <div className="page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div className="page dashboard-container">
+      <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
-          <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h1 className="page-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ClipboardList size={22} /> Work Orders
           </h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Project budgets — invoices cannot exceed remaining qty / budget
+          <p className="page-subtitle" style={{ margin: '2px 0 0' }}>
+            Project budgets · search & filter · invoices cannot exceed remaining
           </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={openNew}>
-          <Plus size={16} /> New Work Order
-        </button>
+        <div className="flex gap-2" style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={() => downloadCsv('Work-Orders-Export.csv', filteredList || [], [
+            { key: 'woNumber', label: 'WO Number', get: w => w.woNumber || w.number || w.id },
+            { key: 'clientName', label: 'Client', get: w => w.clientName || w.client || '' },
+            { key: 'site', label: 'Site', get: w => w.site || '' },
+            { key: 'status', label: 'Status', get: w => w.status || '' },
+            { key: 'title', label: 'Title', get: w => w.title || w.workTitle || '' },
+            { key: 'budget', label: 'Budget', get: w => w.approvedBudget || w.budget || w.totalAmount || '' },
+          ])}>Export CSV</button>
+          <button type="button" className="btn btn-primary" onClick={openNew}>
+            <Plus size={16} /> New Work Order
+          </button>
+        </div>
       </div>
+
+      <div className="stats-grid stats-grid-dense" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-blue" style={{ width: 36, height: 36 }}><ClipboardList size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Open / Total</p>
+            <h2 className="stat-value" style={{ margin: 0, fontSize: '1.05rem' }}>{woKpis.openCount} / {woKpis.total}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-purple" style={{ width: 36, height: 36 }}><Target size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Budget</p>
+            <h2 className="stat-value stat-value-purple" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(woKpis.budget)}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-green" style={{ width: 36, height: 36 }}><IndianRupee size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Billed</p>
+            <h2 className="stat-value stat-value-green" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(woKpis.billed)}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon" style={{ width: 36, height: 36 }}><TrendingUp size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Remaining · Margin</p>
+            <h2 className="stat-value" style={{ margin: 0, fontSize: '0.95rem' }}>
+              {formatCurrency(woKpis.remaining)}
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: woKpis.margin < 0 ? '#dc2626' : '#059669', marginLeft: 6 }}>
+                M {formatCurrency(woKpis.margin)}
+              </span>
+            </h2>
+          </div>
+        </div>
+      </div>
+
+      <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center', width: '100%' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 120, maxWidth: 'none', width: 'auto' }}>
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              className="search-input"
+              style={{ width: '100%' }}
+              placeholder="Search WO #, client, site, title..."
+              value={woSearch}
+              onChange={e => setWoSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+            <select className="filter-select" value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ width: 150 }} title="Client">
+              <option value="">All clients</option>
+              {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ width: 130 }} title="Status">
+              <option value="all">All status</option>
+              <option value="open">Open only</option>
+              <option value="approved">Approved</option>
+              <option value="in-progress">In progress</option>
+              <option value="partial">Partial</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)} style={{ width: 120 }} title="Financial year">
+              {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
+            </select>
+            {(woSearch || clientFilter || (statusFilter && statusFilter !== 'all')) && (
+              <button type="button" className="icon-btn icon-btn-red" title="Clear filters"
+                onClick={() => { setWoSearch(''); setClientFilter(''); setStatusFilter('all'); }}>
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="list-module wo-list-module glass-panel">
                 <div className="table-responsive">
         <table className="data-table" style={{ width: '100%' }}>
@@ -590,13 +731,14 @@ const updateItem = (idx, field, value) => {
             </tr>
           </thead>
           <tbody>
-            {list.length === 0 && (
+            {filteredList.length === 0 && (
               <tr><td colSpan={13} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
-                No work orders yet. Click <strong>New Work Order</strong> to create one.
-                If you saved one and it is missing, open <code>/api/workorders</code> in this browser to verify the API.
+                {list.length === 0
+                  ? <>No work orders yet. Click <strong>New Work Order</strong> to create one.</>
+                  : <>No work orders match your search / filters.</>}
               </td></tr>
             )}
-            {list.map(woRow => {
+            {filteredList.map(woRow => {
               const usage = calcWOUsage(woRow, bills, purchaseOrders, purchases, expenses);
               const { billedAmount, remaining, committedCost = 0, actualCost = 0, projectedProfit = 0, costOverrun } = usage;
               return (
@@ -749,11 +891,7 @@ const updateItem = (idx, field, value) => {
                 </tr>
               );
             })}
-            {!list.length && (
-              <tr>
-                <td colSpan={12} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No work orders yet</td>
-              </tr>
-            )}
+            
           </tbody>
         </table>
       </div>

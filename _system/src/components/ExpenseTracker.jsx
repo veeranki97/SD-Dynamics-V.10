@@ -317,10 +317,10 @@ export default function ExpenseTracker() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
-          <h1 className="page-title">Expenses</h1>
-          <p className="page-subtitle">Track business expenses for P&L and ITC claims</p>
+          <h1 className="page-title" style={{ marginBottom: 2 }}>Expenses</h1>
+          <p className="page-subtitle" style={{ margin: 0 }}>P&L · ITC claims</p>
         </div>
         <div className="flex gap-2">
           <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
@@ -335,46 +335,48 @@ export default function ExpenseTracker() {
         onAssign={assignUnassignedExpenses}
       />
 
-      {/* Stats */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-purple"><Wallet size={22} /></div>
-          <div><p className="stat-label">Total Expenses</p><h2 className="stat-value stat-value-purple">{formatCurrency(totalAmount)}</h2></div>
+      {/* Dense KPI + single filter row for more table space */}
+      <div className="stats-grid stats-grid-dense" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-purple" style={{ width: 36, height: 36 }}><Wallet size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Total Expenses</p><h2 className="stat-value stat-value-purple" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(totalAmount)}</h2></div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-green"><Calendar size={22} /></div>
-          <div><p className="stat-label">GST Paid (ITC)</p><h2 className="stat-value stat-value-green">{formatCurrency(totalGST)}</h2></div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-green" style={{ width: 36, height: 36 }}><Calendar size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>GST Paid (ITC)</p><h2 className="stat-value stat-value-green" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(totalGST)}</h2></div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-blue"><Wallet size={22} /></div>
-          <div><p className="stat-label">Entries</p><h2 className="stat-value">{filtered.length}</h2></div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-blue" style={{ width: 36, height: 36 }}><Wallet size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Entries</p><h2 className="stat-value" style={{ margin: 0, fontSize: '1.05rem' }}>{filtered.length}</h2></div>
         </div>
       </div>
 
-      {/* Filters — Phase 4 list toolbar */}
-      <div className="list-module-toolbar glass-panel mb-6">
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', width: '100%' }}>
-          <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
+      {/* Search grows to meet filters (no mid-row gap); WO / Category / FY fixed on right */}
+      <div className="list-module-toolbar glass-panel expense-filter-row" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center', width: '100%' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 120, maxWidth: 'none', width: 'auto', boxSizing: 'border-box' }}>
             <Search size={16} className="search-icon" />
-            <input type="text" placeholder="Search by description, vendor, or invoice..." value={search}
-              onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
+            <input type="text" placeholder="Search description, vendor, invoice..." value={search}
+              onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%', boxSizing: 'border-box' }} />
           </div>
-          <select className="filter-select" value={woFilter || ''} onChange={e => setWoFilter(e.target.value)} style={{ marginRight: 8 }}>
-            <option value="">All WOs</option>
-            {(workOrders || woList || []).map(w => (
-              <option key={w.id} value={w.id}>{w.woNumber || w.id}{w.clientName ? ` — ${w.clientName}` : ''}</option>
-            ))}
-          </select>
-          <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
-            <option value="all">All Categories</option>
-            {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
-            {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
-          </select>
-          {(search || categoryFilter !== 'all' || woFilter) && (
-            <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); setWoFilter(''); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
-          )}
+          <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+            <select className="filter-select" value={woFilter || ''} onChange={e => setWoFilter(e.target.value)} style={{ width: 130 }}>
+              <option value="">All WOs</option>
+              {(workOrders || woList || []).map(w => (
+                <option key={w.id} value={w.id}>{w.woNumber || w.id}{w.clientName ? ` — ${w.clientName}` : ''}</option>
+              ))}
+            </select>
+            <select className="filter-select" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} style={{ width: 140 }}>
+              <option value="all">All Categories</option>
+              {masterCats.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)} style={{ width: 120 }} title="Financial year">
+              {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
+            </select>
+            {(search || categoryFilter !== 'all' || woFilter) && (
+              <button className="icon-btn icon-btn-red" onClick={() => { setSearch(''); setCategoryFilter('all'); setWoFilter(''); }} title="Clear filters" aria-label="Clear filters"><X size={15} /></button>
+            )}
+          </div>
         </div>
       </div>
 

@@ -867,11 +867,11 @@ export default function PurchaseBills() {
   const formTotals = calcPurchaseTotal(form.items, form.applyRoundOff);
 
   return (
-    <div className="dashboard-container">
+    <div className="dashboard-container purchase-bills-page" style={{ paddingBottom: 8 }}>
       <PageHeader
         icon={<ShoppingCart size={20} />}
         title="Purchase Bills"
-        subtitle="Track supplier invoices for ITC claims in GSTR-3B"
+        subtitle="Supplier invoices · ITC for GSTR-3B"
       >
         <HelpButton title="Purchase Bills — how to use">
           <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
@@ -985,30 +985,32 @@ export default function PurchaseBills() {
         onAssign={assignUnassignedPurchases}
       />
 
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-purple"><ShoppingCart size={22} /></div>
-          <div><p className="stat-label">Total Purchases</p><h2 className="stat-value stat-value-purple">{formatCurrency(totalStats.total)}</h2></div>
+      {/* Compact KPI strip + filters on one dense row for more table space */}
+      <div className="stats-grid stats-grid-dense" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-purple" style={{ width: 36, height: 36 }}><ShoppingCart size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Total Purchases</p><h2 className="stat-value stat-value-purple" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(totalStats.total)}</h2></div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-green"><ShoppingCart size={22} /></div>
-          <div><p className="stat-label">GST (ITC Eligible)</p><h2 className="stat-value stat-value-green">{formatCurrency(totalStats.tax)}</h2></div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-green" style={{ width: 36, height: 36 }}><ShoppingCart size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>GST (ITC Eligible)</p><h2 className="stat-value stat-value-green" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(totalStats.tax)}</h2></div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-blue"><ShoppingCart size={22} /></div>
-          <div><p className="stat-label">Entries</p><h2 className="stat-value">{filtered.length}</h2></div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-blue" style={{ width: 36, height: 36 }}><ShoppingCart size={18} /></div>
+          <div><p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Entries</p><h2 className="stat-value" style={{ margin: 0, fontSize: '1.05rem' }}>{filtered.length}</h2></div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="list-module-toolbar glass-panel mb-6">
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
+      {/* Search + FY same line — full width work strip */}
+      <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center', width: '100%' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 140, maxWidth: '100%', width: 'auto' }}>
             <Search size={16} className="search-icon" />
             <input type="text" placeholder="Search supplier, invoice..." value={search}
-              onChange={e => setSearch(e.target.value)} className="search-input" />
+              onChange={e => setSearch(e.target.value)} className="search-input" style={{ width: '100%' }} />
           </div>
-          <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}>
+          <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)}
+            style={{ flex: '0 0 auto', minWidth: 128, maxWidth: 160 }} title="Financial year">
             {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
           </select>
           {search && (
