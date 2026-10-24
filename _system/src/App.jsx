@@ -1363,8 +1363,11 @@ function App() {
                       <span className="nav-group-chevron">▸</span>
                     </button>
                   )}
-                  {(open || grp.name === 'Overview') && grp.items.map((item) => {
+                  {/* Collapsed icon rail: always show items (Overview was only exception before).
+                      Nested children (e.g. New Invoice) stay hidden in pure icon mode to avoid clutter. */}
+                  {(open || grp.name === 'Overview' || (sidebarCollapsed && !sidebarHovered && !navOpen)) && grp.items.map((item) => {
                     const isNested = !!item.parent;
+                    if (sidebarCollapsed && !sidebarHovered && !navOpen && isNested) return null;
                     // Keep the invoice section visibly active when one of its child workflows is open.
                     const isInvoiceParentActive = item.id === 'invoices'
                       && ['new', 'recurring', 'payment-reminders'].includes(currentView);
