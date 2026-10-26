@@ -3282,19 +3282,22 @@ app.post('/api/hrm/employees', (req, res) => {
   if (!emp.id) {
     cfg.lastEmpNum = (cfg.lastEmpNum || 0) + 1;
     emp.id = 'emp_' + Date.now().toString(36);
-    emp.employeeCode = emp.employeeCode || ('SD-' + String(cfg.lastEmpNum).padStart(3, '0'));
+    emp.employeeCode = emp.employeeCode || ('EMP-' + String(cfg.lastEmpNum).padStart(3, '0'));
     emp.createdAt = new Date().toISOString();
     hrmSaveConfig(cfg);
   }
-  // Duplicate UAN/ESIC check on active
+  // Duplicate UAN/ESIC/code check on active
   const all = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
   for (const o of all) {
     if (o.id === emp.id) continue;
+    if (emp.employeeCode && o.employeeCode && String(o.employeeCode).trim().toLowerCase() === String(emp.employeeCode).trim().toLowerCase()) {
+      return res.status(409).json({ error: 'Duplicate employee code — assigned to ' + o.name });
+    }
     if (emp.uan && o.uan && String(o.uan).trim() === String(emp.uan).trim()) {
-      return res.status(409).json({ error: `Duplicate UAN — assigned to ${o.name}` });
+      return res.status(409).json({ error: 'Duplicate UAN — assigned to ' + o.name });
     }
     if (emp.esicNumber && o.esicNumber && String(o.esicNumber).trim() === String(emp.esicNumber).trim()) {
-      return res.status(409).json({ error: `Duplicate ESIC — assigned to ${o.name}` });
+      return res.status(409).json({ error: 'Duplicate ESIC — assigned to ' + o.name });
     }
   }
   emp.updatedAt = new Date().toISOString();
