@@ -912,10 +912,11 @@ const updateItem = (idx, field, value) => {
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(110px,1fr))', gap: 8, margin: '10px 0 14px' }}>
                   {[
+                    ['Budget', Number(dossierWo.approvedBudget || dossierWo.budget || 0)],
                     ['Billed', u.billedAmount],
                     ['Open PO', u.openPO || 0],
-                    ['Purchases', u.purchases || u.purchaseCost || 0],
-                    ['Expenses', u.expenses || u.expenseCost || 0],
+                    ['Purchases', u.purchaseCost || u.purchases || 0],
+                    ['Expenses', u.expenseCost || u.expenses || 0],
                     ['Margin', u.margin ?? u.projectedProfit],
                   ].map(([lab, val]) => (
                     <div key={lab} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface, var(--card))' }}>
@@ -957,7 +958,15 @@ const updateItem = (idx, field, value) => {
                 <tbody>
                   {(bills || []).filter(b => b.workOrderId === dossierWo.id || (dossierWo.woNumber && (b.data?.details?.workOrderNo || b.workOrderNo) === dossierWo.woNumber)).map(b => (
                     <tr key={b.id}>
-                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.invoiceNumber}</td>
+                      <td style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {onOpenInvoice ? (
+                          <button type="button" className="btn-link" style={{ background: 'none', border: 'none', color: 'var(--primary, #2563eb)', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                            onClick={() => { setDossierWo(null); onOpenInvoice(b); }}
+                            title="Open invoice">
+                            {b.invoiceNumber || b.id}
+                          </button>
+                        ) : (b.invoiceNumber || b.id)}
+                      </td>
                       <td>{b.invoiceDate}</td>
                       <td>{b.status}</td>
                       <td className="text-end">{formatCurrency(b.totalAmount)}</td>

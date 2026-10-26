@@ -44,6 +44,41 @@ const JUMP_NAV_SECTIONS = SETTINGS_TABS.flatMap((t) => t.sections.map((id) => [i
 
 
 
+import { ROLES, getLocalRole, setLocalRole } from '../utils/roles';
+
+function LocalRolePanel() {
+  const [role, setRole] = useState(getLocalRole());
+  useEffect(() => {
+    const on = () => setRole(getLocalRole());
+    window.addEventListener('sd-role-changed', on);
+    return () => window.removeEventListener('sd-role-changed', on);
+  }, []);
+  return (
+    <div className="glass-panel p-4 mb-4" style={{ border: '1px solid var(--border)' }}>
+      <h4 className="section-title" style={{ marginTop: 0, fontSize: '1rem' }}>Local role (this PC)</h4>
+      <p className="text-muted" style={{ fontSize: 13, marginBottom: 12 }}>
+        ERPNext-style access level for a shared office PC. Not multi-user login — switch role intentionally. Viewer is read-oriented; Owner has full control.
+      </p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {ROLES.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            className={'btn btn-sm ' + (role === r.id ? 'btn-primary' : 'btn-secondary')}
+            onClick={() => { setLocalRole(r.id); setRole(r.id); try { toast('Role: ' + r.label, 'success'); } catch (_) {} }}
+            title={r.desc}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-muted" style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>
+        Current: <strong>{(ROLES.find((x) => x.id === role) || {}).label || role}</strong> — enforce delete/settings limits in a later pass if needed.
+      </p>
+    </div>
+  );
+}
+
 function GlEngineToggle() {
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -2055,6 +2090,7 @@ export default function SettingsView({ onSaved }) {
       </div>
       <div id="section-gl-map" data-settings-section="section-gl-map" style={{ order: 2.6 }} className="mb-6">
         <GlEngineToggle />
+        <LocalRolePanel />
         <GlMappingPanel />
       </div>
       <EmailTemplatesPanel />
