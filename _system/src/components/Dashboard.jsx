@@ -6,7 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut, Calendar, ShoppingCart } from 'lucide-react';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -29,6 +29,24 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // user reported "NEW ISSUE IN CASE OF DARK MODE". rgba() with 12%
 // alpha lets the underlying row bg show through and works in both
 // themes.
+
+/** Resolve invoice total for AR — prefer totalAmount, then data.totals */
+const resolveBillTotal = (bill) => {
+  const a = parseMoney(bill?.totalAmount);
+  if (a > 0.005) return a;
+  const tot = bill?.data?.totals || {};
+  const b = parseMoney(tot.grandTotal ?? tot.total ?? tot.invoiceTotal);
+  if (b > 0.005) return b;
+  const c = parseMoney(bill?.grandTotal);
+  return c > 0.005 ? c : a;
+};
+
+const resolveAlreadyPaid = (bill) => {
+  const fromPayments = (bill?.payments || []).reduce((s, p) => s + (parseMoney(p.amount) || 0), 0);
+  if (fromPayments > 0.005) return Math.round(fromPayments * 100) / 100;
+  return parseMoney(bill?.paidAmount);
+};
+
 const isPaymentDocType = (t) => {
   // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
   const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
@@ -215,7 +233,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, notifCount = 0, darkMode = false, onToggleTheme, onLogout }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -655,7 +673,7 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   };
 
   const executeRecordPayment = async (bill, { amount, date, mode, note, source = 'manual' }) => {
-    const billTotal = parseMoney(bill.totalAmount);
+    const billTotal = resolveBillTotal(bill);
     let receiptNoSeq = '';
     try { receiptNoSeq = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }
     catch { receiptNoSeq = 'REC/' + String(Date.now()).slice(-6); }
@@ -952,8 +970,28 @@ const openPaymentModal = (bill) => {
       toast('Cannot add payment to a cancelled invoice', 'warning');
       return;
     }
-    setPaymentModal(bill);
-    setPaymentInput({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'bank-transfer', note: '' });
+    if (!isPaymentDocType(bill.invoiceType || bill.data?.invoiceType)) {
+      toast('Payments only apply to Tax Invoices (not Proforma / Quotation / DC)', 'warning');
+      return;
+    }
+    const billTotal = resolveBillTotal(bill);
+    const alreadyPaid = resolveAlreadyPaid(bill);
+    const outstanding = Math.max(0, Math.round((billTotal - alreadyPaid) * 100) / 100);
+    if (billTotal <= 0.005) {
+      toast('Invoice total is ₹0 or missing — open Edit, re-save the invoice, then try payment again', 'error');
+      return;
+    }
+    if (outstanding <= 0.005) {
+      toast('No outstanding balance on this invoice (already fully paid)', 'info');
+      return;
+    }
+    setPaymentModal({ ...bill, totalAmount: billTotal, paidAmount: alreadyPaid });
+    setPaymentInput({
+      amount: String(outstanding),
+      date: new Date().toISOString().split('T')[0],
+      mode: 'bank-transfer',
+      note: '',
+    });
   };
 
   const recordPayment = async () => {
@@ -962,8 +1000,8 @@ const openPaymentModal = (bill) => {
       toast('Enter a positive payment amount', 'warning'); return;
     }
     const bill = paymentModal;
-    const billTotal = parseMoney(bill.totalAmount);
-    const alreadyPaid = parseMoney(bill.paidAmount);
+    const billTotal = resolveBillTotal(bill);
+    const alreadyPaid = resolveAlreadyPaid(bill);
     const outstanding = Math.max(0, Math.round((billTotal - alreadyPaid) * 100) / 100);
     if (amount > outstanding + 0.05) {
       toast(
@@ -972,17 +1010,25 @@ const openPaymentModal = (bill) => {
       );
       return;
     }
-    const { updatedBill, paymentEntry, totalPaid } = await executeRecordPayment(bill, {
-      amount,
-      date: paymentInput.date,
-      mode: paymentInput.mode,
-      note: paymentInput.note,
-      source: 'auto-from-payment',
-    });
-    toast(`Payment of ${formatCurrency(amount, bill.currency)} recorded`, 'success');
-    setPaymentModal(null);
-    setReceiptTarget({ bill: updatedBill, payment: paymentEntry, remaining: billTotal - totalPaid });
-    loadBills();
+    try {
+      const { updatedBill, paymentEntry, totalPaid } = await executeRecordPayment(
+        { ...bill, totalAmount: billTotal, paidAmount: alreadyPaid },
+        {
+          amount,
+          date: paymentInput.date,
+          mode: paymentInput.mode,
+          note: paymentInput.note,
+          source: 'auto-from-payment',
+        },
+      );
+      toast(`Payment of ${formatCurrency(amount, bill.currency)} recorded`, 'success');
+      setPaymentModal(null);
+      setReceiptTarget({ bill: updatedBill, payment: paymentEntry, remaining: billTotal - totalPaid });
+      loadBills();
+    } catch (e) {
+      console.error('[recordPayment]', e);
+      toast(e?.message || 'Could not record payment — try again or re-save the invoice first', 'error');
+    }
   };
 
   // v1.10.9 — Reprint / view an existing payment's receipt.
@@ -1552,7 +1598,7 @@ const openPaymentModal = (bill) => {
       {!listMode && (
         <div className="sd-dash-brand-bar dash-brand-bar" style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-          marginBottom: 10, padding: '10px 14px', borderRadius: 12,
+          marginBottom: 16, padding: '12px 16px', borderRadius: 12,
           background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1567,24 +1613,16 @@ const openPaymentModal = (bill) => {
           </div>
           <div className="sd-dash-brand-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {typeof onOpenSearch === 'function' && (
-              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem', minWidth: 300, width: 300, maxWidth: '36vw', padding: '0.35rem 0.85rem', justifyContent: 'flex-start', height: 34, lineHeight: 1 }}
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.8rem' }}
                 onClick={onOpenSearch} title="Search (Ctrl+K)">
-                <Search size={14} style={{ marginRight: 8, verticalAlign: 'middle', opacity: 0.65, flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Search invoices, clients, WO…  Ctrl+K</span>
+                <Search size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                Search… Ctrl+K
               </button>
             )}
             <TopCreateMenu onNewInvoice={onNew} />
             {typeof onOpenNotifs === 'function' && (
-              <button type="button" className="icon-btn" title={notifCount > 0 ? `Notifications (${notifCount})` : 'Notifications'} onClick={onOpenNotifs} aria-label="Notifications" style={{ position: 'relative' }}>
+              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
                 <Bell size={18} />
-                {notifCount > 0 && (
-                  <span style={{
-                    position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, padding: '0 5px',
-                    borderRadius: 9, background: 'var(--danger, #dc2626)', color: '#fff',
-                    fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    lineHeight: 1, boxShadow: '0 0 0 2px var(--surface, #fff)',
-                  }}>{notifCount > 99 ? '99+' : notifCount}</span>
-                )}
               </button>
             )}
             {typeof onToggleTheme === 'function' && (
@@ -1652,13 +1690,13 @@ const openPaymentModal = (bill) => {
 
       {overdueBills.length > 0 && (
         <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
-          style={{ background: 'var(--danger-light)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 8, padding: '0.28rem 0.75rem', marginBottom: '0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.45rem', minHeight: 0, lineHeight: 1.25 }}>
-          <AlertTriangle size={15} style={{ color: '#dc2626', flexShrink: 0 }} />
+          style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, color: '#dc2626', fontSize: '0.82rem' }}>
+            <span style={{ fontWeight: 700, color: '#dc2626' }}>
               {overdueBills.length} overdue invoice{overdueBills.length > 1 ? 's' : ''}
             </span>
-            <span style={{ color: '#991b1b', marginLeft: 6, fontSize: '0.78rem' }}>
+            <span style={{ color: '#991b1b', marginLeft: 8, fontSize: '0.85rem' }}>
               — {overdueStr} outstanding
             </span>
           </div>
@@ -1775,8 +1813,8 @@ const openPaymentModal = (bill) => {
         </div>
       </div>
 
-      {/* A) Second KPI row — same stamp as primary (icon + label + value) */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary" style={{ marginTop: '0.5rem' }}>
+      {/* A) Second KPI row — this month + drafts + open */}
+      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
           onClick={() => {
             const [y, mth] = secondaryKpis.currentYm.split('-');
@@ -1796,20 +1834,14 @@ const openPaymentModal = (bill) => {
             setDateTo(dateTo);
           }}
           style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-blue"><Calendar size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">This month sales</p>
-            <div className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</div>
-          </div>
+          <p className="stat-label">This month sales</p>
+          <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
           onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
           style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-purple"><ShoppingCart size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">This month purchases</p>
-            <div className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</div>
-          </div>
+          <p className="stat-label">This month purchases</p>
+          <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
           onClick={() => {
@@ -1821,13 +1853,10 @@ const openPaymentModal = (bill) => {
             setStatusFilter('draft');
           }}
           style={{ cursor: 'pointer' }}>
-          <div className="stat-icon"><FileText size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Drafts</p>
-            <div className="stat-value">{secondaryKpis.drafts}</div>
-          </div>
+          <p className="stat-label">Drafts</p>
+          <p className="stat-value">{secondaryKpis.drafts}</p>
         </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance > ₹1"
+        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
           onClick={() => {
             try {
               sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));
@@ -1837,11 +1866,8 @@ const openPaymentModal = (bill) => {
             setTypeFilter('tax-invoice'); setStatusFilter('unpaid');
           }}
           style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-amber"><Clock size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Open invoices</p>
-            <div className="stat-value">{secondaryKpis.openInv}</div>
-          </div>
+          <p className="stat-label">Open invoices</p>
+          <p className="stat-value">{secondaryKpis.openInv}</p>
         </div>
       </div>
       </div>
