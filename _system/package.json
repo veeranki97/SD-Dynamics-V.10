@@ -108,7 +108,7 @@
     "install": "^0.13.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^10.2.1",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -135,6 +135,7 @@
   "allowScripts": {
     "core-js@3.48.0": true,
     "esbuild@0.28.2": true,
-    "tesseract.js@7.0.0": true
+    "tesseract.js@7.0.0": true,
+    "better-sqlite3@13.0.3": true
   }
 }
