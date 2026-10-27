@@ -1,0 +1,23 @@
+
+/* UX consistency — dense list toolbars (Phase C) */
+.list-module-toolbar {
+  margin-bottom: 0.5rem !important;
+}
+.list-module-toolbar.glass-panel {
+  padding: 0.45rem 0.65rem;
+}
+.page-header {
+  margin-bottom: 0.5rem;
+}
+.page-header .page-title {
+  margin-bottom: 0.15rem;
+}
+.page-header .page-subtitle {
+  margin-top: 0;
+}
+/* Prefer table body scroll over nested page scrollbars where used */
+.list-module .table-scroll,
+.list-module .table-responsive {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+}

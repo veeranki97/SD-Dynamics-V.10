@@ -52,14 +52,11 @@ export default function PaymentReconView() {
   }, [mine, receipts, client]);
 
   const open = useMemo(() => mine.filter(b => {
-    // CA: tax-invoice AR only — exclude DC, QUO, PI, CN, cancelled, converted
+    // CA: only tax-invoice AR — exclude DC, QUO, PI, CN, cancelled, converted
     if (!isReceivableDocument(b)) return false;
+    const due = (b.totalAmount || 0) - (b.paidAmount || 0);
     const st = String(b.status || '').toLowerCase();
-    // Any open balance counts (sent / draft / overdue / blank) — not only unpaid|partial
-    if (st === 'paid' || st === 'cancelled' || st === 'converted') return false;
-    const total = Number(b.totalAmount ?? b.data?.totals?.total ?? b.data?.totals?.grandTotal ?? 0) || 0;
-    const paid = Number(b.paidAmount ?? 0) || 0;
-    return total - paid > 0.01;
+    return due > 0.01 && (st === 'unpaid' || st === 'partial' || st === 'overdue' || st === '');
   }).sort((a, b) => String(a.data?.details?.invoiceDate || a.invoiceDate || '').localeCompare(String(b.data?.details?.invoiceDate || b.invoiceDate || ''))), [mine]);
 
   const applyCredit = async (creditRow, openBill) => {
@@ -95,8 +92,13 @@ export default function PaymentReconView() {
   };
 
   return (
-    <div className="page">
-      <h2>Payment Reconciliation</h2>
+    <div className="page dashboard-container">
+      <div className="page-header" style={{ marginBottom: 8 }}>
+        <div>
+          <h1 className="page-title" style={{ marginBottom: 2 }}>Payment Reconciliation</h1>
+          <p className="page-subtitle" style={{ margin: 0 }}>Match unapplied credit to open invoices</p>
+        </div>
+      </div>
       <p className="page-subtitle">Match unapplied advances & overpayments to open tax invoices only (DC / QUO / PI excluded).</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 16 }}>
         <select className="form-input" style={{ maxWidth: 320 }} value={client} onChange={e => setClient(e.target.value)}>
@@ -140,13 +142,10 @@ export default function PaymentReconView() {
           <h3>Open invoices</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
             {open.map(b => {
-              const due = (Number(b.totalAmount)||0) - (Number(b.paidAmount)||0);
+              const due = (b.totalAmount || 0) - (b.paidAmount || 0);
               return (
                 <li key={b.id} style={{ padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
-                  <strong>{b.invoiceNumber}</strong>
-                  {b.clientName ? <span style={{ color: '#64748b' }}> · {b.clientName}</span> : null}
-                  {' · due '}{formatCurrency(due)}
-                  {b.status ? <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>({b.status})</span> : null}
+                  <strong>{b.invoiceNumber}</strong> · due {formatCurrency(due)}
                   <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {advances.filter(a => a.clientName === b.clientName).map(a => (
                       <button key={a.id} type="button" className="btn btn-sm btn-secondary" disabled={busy}

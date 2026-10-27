@@ -1,6 +1,6 @@
 import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { useState, useEffect, useRef } from 'react';
-import { Receipt, Plus, Trash2, Search, Printer, Pencil, Layers } from 'lucide-react';
+import { Receipt, Plus, Trash2, Search, Printer, Pencil, Layers, X } from 'lucide-react';
 import { getAllReceipts, saveReceipt, deleteReceipt, getAllBills, getProfile, getNextInvoiceNumber, saveBill, saveJournal, getAllWorkOrders, getAllCostCenters, getAllClients } from '../store';
 import { journalFromPayment } from '../utils/ledger';
 import { saveJournalIfLegacy } from '../utils/glClient';
@@ -368,9 +368,9 @@ export default function ReceiptVoucher() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
-          <h1 className="page-title">Receipts & Payments</h1>
+          <h1 className="page-title" style={{ marginBottom: 2 }}>Receipts & Payments</h1>
           <p className="page-subtitle">Log incoming client payments and outgoing vendor expenses</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -382,6 +382,25 @@ export default function ReceiptVoucher() {
       </div>
 
       <UnassignedBanner count={unassignedReceipts.length} businessName={profile?.businessName} noun="receipt" onAssign={assignUnassignedReceipts} />
+
+      <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 140, maxWidth: 'none' }}>
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              className="search-input"
+              style={{ width: '100%' }}
+              placeholder="Search receipt no, party, reference..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {search ? (
+            <button type="button" className="icon-btn icon-btn-red" onClick={() => setSearch('')} title="Clear"><X size={14} /></button>
+          ) : null}
+        </div>
+      </div>
 
       {/* Bulk FIFO Modal */}
       {showBulk && (
@@ -621,7 +640,7 @@ export default function ReceiptVoucher() {
 
       {/* Search */}
       <div className="list-module-toolbar glass-panel">
-        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
+        <div className="search-box" style={{ maxWidth: '400px' }}>
           <Search size={16} className="search-icon" />
           <input type="text" placeholder="Search by name or receipt no..." value={search}
             onChange={e => setSearch(e.target.value)} className="search-input" />

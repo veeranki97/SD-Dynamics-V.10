@@ -757,18 +757,25 @@ export default function VendorsView() {
         </div>
       </div>
 
-      {/* Search Bar — Phase 4 list toolbar */}
-      <div className="list-module-toolbar glass-panel mb-6" style={{ marginBottom: '1rem' }}>
-        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
-          <Search size={16} className="search-icon" />
-          <input 
-            type="text" 
-            placeholder="Search vendor, GSTIN, city, phone..." 
-            value={search}
-            onChange={e => setSearch(e.target.value)} 
-            className="search-input" 
-          />
-          {search && <button className="icon-btn" onClick={() => setSearch('')}><X size={14} /></button>}
+      {/* Dense list toolbar — search fills row */}
+      <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 140, maxWidth: 'none', width: 'auto' }}>
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search vendor, GSTIN, city, phone..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="search-input"
+              style={{ width: '100%' }}
+            />
+          </div>
+          {search && (
+            <button type="button" className="icon-btn icon-btn-red" onClick={() => setSearch('')} title="Clear" aria-label="Clear search">
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 

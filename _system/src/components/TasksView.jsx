@@ -170,10 +170,10 @@ export default function TasksView() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
-          <h1 className="page-title">Tasks</h1>
-          <p className="page-subtitle">
+          <h1 className="page-title" style={{ marginBottom: 2 }}>Tasks</h1>
+          <p className="page-subtitle" style={{ margin: 0 }}>
             Reminders · {openCount} open
             {aribaOpen ? ' · ' + aribaOpen + ' Ariba SES' : ''}
             {buckets.overdue.length
