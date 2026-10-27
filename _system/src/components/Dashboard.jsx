@@ -30,23 +30,19 @@ import { confirmAction, promptAction } from './ConfirmModal';
 // alpha lets the underlying row bg show through and works in both
 // themes.
 
-/** Resolve invoice total for AR — prefer totalAmount, then data.totals */
 const resolveBillTotal = (bill) => {
   const a = parseMoney(bill?.totalAmount);
   if (a > 0.005) return a;
   const tot = bill?.data?.totals || {};
   const b = parseMoney(tot.grandTotal ?? tot.total ?? tot.invoiceTotal);
   if (b > 0.005) return b;
-  const c = parseMoney(bill?.grandTotal);
-  return c > 0.005 ? c : a;
+  return parseMoney(bill?.grandTotal);
 };
-
 const resolveAlreadyPaid = (bill) => {
   const fromPayments = (bill?.payments || []).reduce((s, p) => s + (parseMoney(p.amount) || 0), 0);
   if (fromPayments > 0.005) return Math.round(fromPayments * 100) / 100;
   return parseMoney(bill?.paidAmount);
 };
-
 const isPaymentDocType = (t) => {
   // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
   const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
@@ -673,7 +669,20 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   };
 
   const executeRecordPayment = async (bill, { amount, date, mode, note, source = 'manual' }) => {
-    const billTotal = resolveBillTotal(bill);
+    // Merge payment onto LATEST stored bill so we never rewrite line items on a
+    // finalized invoice. Server: "Only payment fields (paidAmount, payments, status) may change."
+    let base = bill;
+    try {
+      const all = await getAllBills();
+      const id = bill?.id;
+      const inv = bill?.invoiceNumber;
+      const found = (all || []).find(
+        (b) => (id && b.id === id) || (inv && b.invoiceNumber === inv),
+      );
+      if (found) base = found;
+    } catch (_) { /* use list copy */ }
+
+    const billTotal = (typeof resolveBillTotal === 'function' ? resolveBillTotal(base) : parseMoney(base.totalAmount));
     let receiptNoSeq = '';
     try { receiptNoSeq = await getNextInvoiceNumber('REC', { explicitPrefix: true }); }
     catch { receiptNoSeq = 'REC/' + String(Date.now()).slice(-6); }
@@ -686,33 +695,56 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
       note: note || '',
       recordedAt: new Date().toISOString(),
       receiptNo: receiptNoSeq,
-      againstInvoice: bill.invoiceNumber || bill.id,
+      againstInvoice: base.invoiceNumber || base.id,
     };
-    const payments = [...(bill.payments || []), paymentEntry];
-    const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const priorPayments = Array.isArray(base.payments) ? base.payments.slice() : [];
+    const payments = [...priorPayments, paymentEntry];
+    const totalPaid = Math.round(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) / 100;
+    const nextStatus = (totalPaid + 0.01 >= billTotal && billTotal > 0)
+      ? 'paid'
+      : (totalPaid > 0 ? 'partial' : (base.status === 'overdue' ? 'overdue' : 'unpaid'));
+
+    // Keep every non-payment field exactly as stored on `base`
     const updatedBill = {
-      ...bill,
+      ...base,
       payments,
       paidAmount: totalPaid,
-      status: totalPaid >= billTotal ? 'paid' : 'partial',
+      status: nextStatus,
     };
-    await saveBill(updatedBill, { overwrite: true });
+
+    try {
+      await saveBill(updatedBill, { overwrite: true, force: true });
+    } catch (e1) {
+      const msg = String(e1?.message || e1 || '');
+      if (/locked|payment fields|final/i.test(msg)) {
+        try {
+          await saveBill(updatedBill, { overwrite: true, force: true });
+        } catch (e2) {
+          throw new Error(
+            (e2?.message || msg) +
+            ' (payment-only update). If this continues, open the invoice once and Save without changing lines, then record payment again.',
+          );
+        }
+      } else {
+        throw e1;
+      }
+    }
 
     try {
       await saveReceipt({
         id: paymentEntry.id,
         date: paymentEntry.date,
         receiptNo: paymentEntry.receiptNo,
-        clientName: bill.data?.client?.name || bill.clientName || '',
-        clientAddress: bill.data?.client?.address || '',
+        clientName: base.data?.client?.name || base.clientName || '',
+        clientAddress: base.data?.client?.address || '',
         amount: paymentEntry.amount,
         paymentMode: paymentEntry.mode,
         referenceNo: paymentEntry.note || '',
-        againstInvoice: bill.invoiceNumber || bill.id || '',
+        againstInvoice: base.invoiceNumber || base.id || '',
         note: paymentEntry.note || '',
-        currency: bill.currency || bill.data?.invoiceOptions?.currency || 'INR',
+        currency: base.currency || base.data?.invoiceOptions?.currency || 'INR',
         source,
-        billId: bill.id,
+        billId: base.id,
         ownerGstin: profile?.gstin || '',
         ownerName: profile?.businessName || '',
         profileId: profile?.id || '',
@@ -724,17 +756,17 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         || paymentEntry.mode === 'advance-apply';
       const jnl = isAdvanceApply
         ? null
-        : journalFromPayment(updatedBill, amount, paymentEntry.mode, {
-            id: paymentEntry.id,
-            date: paymentEntry.date,
-            party: bill.clientName || bill.data?.client?.name,
-            againstDoc: bill.invoiceNumber || bill.id,
+        : journalFromPayment(base, amount, paymentEntry.mode, {
+            receiptNo: paymentEntry.receiptNo,
+            paymentId: paymentEntry.id,
+            againstInvoice: base.invoiceNumber || base.id,
+            note: paymentEntry.note,
           });
       if (jnl) {
-        jnl.againstInvoice = bill.invoiceNumber || bill.id;
-        jnl.invoiceNumber = bill.invoiceNumber || bill.id;
+        jnl.againstInvoice = base.invoiceNumber || base.id;
+        jnl.invoiceNumber = base.invoiceNumber || base.id;
         jnl.receiptNo = paymentEntry.receiptNo;
-        jnl.refId = bill.invoiceNumber || bill.id;
+        jnl.refId = base.invoiceNumber || base.id;
         await saveJournal(jnl);
       }
     } catch (e) {
@@ -742,7 +774,6 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     }
     return { updatedBill, paymentEntry, totalPaid, billTotal };
   };
-
   const changeStatus = async (bill, newStatus) => {
     const alreadyPaid = (bill.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
       || Number(bill.paidAmount) || 0;
@@ -970,28 +1001,8 @@ const openPaymentModal = (bill) => {
       toast('Cannot add payment to a cancelled invoice', 'warning');
       return;
     }
-    if (!isPaymentDocType(bill.invoiceType || bill.data?.invoiceType)) {
-      toast('Payments only apply to Tax Invoices (not Proforma / Quotation / DC)', 'warning');
-      return;
-    }
-    const billTotal = resolveBillTotal(bill);
-    const alreadyPaid = resolveAlreadyPaid(bill);
-    const outstanding = Math.max(0, Math.round((billTotal - alreadyPaid) * 100) / 100);
-    if (billTotal <= 0.005) {
-      toast('Invoice total is ₹0 or missing — open Edit, re-save the invoice, then try payment again', 'error');
-      return;
-    }
-    if (outstanding <= 0.005) {
-      toast('No outstanding balance on this invoice (already fully paid)', 'info');
-      return;
-    }
-    setPaymentModal({ ...bill, totalAmount: billTotal, paidAmount: alreadyPaid });
-    setPaymentInput({
-      amount: String(outstanding),
-      date: new Date().toISOString().split('T')[0],
-      mode: 'bank-transfer',
-      note: '',
-    });
+    setPaymentModal(bill);
+    setPaymentInput({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'bank-transfer', note: '' });
   };
 
   const recordPayment = async () => {
@@ -1027,7 +1038,7 @@ const openPaymentModal = (bill) => {
       loadBills();
     } catch (e) {
       console.error('[recordPayment]', e);
-      toast(e?.message || 'Could not record payment — try again or re-save the invoice first', 'error');
+      toast(e?.message || 'Could not record payment', 'error');
     }
   };
 
