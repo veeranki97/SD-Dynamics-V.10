@@ -371,7 +371,7 @@ export const getAllWorkOrders = async () => {
   return Array.isArray(data) ? data : (data?.items || []);
 };
 
-export const saveWorkOrder = async (wo, { overwrite = false } = {}) => {
+export const saveWorkOrder = async (wo, { overwrite = false, action } = {}) => {
   const payload = { ...(wo || {}) };
   if (!payload.id) {
     payload.id = 'wo_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -383,7 +383,9 @@ export const saveWorkOrder = async (wo, { overwrite = false } = {}) => {
     await logActivity({
       entityType: 'work_order',
       entityId: wo?.woNumber || wo?.id || wo?.number,
-      action: 'save',
+      // The form caller explicitly distinguishes new records from edits.
+      // Keep a safe fallback for any future caller that omits the action.
+      action: action || (overwrite ? 'update' : 'create'),
       diff: { id: wo?.id },
     });
   } catch { /* ignore */ }

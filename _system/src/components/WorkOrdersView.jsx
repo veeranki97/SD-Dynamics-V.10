@@ -307,6 +307,13 @@ const updateItem = (idx, field, value) => {
   const save = async () => {
     if (!(form.clientName || '').trim()) { toast('Client is required', 'error'); return; }
     if (!(form.title || '').trim()) { toast('Title of work is required', 'error'); return; }
+
+    // New forms can already have a generated ID. Determine create/edit by
+    // checking whether that ID exists in the persisted work-order list.
+    const isEditing = (list || []).some(
+      existing => String(existing?.id || '') === String(form.id || '')
+    );
+
     let woNumber = form.woNumber;
     if (!(woNumber || '').trim()) {
       const n = list.length + 1;
@@ -324,7 +331,7 @@ const updateItem = (idx, field, value) => {
         ...form, id: woId, woNumber, items,
         approvedBudget: t.total,
         taxable: t.sub, cgst: t.cgst, sgst: t.sgst, igst: t.igst, total: t.total,
-      }, { overwrite: true });
+      }, { overwrite: true, action: isEditing ? 'update' : 'create' });
       toast('Work Order saved', 'success');
       try {
         if (sessionStorage.getItem('sd_return_to_invoice') === '1') {
