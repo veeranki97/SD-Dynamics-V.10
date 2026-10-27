@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, FileText, Printer } from 'lucide-react';
+import { Plus, Trash2, FileText, Printer, Search, X, ShoppingCart, IndianRupee, ClipboardList } from 'lucide-react';
 import {
   getAllPurchaseOrders,
   savePurchaseOrder,
@@ -12,7 +12,7 @@ import {
   getAllPurchases,
 } from '../store';
 import { emptyWOItem, calcItemAmount, resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
-import { formatCurrency } from '../utils';
+import { formatCurrency, getFYOptions } from '../utils';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
 import { sendMailSmart } from '../utils/openMail';
@@ -503,6 +503,13 @@ function printPO(po, profile, fingerprint, clientsList) {
 
 export default function PurchaseOrdersView() {
   const [list, setList] = useState([]);
+  const [poSearch, setPoSearch] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('');
+  const [poStatusFilter, setPoStatusFilter] = useState('all');
+  const [billingFilter, setBillingFilter] = useState('all');
+  const [fyFilter, setFyFilter] = useState('');
+  const fyOptions = getFYOptions();
+
   const [workOrders, setWorkOrders] = useState([]);
   const [purchases, setPurchases] = useState([]); // for billing-status badge
   const [costCenters, setCostCenters] = useState([]);
@@ -512,7 +519,14 @@ export default function PurchaseOrdersView() {
   // Master HSN/SAC + units (same keys as InvoiceGenerator)
   const [hsnMaster, setHsnMaster] = useState([]);
   const [unitMaster, setUnitMaster] = useState(['Nos', 'Hrs', 'Days', 'Kg', 'Ltr', 'Mtr', 'Sqft', 'Job']);
+  
   useEffect(() => {
+    try {
+      const opts = getFYOptions();
+      if (opts?.[0]?.value) setFyFilter(opts[0].value);
+    } catch (_) {}
+  }, []);
+useEffect(() => {
     try {
       const custom = getHsnMaster();
       setHsnMaster(Array.isArray(custom) ? custom.filter(Boolean) : []);
@@ -527,7 +541,6 @@ export default function PurchaseOrdersView() {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -540,22 +553,17 @@ export default function PurchaseOrdersView() {
         getAllPurchases().catch(() => []),
       ]);
       const raw = Array.isArray(pos) ? pos : (pos?.items || []);
-      // Drop null/invalid rows — prevents blank-page crash in list.map
-      setLoadError('');
       setList((raw || []).filter((po) => po != null && typeof po === 'object').map((po) => ({
         ...po,
-        site: asText(po.site) || asText(po.shipToSite) || po.site || '',
+        site: asText(po.site) || asText(po.shipToSite) || (typeof po.site === 'string' ? po.site : ''),
         vendorName: asText(po.vendorName) || asText(po.vendor) || po.vendorName || '',
       })));
-      setVendors((clients || []).filter(c => c && (c.isVendor || c.type === 'vendor')));
+      setVendors((clients || []).filter(c => c.isVendor || c.type === 'vendor'));
       setProfile(prof);
-      setWorkOrders(Array.isArray(wos) ? wos.filter(Boolean) : []);
-      setPurchases(Array.isArray(purs) ? purs.filter(Boolean) : []);
-    } catch (e) {
-      console.error('[PO] load', e);
-      setLoadError(e?.message || 'Failed to load Purchase Orders');
+      setWorkOrders(wos || []);
+      setPurchases(purs || []);
+    } catch {
       toast('Failed to load Purchase Orders', 'error');
-      setList((prev) => Array.isArray(prev) ? prev : []);
     } finally {
       setLoading(false);
     }
@@ -568,8 +576,8 @@ export default function PurchaseOrdersView() {
         const sites = new Set(['Main Site']);
         const addSite = (s) => {
           if (s == null || s === '') return;
-          const label = asText(s).trim();
-          if (label) sites.add(label);
+          if (typeof s === 'string') { sites.add(s.trim()); return; }
+          if (typeof s === 'object' && s.name) sites.add(String(s.name).trim());
         };
         (cs || []).forEach(c => {
           addSite(c.site);
@@ -651,7 +659,6 @@ export default function PurchaseOrdersView() {
       vendorGstin: '',
       vendorState: '',
       workOrderId: '',
-      costCenterId: '',
       isSubcontract: false,
       site: 'Main Site',
       date: new Date().toISOString().split('T')[0],
@@ -680,38 +687,33 @@ export default function PurchaseOrdersView() {
   );
 
   const save = async () => {
-    if (!form) return;
     if (!form.vendorName?.trim()) return toast('Vendor required', 'error');
     if (!(form.costCenterId || '').trim()) return toast('Cost Center is required', 'error');
+    if (!form.poNumber?.trim()) form.poNumber = await nextPONumber();
+    const items = (form.items || []).map(it => ({ ...it, amount: calcItemAmount(it) }));
+    const totals = calcPOTotals(items, form.taxRate, form.vendorState, profile?.state);
+    const payload = {
+      ...form,
+      site: asText(form.site) || form.site || 'Main Site',
+      vendorName: asText(form.vendorName) || form.vendorName || '',
+      id: form.id || ('po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+      items,
+      ...totals,
+      fingerprint: await sha256Hex(JSON.stringify({
+        po: form.poNumber, vendor: form.vendorName, items, totals, date: form.date,
+      })),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
     if (form.isSubcontract && !(form.workOrderId || form.workOrderNumber)) {
       toast('Subcontract PO requires a linked Work Order', 'error');
       return;
     }
-    try {
-      let poNumber = (form.poNumber || '').trim();
-      if (!poNumber) {
-        poNumber = await nextPONumber();
-      }
-      const items = (form.items || []).map(it => ({ ...it, amount: calcItemAmount(it) }));
-      if (!items.length) {
-        toast('Add at least one line item', 'error');
-        return;
-      }
-      const totals = calcPOTotals(items, form.taxRate, form.vendorState, profile?.state) || {};
-      const payload = {
-        ...form,
-        poNumber,
-        site: asText(form.site) || 'Main Site',
-        vendorName: asText(form.vendorName) || form.vendorName || '',
-        id: form.id || ('po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
-        items,
-        ...totals,
-        total: Number(totals.total) || Number(form.total) || 0,
-        fingerprint: await sha256Hex(JSON.stringify({
-          po: poNumber, vendor: form.vendorName, items, totals, date: form.date,
-        })),
-        updatedAt: new Date().toISOString(),
-      };
+    if (false && form.isSubcontract && !(form.workOrderId || form.workOrderNumber)) {
+      toast('Subcontract PO must link a client Work Order / Project', 'error');
+      return;
+    }
+
       await savePurchaseOrder(payload, { overwrite: true });
       try {
         await appendApprovalLog({
@@ -721,18 +723,10 @@ export default function PurchaseOrdersView() {
         });
       } catch (_) {}
       toast(`PO ${payload.poNumber} saved`, 'success');
-      // Leave form first so list UI mounts, then refresh list (never leave loading stuck)
       setForm(null);
-      try {
-        await load();
-      } catch (e2) {
-        console.error('[PO] reload after save', e2);
-        setLoading(false);
-      }
+      load();
     } catch (e) {
-      console.error('[PO] save', e);
       toast(e?.message || 'Save failed', 'error');
-      setLoading(false);
     }
   };
 
@@ -743,14 +737,7 @@ export default function PurchaseOrdersView() {
     load();
   };
 
-  if (loading) return (
-    <div className="page" style={{ padding: 24 }}>
-      <p>Loading purchase orders…</p>
-      <button type="button" className="btn btn-secondary" onClick={() => { setLoading(false); }}>
-        Show page anyway
-      </button>
-    </div>
-  );
+  if (loading) return <div className="page"><p>Loading…</p></div>;
 
   if (form) {
     return (
@@ -988,21 +975,160 @@ export default function PurchaseOrdersView() {
     );
   }
 
+
+  function poBillingInfo(po) {
+    const poNum = (po.poNumber || '').trim().toLowerCase();
+    const matchingPurchases = (purchases || []).filter(p => {
+      const lp = String(p.linkedPO ?? '').trim().toLowerCase();
+      return poNum && lp && lp === poNum;
+    });
+    const billedSum = matchingPurchases.reduce((acc, p) => acc + (Number(p.totalAmount) || 0), 0);
+    const poTotal = Number(po.total) || 0;
+    let billingStatus = 'Open';
+    if (billedSum >= poTotal && poTotal > 0) billingStatus = 'Fully Billed';
+    else if (billedSum > 0) billingStatus = 'Partially Billed';
+    return { billedSum, poTotal, billingStatus };
+  }
+
+  const vendorNames = Array.from(new Set((list || []).map(p => (p.vendorName || '').trim()).filter(Boolean))).sort();
+
+  const filteredList = (list || []).filter(po => {
+    if (poSearch.trim()) {
+      const q = poSearch.trim().toLowerCase();
+      const hay = [po.poNumber, po.vendorName, po.site, po.workOrderNumber, po.subject, po.title, po.notes]
+        .map(x => String(x || '').toLowerCase()).join(' ');
+      if (!hay.includes(q)) return false;
+    }
+    if (vendorFilter && String(po.vendorName || '') !== vendorFilter) return false;
+    if (poStatusFilter && poStatusFilter !== 'all') {
+      const st = String(po.status || '').toLowerCase();
+      if (st !== poStatusFilter.toLowerCase()) return false;
+    }
+    if (billingFilter && billingFilter !== 'all') {
+      const { billingStatus } = poBillingInfo(po);
+      if (billingFilter === 'open' && billingStatus !== 'Open') return false;
+      if (billingFilter === 'partial' && billingStatus !== 'Partially Billed') return false;
+      if (billingFilter === 'full' && billingStatus !== 'Fully Billed') return false;
+    }
+    if (fyFilter) {
+      const fy = fyOptions.find(f => f.value === fyFilter);
+      if (fy && po.date) {
+        if (po.date < fy.from || po.date > fy.to) return false;
+      }
+    }
+    return true;
+  });
+
+  const poKpis = (() => {
+    let total = 0, taxable = 0, gst = 0, open = 0, issued = 0;
+    for (const po of filteredList) {
+      total += Number(po.total) || 0;
+      taxable += Number(po.sub) || 0;
+      gst += Number(po.gst) || 0;
+      const st = String(po.status || '').toLowerCase();
+      if (st !== 'cancelled' && st !== 'fully-received') open += 1;
+      if (st === 'issued') issued += 1;
+    }
+    return { count: filteredList.length, total, taxable, gst, open, issued };
+  })();
+
   return (
-    <div className="page">
-      {loadError ? (
-        <div className="glass-panel" style={{ padding: 12, marginBottom: 12, borderLeft: '4px solid #dc2626' }}>
-          <strong>Could not load POs:</strong> {loadError}
-          <button type="button" className="btn btn-secondary" style={{ marginLeft: 8 }} onClick={() => load()}>Retry</button>
-        </div>
-      ) : null}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div className="page dashboard-container">
+      <div className="page-header" style={{ marginBottom: 8 }}>
         <div>
-          <h2 style={{ margin: 0 }}>Purchase Orders</h2>
-          <p className="page-subtitle" style={{ margin: 0 }}>SD-style PO with GST bifurcation & digitally fingerprinted print</p>
+          <h1 className="page-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ShoppingCart size={22} /> Purchase Orders
+          </h1>
+          <p className="page-subtitle" style={{ margin: '2px 0 0' }}>
+            GST PO · billing status · search & filter
+          </p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} /> New PO</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn-secondary" onClick={() => downloadRowsCsv('Purchase-Orders.csv', filteredList || [], [
+            { key: 'poNumber', label: 'PO No' }, { key: 'date', label: 'Date' },
+            { key: 'vendorName', label: 'Vendor' }, { key: 'site', label: 'Site' },
+            { key: 'status', label: 'Status' }, { key: 'total', label: 'Total' },
+          ])}>Export CSV</button>
+          <button type="button" className="btn btn-primary" onClick={openNew}><Plus size={16} /> New PO</button>
+        </div>
       </div>
+
+      <div className="stats-grid stats-grid-dense" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-blue" style={{ width: 36, height: 36 }}><ClipboardList size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Open / Total</p>
+            <h2 className="stat-value" style={{ margin: 0, fontSize: '1.05rem' }}>{poKpis.open} / {poKpis.count}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-purple" style={{ width: 36, height: 36 }}><IndianRupee size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>Taxable</p>
+            <h2 className="stat-value stat-value-purple" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(poKpis.taxable)}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon stat-icon-green" style={{ width: 36, height: 36 }}><FileText size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>GST</p>
+            <h2 className="stat-value stat-value-green" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(poKpis.gst)}</h2>
+          </div>
+        </div>
+        <div className="stat-card" style={{ padding: '0.55rem 0.75rem' }}>
+          <div className="stat-icon" style={{ width: 36, height: 36 }}><ShoppingCart size={18} /></div>
+          <div>
+            <p className="stat-label" style={{ margin: 0, fontSize: '0.7rem' }}>PO Total</p>
+            <h2 className="stat-value" style={{ margin: 0, fontSize: '1.05rem' }}>{formatCurrency(poKpis.total)}</h2>
+          </div>
+        </div>
+      </div>
+
+      <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap', alignItems: 'center', width: '100%' }}>
+          <div className="search-box" style={{ flex: '1 1 auto', minWidth: 120, maxWidth: 'none', width: 'auto' }}>
+            <Search size={16} className="search-icon" />
+            <input
+              type="text"
+              className="search-input"
+              style={{ width: '100%' }}
+              placeholder="Search PO #, vendor, site, WO..."
+              value={poSearch}
+              onChange={e => setPoSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ flex: '0 0 auto', display: 'flex', gap: '0.4rem', alignItems: 'center', flexShrink: 0 }}>
+            <select className="filter-select" value={vendorFilter} onChange={e => setVendorFilter(e.target.value)} style={{ width: 150 }} title="Vendor">
+              <option value="">All vendors</option>
+              {vendorNames.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select className="filter-select" value={poStatusFilter} onChange={e => setPoStatusFilter(e.target.value)} style={{ width: 130 }} title="PO status">
+              <option value="all">All status</option>
+              <option value="draft">Draft</option>
+              <option value="issued">Issued</option>
+              <option value="partially-received">Partially received</option>
+              <option value="fully-received">Fully received</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select className="filter-select" value={billingFilter} onChange={e => setBillingFilter(e.target.value)} style={{ width: 130 }} title="Billing">
+              <option value="all">All billing</option>
+              <option value="open">Open</option>
+              <option value="partial">Partial</option>
+              <option value="full">Fully billed</option>
+            </select>
+            <select className="filter-select" value={fyFilter} onChange={e => setFyFilter(e.target.value)} style={{ width: 120 }} title="Financial year">
+              {fyOptions.map(fy => <option key={fy.value} value={fy.value}>{fy.label}</option>)}
+            </select>
+            {(poSearch || vendorFilter || (poStatusFilter && poStatusFilter !== 'all') || (billingFilter && billingFilter !== 'all')) && (
+              <button type="button" className="icon-btn icon-btn-red" title="Clear filters"
+                onClick={() => { setPoSearch(''); setVendorFilter(''); setPoStatusFilter('all'); setBillingFilter('all'); }}>
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="list-module po-list-module glass-panel">
             <table className="data-table" style={{ width: '100%' }}>
         <thead>
@@ -1012,10 +1138,9 @@ export default function PurchaseOrdersView() {
           </tr>
         </thead>
         <tbody>
-          {(list || []).filter(Boolean).map(po => {
-            if (!po || typeof po !== 'object') return null;
+          {filteredList.map(po => {
             // Compute billing status using the same calcWOUsage-style pattern
-            const poNum = String(po.poNumber || '').trim().toLowerCase();
+            const poNum = (po.poNumber || '').trim().toLowerCase();
             const matchingPurchases = (purchases || []).filter(p => {
               const lp = String(p.linkedPO ?? '').trim().toLowerCase();
               return poNum && lp && lp === poNum;
@@ -1056,7 +1181,7 @@ export default function PurchaseOrdersView() {
             };
 
             return (
-              <tr key={po.id || po.poNumber || po.number || JSON.stringify(po).slice(0, 40)}>
+              <tr key={po.id}>
                 <td>
                   <span style={{ fontWeight: 600 }}>{po.poNumber}</span>
                   {po.isSubcontract && (
@@ -1077,7 +1202,7 @@ export default function PurchaseOrdersView() {
                 <td className="text-end">{formatCurrency(po.sub || 0)}</td>
                 <td className="text-end">{formatCurrency(po.gst || 0)}</td>
                 <td className="text-end">{formatCurrency(po.total || 0)}</td>
-                <td>
+                <td className="po-actions-col" style={{ position: 'sticky', right: 0, zIndex: 2, background: 'var(--surface, var(--card, #fff))', boxShadow: '-4px 0 8px rgba(0,0,0,0.04)', width: 48, minWidth: 48, textAlign: 'center' }}>
                   <ActionMenu items={[
                     { label: 'Create Bill', onClick: handleCreateBill },
                     { label: 'Edit', onClick: () => setForm({ ...po, terms: po.terms || DEFAULT_PO_TERMS, subject: po.subject || po.title || '' }) },
@@ -1107,8 +1232,10 @@ export default function PurchaseOrdersView() {
               </tr>
             );
           })}
-          {list.length === 0 && (
-            <tr><td colSpan={9} style={{ textAlign: 'center', color: '#94a3b8' }}>No purchase orders yet</td></tr>
+          {filteredList.length === 0 && (
+            <tr><td colSpan={10} style={{ textAlign: 'center', color: '#94a3b8' }}>
+              {list.length === 0 ? 'No purchase orders yet' : 'No purchase orders match your search / filters'}
+            </td></tr>
           )}
         </tbody>
       </table>

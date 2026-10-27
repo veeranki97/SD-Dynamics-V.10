@@ -102,6 +102,37 @@ export default function ExpenseTracker() {
     loadExpenses();
   }, []);
 
+  // Prefill + open New Expense when navigated from Work Order action
+  useEffect(() => {
+    const applyWoExpensePrefill = () => {
+      try {
+        const raw = sessionStorage.getItem('sd_expense_from_wo');
+        if (!raw) return;
+        sessionStorage.removeItem('sd_expense_from_wo');
+        const p = JSON.parse(raw);
+        if (!p || typeof p !== 'object') return;
+        setEditingId(null);
+        setForm(prev => ({
+          ...emptyForm,
+          ...prev,
+          date: new Date().toISOString().slice(0, 10),
+          description: p.description || (p.workOrderNumber ? `Job cost — ${p.workOrderNumber}` : 'Job cost'),
+          workOrderId: p.workOrderId || p.workOrderNumber || '',
+          costCenterId: p.costCenterId || '',
+          site: typeof p.site === 'object' ? (p.site?.name || '') : (p.site || ''),
+          category: p.category || 'Job Cost',
+          note: p.clientName ? `WO client: ${p.clientName}` : '',
+        }));
+        setShowForm(true);
+      } catch (e) {
+        console.warn('[expense] wo prefill', e);
+      }
+    };
+    applyWoExpensePrefill();
+    window.addEventListener('sd-expense-prefill', applyWoExpensePrefill);
+    return () => window.removeEventListener('sd-expense-prefill', applyWoExpensePrefill);
+  }, []);
+
   const filtered = expenses.filter(exp => {
     if (search.trim()) {
       const q = search.toLowerCase();
