@@ -6,7 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import TopCreateMenu from './TopCreateMenu';
-import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut } from 'lucide-react';
+import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut, Calendar, ShoppingCart } from 'lucide-react';
 import HelpButton from './HelpButton';
 import { getAllBills, getAllWorkOrders, deleteBill, saveBill, getAllProducts, saveProduct, getProfile, getAllClients, getStockAlertSettings, saveReceipt, deleteReceipt, getAllReceipts, saveJournal, getAllJournals, getNextInvoiceNumber, logActivity, getAllPurchases } from '../store';
 import { journalFromPayment, journalReversePayment } from '../utils/ledger';
@@ -229,7 +229,7 @@ function exportInvoicesCsv(bills) {
   a.click();
 }
 
-export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, darkMode = false, onToggleTheme, onLogout }) {
+export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpenProducts, activeProfile, listMode = false, onOpenSearch, onOpenNotifs, notifCount = 0, darkMode = false, onToggleTheme, onLogout }) {
   // v1.10.64 — requested (#55, @sangwanmail-eng): "An invoice belonging to one
   // company should not appear under the other."
   //
@@ -714,6 +714,20 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
 
     try {
       await saveBill(updatedBill, { overwrite: true, force: true });
+      try {
+        await logActivity({
+          entityType: 'invoice',
+          entityId: base.invoiceNumber || base.id,
+          action: nextStatus === 'paid' ? 'payment_paid' : 'payment',
+          diff: {
+            amount,
+            paidAmount: totalPaid,
+            status: nextStatus,
+            receiptNo: paymentEntry.receiptNo,
+            mode: paymentEntry.mode,
+          },
+        });
+      } catch { /* ignore */ }
     } catch (e1) {
       const msg = String(e1?.message || e1 || '');
       if (/locked|payment fields|final/i.test(msg)) {
@@ -1632,8 +1646,16 @@ const openPaymentModal = (bill) => {
             )}
             <TopCreateMenu onNewInvoice={onNew} />
             {typeof onOpenNotifs === 'function' && (
-              <button type="button" className="icon-btn" title="Notifications" onClick={onOpenNotifs} aria-label="Notifications">
+              <button type="button" className="icon-btn" title={notifCount > 0 ? `Notifications (${notifCount})` : 'Notifications'} onClick={onOpenNotifs} aria-label="Notifications" style={{ position: 'relative' }}>
                 <Bell size={18} />
+                {notifCount > 0 && (
+                  <span style={{
+                    position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, padding: '0 5px',
+                    borderRadius: 9, background: 'var(--danger, #dc2626)', color: '#fff',
+                    fontSize: '0.65rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    lineHeight: 1, boxShadow: '0 0 0 2px var(--surface, #fff)',
+                  }}>{notifCount > 99 ? '99+' : notifCount}</span>
+                )}
               </button>
             )}
             {typeof onToggleTheme === 'function' && (
@@ -1845,14 +1867,20 @@ const openPaymentModal = (bill) => {
             setDateTo(dateTo);
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">This month sales</p>
-          <p className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</p>
+          <div className="stat-icon stat-icon-blue"><Calendar size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">This month sales</p>
+            <div className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</div>
+          </div>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
           onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">This month purchases</p>
-          <p className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</p>
+          <div className="stat-icon stat-icon-purple"><ShoppingCart size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">This month purchases</p>
+            <div className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</div>
+          </div>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
           onClick={() => {
@@ -1864,8 +1892,11 @@ const openPaymentModal = (bill) => {
             setStatusFilter('draft');
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">Drafts</p>
-          <p className="stat-value">{secondaryKpis.drafts}</p>
+          <div className="stat-icon"><FileText size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">Drafts</p>
+            <div className="stat-value">{secondaryKpis.drafts}</div>
+          </div>
         </div>
         <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
           onClick={() => {
@@ -1877,8 +1908,11 @@ const openPaymentModal = (bill) => {
             setTypeFilter('tax-invoice'); setStatusFilter('unpaid');
           }}
           style={{ cursor: 'pointer' }}>
-          <p className="stat-label">Open invoices</p>
-          <p className="stat-value">{secondaryKpis.openInv}</p>
+          <div className="stat-icon stat-icon-amber"><Clock size={22} /></div>
+          <div style={{ flex: 1 }}>
+            <p className="stat-label">Open invoices</p>
+            <div className="stat-value">{secondaryKpis.openInv}</div>
+          </div>
         </div>
       </div>
       </div>

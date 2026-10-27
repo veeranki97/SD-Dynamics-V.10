@@ -22,10 +22,31 @@ function phraseFor(row) {
   const type = String(row.entityType || 'record').replace(/^bill$/, 'invoice');
   const id = row.entityId || '';
   const who = row.user && row.user !== 'local' && row.user !== 'server' ? row.user : 'You';
+  const diff = row.diff || {};
+  const amt = diff.amount != null ? Number(diff.amount) : null;
+  const amtStr = amt != null && Number.isFinite(amt)
+    ? ' ₹' + amt.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+    : '';
+
   if (action === 'create') return `${who} created ${type} ${id}`;
-  if (action === 'update' || action === 'save') return `${who} last edited ${type} ${id}`;
-  if (action === 'delete' || action === 'soft_delete' || action === 'cancel') return `${who} cancelled ${type} ${id}`;
+  if (action === 'payment_paid' || action === 'mark_paid' || (action === 'payment' && String(diff.status || '').toLowerCase() === 'paid')) {
+    return `${who} recorded payment${amtStr} and marked ${type} ${id} paid`;
+  }
+  if (action === 'payment' || action === 'payment_partial' || action === 'record_payment') {
+    return `${who} recorded payment${amtStr} on ${type} ${id}`;
+  }
+  if (action === 'status_paid') return `${who} marked ${type} ${id} paid`;
+  if (action === 'status_partial') return `${who} marked ${type} ${id} partially paid`;
+  if (action === 'status_unpaid') return `${who} marked ${type} ${id} unpaid`;
+  if (action === 'cancel' || action === 'delete' || action === 'soft_delete') return `${who} cancelled ${type} ${id}`;
   if (action === 'open' || action === 'view') return `${who} opened ${type} ${id}`;
+  // Prefer status from diff when generic update is really a payment save
+  if ((action === 'update' || action === 'save') && (diff.paidAmount != null || diff.payments != null) && diff.status) {
+    const st = String(diff.status).toLowerCase();
+    if (st === 'paid') return `${who} recorded payment${amtStr} and marked ${type} ${id} paid`;
+    if (st === 'partial') return `${who} recorded payment${amtStr} on ${type} ${id}`;
+  }
+  if (action === 'update' || action === 'save') return `${who} last edited ${type} ${id}`;
   return `${who} ${action || 'updated'} ${type} ${id}`.trim();
 }
 
