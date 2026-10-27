@@ -91,9 +91,16 @@ export default function ReceiptVoucher() {
   };
 
   const filtered = search.trim()
-    ? receipts.filter(r =>
-        (r.clientName || '').toLowerCase().includes(search.toLowerCase()) ||
-        (r.receiptNo || '').toLowerCase().includes(search.toLowerCase()))
+    ? receipts.filter(r => {
+        const q = search.toLowerCase();
+        return (
+          (r.clientName || '').toLowerCase().includes(q) ||
+          (r.receiptNo || '').toLowerCase().includes(q) ||
+          (r.referenceNo || '').toLowerCase().includes(q) ||
+          (r.againstInvoice || '').toLowerCase().includes(q) ||
+          (r.note || '').toLowerCase().includes(q)
+        );
+      })
     : receipts;
 
   const openAdd = async () => {
@@ -451,50 +458,144 @@ export default function ReceiptVoucher() {
       {showForm && (
         <div className="modal-overlay" onClick={closeForm}>
           <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px' }}>
-            <h3 className="section-title" style={{ marginBottom: '1rem' }}>{editingId ? 'Edit Transaction' : 'Record Transaction'}</h3>
+            <div style={{ marginBottom: '1rem' }}>
+              <h3 className="section-title" style={{ margin: 0 }}>{editingId ? 'Edit transaction' : 'Record transaction'}</h3>
+              <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--text-muted, #64748b)' }}>
+                Receipts, advances, and vendor outflows in one place
+              </p>
+            </div>
             
-            {/* Transaction Type Selector */}
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label">Select Transaction Type</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
-                <button type="button" 
-                  onClick={() => handleTypeChange('invoice')}
-                  style={{ padding: '0.75rem', borderRadius: '8px', border: form.paymentType === 'invoice' ? '2px solid var(--primary)' : '1px solid var(--border)', background: form.paymentType === 'invoice' ? 'rgba(30, 64, 175, 0.05)' : 'white', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>💰 Payment Received</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Client payment against an existing invoice</div>
-                </button>
-                <button type="button" 
-                  onClick={() => handleTypeChange('advance')}
-                  style={{ padding: '0.75rem', borderRadius: '8px', border: form.paymentType === 'advance' ? '2px solid var(--primary)' : '1px solid var(--border)', background: form.paymentType === 'advance' ? 'rgba(30, 64, 175, 0.05)' : 'white', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ fontWeight: 700, color: 'var(--primary)', marginBottom: '4px' }}>📥 Customer Advance</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Advance received before work begins</div>
-                </button>
-                <button type="button" 
-                  onClick={() => handleTypeChange('vendor')}
-                  style={{ padding: '0.75rem', borderRadius: '8px', border: form.paymentType === 'vendor' ? '2px solid #dc2626' : '1px solid var(--border)', background: form.paymentType === 'vendor' ? 'rgba(220, 38, 38, 0.05)' : 'white', textAlign: 'left', cursor: 'pointer' }}>
-                  <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: '4px' }}>📤 Vendor Payment</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Money paid out to a supplier or vendor</div>
-                </button>
+            {/* Transaction Type — segmented premium tabs */}
+            <div className="form-group" style={{ marginBottom: '1.15rem' }}>
+              <label className="form-label" style={{ marginBottom: 8 }}>Transaction type</label>
+              <div
+                role="tablist"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr 1fr',
+                  gap: 6,
+                  padding: 4,
+                  borderRadius: 12,
+                  background: 'var(--bg-secondary, #f1f5f9)',
+                  border: '1px solid var(--border, #e2e8f0)',
+                }}
+              >
+                {[
+                  { id: 'invoice', label: 'Invoice payment', hint: 'Against open invoice', tone: 'in' },
+                  { id: 'advance', label: 'Customer advance', hint: 'Before work / credit', tone: 'in' },
+                  { id: 'vendor', label: 'Vendor payment', hint: 'Outflow to supplier', tone: 'out' },
+                ].map(tab => {
+                  const active = form.paymentType === tab.id;
+                  const out = tab.tone === 'out';
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => handleTypeChange(tab.id)}
+                      style={{
+                        padding: '0.65rem 0.7rem',
+                        borderRadius: 9,
+                        border: active
+                          ? (out ? '1.5px solid #fecaca' : '1.5px solid #bfdbfe')
+                          : '1.5px solid transparent',
+                        background: active
+                          ? (out ? 'linear-gradient(180deg,#fff,#fef2f2)' : 'linear-gradient(180deg,#fff,#eff6ff)')
+                          : 'transparent',
+                        boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        color: active ? (out ? '#b91c1c' : '#1d4ed8') : 'var(--text, #334155)',
+                        marginBottom: 2,
+                      }}>{tab.label}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted, #94a3b8)', lineHeight: 1.3 }}>{tab.hint}</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Quick select from unpaid invoices (Only shows for 'invoice' type) */}
+            {/* Quick select — unpaid invoices (invoice type only) */}
             {form.paymentType === 'invoice' && unpaidBills.length > 0 && !form.againstInvoice && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px dashed var(--border)' }}>
-                <label className="form-label" style={{ marginBottom: '0.5rem' }}>Quick Select — Unpaid Invoices</label>
-                <div className="client-picker" style={{ maxHeight: '150px', overflowY: 'auto' }}>
-                  {unpaidBills.slice(0, 10).map(bill => (
-                    <button key={bill.id} className="client-picker-item" onClick={() => selectInvoice(bill)}>
-                      <div>
-                        <strong>{bill.clientName}</strong>
-                        <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bill.invoiceNumber}</span>
-                      </div>
-                      {(bill.totalAmount - (bill.paidAmount || 0)) > 0.005 && (
-                        <span style={{ fontWeight: 600 }}>{formatCurrency(bill.totalAmount - (bill.paidAmount || 0))}</span>
-                      )}
-                    </button>
-                  ))}
+              <div style={{
+                marginBottom: '1.15rem',
+                padding: '0.85rem 0.9rem',
+                background: 'linear-gradient(180deg, #f8fafc 0%, #fff 100%)',
+                borderRadius: 12,
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#64748b' }}>
+                      Quick select
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>Open invoices — click to fill party & amount</div>
+                  </div>
+                  <span style={{
+                    fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999,
+                    background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe',
+                  }}>{unpaidBills.length} open</span>
                 </div>
+                <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {unpaidBills.slice(0, 12).map(bill => {
+                    const due = Math.max(0, (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0));
+                    const st = String(bill.status || 'unpaid').toLowerCase();
+                    const stColor = st === 'overdue' ? '#b91c1c' : st === 'partial' ? '#b45309' : '#1d4ed8';
+                    const stBg = st === 'overdue' ? '#fef2f2' : st === 'partial' ? '#fffbeb' : '#eff6ff';
+                    return (
+                      <button
+                        key={bill.id}
+                        type="button"
+                        onClick={() => selectInvoice(bill)}
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                          width: '100%', textAlign: 'left', cursor: 'pointer',
+                          padding: '0.55rem 0.7rem', borderRadius: 10,
+                          border: '1px solid #e2e8f0', background: '#fff',
+                          transition: 'border-color 0.12s, box-shadow 0.12s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#93c5fd'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(37,99,235,0.08)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontWeight: 650, fontSize: '0.86rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {bill.clientName || '—'}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.72rem', color: '#64748b', fontFamily: 'ui-monospace, monospace' }}>{bill.invoiceNumber}</span>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: stBg, color: stColor, textTransform: 'capitalize' }}>{st}</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 750, fontSize: '0.9rem', color: '#0f172a' }}>{formatCurrency(due)}</div>
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>due</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {form.paymentType === 'invoice' && form.againstInvoice && (
+              <div style={{
+                marginBottom: '1rem', padding: '0.55rem 0.75rem', borderRadius: 10,
+                background: '#ecfdf5', border: '1px solid #a7f3d0',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.82rem',
+              }}>
+                <span style={{ color: '#047857' }}>
+                  Linked to <strong>{form.againstInvoice}</strong>
+                  {form.clientName ? <> · {form.clientName}</> : null}
+                </span>
+                <button type="button" className="btn btn-sm btn-secondary" style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                  onClick={() => updateField('againstInvoice', '')}>Change</button>
               </div>
             )}
 
@@ -637,15 +738,6 @@ export default function ReceiptVoucher() {
           </div>
         </div>
       )}
-
-      {/* Search */}
-      <div className="list-module-toolbar glass-panel">
-        <div className="search-box" style={{ maxWidth: '400px' }}>
-          <Search size={16} className="search-icon" />
-          <input type="text" placeholder="Search by name or receipt no..." value={search}
-            onChange={e => setSearch(e.target.value)} className="search-input" />
-        </div>
-      </div>
 
       {/* Receipts Table */}
       <div className="list-module receipts-list-module glass-panel">

@@ -24,6 +24,49 @@ import ClientModal from './ClientModal';
 import { toast } from './Toast';
 import QRCode from 'qrcode';
 
+
+const IG_FOCUS_STYLE = `
+.ig-premium-form .form-input:focus,
+.ig-premium-form select.form-input:focus {
+  outline: none;
+  border-color: var(--primary, #1e40af);
+  box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.15);
+}
+.ig-premium-form .form-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.2rem;
+  display: block;
+}
+.ig-premium-form .ig-panel { border-radius: 12px; }
+.ig-premium-form .sd-line-grid .line-item-field {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.ig-premium-form .sd-line-grid .line-item-field .form-input {
+  width: 100%;
+  height: 36px !important;
+  min-height: 36px !important;
+  max-height: 36px !important;
+  box-sizing: border-box;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.84rem;
+}
+.ig-premium-form .line-item-row.sd-line-grid {
+  align-items: start !important;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+.ig-premium-form .line-items-header.sd-line-grid {
+  margin-bottom: 0.25rem;
+}
+`;
+
 // Rich text editor component that works with contentEditable properly
 function RichEditor({ value, onChange, placeholder, toolbar = false }) {
   const ref = useRef(null);
@@ -253,10 +296,12 @@ function SuggestingInput({ item, suggestions, onFieldChange, onSelectProduct, on
   return (
     <>
       <input type="text" className="form-input" value={item.name}
+        placeholder="Description"
         onChange={(e) => onFieldChange(item.id, 'name', e.target.value)}
         onBlur={() => setTimeout(() => onSetProductSearch({ itemId: null, query: '' }), 200)}
         onKeyDown={handleKey}
-        autoComplete="off" />
+        autoComplete="off"
+        style={{ width: '100%', height: 36, minHeight: 36, maxHeight: 36, boxSizing: 'border-box' }} />
       {suggestions.length > 0 && (
         <div className="product-suggestions" role="listbox">
           {suggestions.map((p, i) => (
@@ -304,7 +349,7 @@ const LineItem = memo(function LineItem({
   };
   return (
     <div className="line-item-row sd-line-grid" data-item-id={item.id} onKeyDown={handleRowKeyDown}
-      style={{ display: 'grid', gridTemplateColumns: '2.8fr 0.9fr 0.9fr 0.65fr 0.7fr 0.85fr 0.85fr 0.75fr 0.65fr auto', gap: 6, alignItems: 'end', width: '100%', minWidth: 720 }}>
+      style={{ display: 'grid', gridTemplateColumns: 'minmax(140px,2.8fr) minmax(88px,0.95fr) minmax(72px,0.85fr) minmax(52px,0.55fr) minmax(56px,0.6fr) minmax(72px,0.8fr) minmax(72px,0.8fr) minmax(64px,0.7fr) minmax(56px,0.55fr) auto', gap: 6, alignItems: 'start', width: '100%', minWidth: 720 }}>
       <div className="line-item-field" style={{ position: 'relative', minWidth: 0, flex: '1 1 auto' }}>
         <label className="form-label">Description</label>
         {/* v1.10.37 — Keyboard nav on product suggestions. Reported:
@@ -322,33 +367,56 @@ const LineItem = memo(function LineItem({
           currency={currency}
         />
       </div>
-      <div className="line-item-field" title="Cost center (not printed on PDF)" style={{ minWidth: 0 }}>
+      <div className="line-item-field" title="Cost center (not printed on PDF)" style={{ minWidth: 0, maxWidth: '100%' }}>
           <label className="form-label">CostHead</label>
-          <select className="form-input" value={item.costCenterId || ''}
-            onChange={(e) => onFieldChange(item.id, 'costCenterId', e.target.value)}>
-            <option value="">— None —</option>
+          <input
+            type="text"
+            className="form-input"
+            list={`cc-suggest-${item.id}`}
+            placeholder="Cost head…"
+            autoComplete="off"
+            style={{ width: '100%', height: 36, minHeight: 36, maxHeight: 36, boxSizing: 'border-box' }}
+            value={(() => {
+              const id = item.costCenterId || '';
+              const hit = (costCenters || []).find(cc => (cc.id || cc.name) === id);
+              return hit ? (hit.name || hit.id || id) : id;
+            })()}
+            onChange={(e) => {
+              const q = e.target.value;
+              const hit = (costCenters || []).find(cc =>
+                String(cc.name || '').toLowerCase() === q.toLowerCase() || String(cc.id || '') === q
+              );
+              onFieldChange(item.id, 'costCenterId', hit ? (hit.id || hit.name) : q);
+            }}
+          />
+          <datalist id={`cc-suggest-${item.id}`}>
             {(costCenters || []).map(cc => (
-              <option key={cc.id || cc.name} value={cc.id || cc.name}>{cc.name || cc.id}</option>
+              <option key={cc.id || cc.name} value={cc.name || cc.id} />
             ))}
-          </select>
+          </datalist>
         </div>
       {(
         <div className="line-item-field" style={{ position: 'relative', minWidth: 0 }}>
           <label className="form-label">SAC</label>
-          <select className="form-input" value={item.hsn || ''}
+          <input
+            type="text"
+            className="form-input"
+            list={`hsn-suggest-${item.id}`}
+            placeholder="SAC/HSN"
+            autoComplete="off"
+            style={{ width: '100%', height: 36, minHeight: 36, maxHeight: 36, boxSizing: 'border-box' }}
+            value={item.hsn || ''}
             onChange={(e) => {
               const val = e.target.value;
-              if (val === '__custom__') {
-                onAddCustomSac?.(item.id);
-                return;
-              }
               onFieldChange(item.id, 'hsn', val);
+              if (val === '__custom__') { onAddCustomSac?.(item.id); return; }
               const suggested = suggestGstRate(val);
               if (suggested && (item.taxPercent === undefined || item.taxPercent === 18 || item.taxPercent === 0)) {
                 onFieldChange(item.id, 'taxPercent', suggested.rate);
               }
-            }}>
-            <option value="">— SAC/HSN —</option>
+            }}
+          />
+          <datalist id={`hsn-suggest-${item.id}`}>
             {(() => {
               let master = [];
               try { master = typeof getHsnMaster === 'function' ? getHsnMaster() : []; } catch { master = []; }
@@ -357,17 +425,9 @@ const LineItem = memo(function LineItem({
               }
               const defaults = ['998311','998312','998313','998314','998399','998599','9954','9965','9972'];
               const all = [...new Set([...(master || []).map(String), ...defaults])];
-              return (
-                <>
-                  {item.hsn && !all.includes(String(item.hsn)) && (
-                    <option value={item.hsn}>{item.hsn}</option>
-                  )}
-                  {all.map(c => <option key={c} value={c}>{c}</option>)}
-                </>
-              );
+              return all.map(c => <option key={c} value={c} />);
             })()}
-            <option value="__custom__">＋ Add SAC/HSN…</option>
-          </select>
+          </datalist>
           {/* Show the label of the matched HSN inline so the user can
               confirm the code is right. Hidden until at least 4 chars. */}
           {(() => {
@@ -389,33 +449,16 @@ const LineItem = memo(function LineItem({
       </div>
       <div className="line-item-field" style={{ flex: 0.9 }}>
         <label className="form-label">Unit</label>
-        <select className="form-input" value={item.unit || 'Nos'}
-          onChange={(e) => {
-            if (e.target.value === '__custom__') { onAddCustomUnit(item.id); return; }
-            if (e.target.value.startsWith('__remove__::')) {
-              const label = e.target.value.replace('__remove__::', '');
-              onRemoveCustomUnit(label);
-              return;
-            }
-            onFieldChange(item.id, 'unit', e.target.value);
-          }}>
-          {(() => {
-            const visible = filterUnitsByMode(units, invoiceMode);
-            const showCurrentExtra = item.unit && !visible.some(u => u.label === item.unit);
-            return (
-              <>
-                {showCurrentExtra && <option value={item.unit}>{item.unit}</option>}
-                {visible.map(u => (
-                  <option key={u.label} value={u.label}>{u.label}{u.custom ? ' ★' : ''}</option>
-                ))}
-              </>
-            );
-          })()}
-          <option value="__custom__">＋ Add custom…</option>
-          {units.some(u => u.custom) && units.filter(u => u.custom).map(u => (
-            <option key={`rm-${u.label}`} value={`__remove__::${u.label}`}>− Remove "{u.label}"</option>
+        <input type="text" className="form-input" list={`unit-suggest-${item.id}`} placeholder="Nos"
+          autoComplete="off"
+          style={{ width: '100%', height: 36, minHeight: 36, maxHeight: 36, boxSizing: 'border-box' }}
+          value={item.unit ?? ''}
+          onChange={(e) => onFieldChange(item.id, 'unit', e.target.value)} />
+        <datalist id={`unit-suggest-${item.id}`}>
+          {filterUnitsByMode(units, invoiceMode).map(u => (
+            <option key={u.label} value={u.label} />
           ))}
-        </select>
+        </datalist>
       </div>
         
       <div className="line-item-field" style={{ flex: 1.2 }}>
@@ -3556,24 +3599,32 @@ const validateForSave = useCallback(() => {
   };
 
   return (
-    <div className="generator-container sd-inv-form">
-      <style>{`
+    <div className="ig-premium-form generator-container sd-inv-form">
+      <style>{IG_FOCUS_STYLE + `
 .ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}
 .ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}
 .ig-billing-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:10px;font-size:0.82rem;}
-
 .ig-panel{padding:10px 12px!important;margin-bottom:10px!important;}
-.ig-form-locked{opacity:0.72;pointer-events:none;user-select:none;}
-.ig-form-locked .ig-wo-badge{pointer-events:auto;}
+.ig-form-locked{opacity:0.92;/* keep scroll working */}
+.ig-form-locked input,
+.ig-form-locked select,
+.ig-form-locked textarea,
+.ig-form-locked button,
+.ig-form-locked [contenteditable],
+.ig-form-locked .product-suggestions,
+.ig-form-locked .icon-btn {
+  pointer-events:none !important;
+  cursor:default !important;
+}
+.ig-form-locked .ig-wo-badge{pointer-events:auto !important;cursor:pointer !important;}
+.editor-pane .form-group{margin-bottom:0.5rem!important;}
+`}</style>
       {formLocked && (
         <div style={{ margin: '0 0 10px', padding: '8px 12px', borderRadius: 8, background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <span>This invoice is saved. Click <strong>Edit</strong> to change details, then Save again.</span>
           <button type="button" className="btn btn-sm btn-secondary" onClick={() => setFormLocked(false)}>Edit</button>
         </div>
       )}
-
-.editor-pane .form-group{margin-bottom:0.5rem!important;}
-`}</style>
       <div className="generator-toolbar ig-fixed-savebar">
         <div className="flex gap-2 items-center">
           <button className="btn btn-secondary" onClick={handleBack}><ArrowLeft size={18} /> Back</button>
@@ -3730,7 +3781,7 @@ const validateForSave = useCallback(() => {
       </div>
 
       <div className={`split-view ${previewCollapsed ? 'split-view-focus' : ''}`}>
-        <div className={"editor-pane" + (formLocked ? " ig-form-locked" : "")}>
+        <div className={"editor-pane" + (formLocked ? " ig-form-locked" : "")} style={{ overflowY: "auto", overflowX: "hidden", maxHeight: "calc(100vh - 120px)" }}>
           {/* Business Profile Selector — shown only if multiple profiles saved */}
           {allProfiles.length > 1 && (
             <div className="glass-panel ig-panel">
@@ -4304,25 +4355,33 @@ const validateForSave = useCallback(() => {
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Company / Client *</label>
-                <select className="form-input"
-                  value={(clientOnlyList.find(c => (c.name||'').toLowerCase() === (client.name||'').toLowerCase()) || {}).id || ''}
+                <input
+                  type="text"
+                  className="form-input"
+                  list="inv-client-typeahead"
+                  placeholder="Type client name…"
+                  value={client.name || ''}
                   onChange={e => {
-                    const c = clientOnlyList.find(x => x.id === e.target.value);
-                    if (!c) return;
-                    setSelectedClientId(c.id);
-                    setClient({
-                      name: c.name || '', address: c.address || '', city: c.city || '', pin: c.pin || '',
-                      state: c.state || '', gstin: c.gstin || '', country: c.country || client.country || '',
-                      email: c.email || '', phone: c.phone || '', isSEZ: !!c.isSEZ,
-                      site: siteToLabel(c.site) || siteToLabel(c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
-                    });
-                    if (c.state) setFilterState(c.state);
-                  }}>
-                  <option value="">Select client…</option>
-                  {filteredClients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}{c.gstin ? ` (${c.gstin})` : ''}</option>
+                    const name = e.target.value;
+                    setClient(prev => ({ ...prev, name }));
+                    const c = clientOnlyList.find(x => (x.name || '').toLowerCase() === name.toLowerCase());
+                    if (c) {
+                      setSelectedClientId(c.id);
+                      setClient({
+                        name: c.name || '', address: c.address || '', city: c.city || '', pin: c.pin || '',
+                        state: c.state || '', gstin: c.gstin || '', country: c.country || client.country || '',
+                        email: c.email || '', phone: c.phone || '', isSEZ: !!c.isSEZ,
+                        site: siteToLabel(c.site) || siteToLabel(c.sites && c.sites[0]) || 'Main Site', sites: c.sites || [],
+                      });
+                      if (c.state) setFilterState(c.state);
+                    }
+                  }}
+                />
+                <datalist id="inv-client-typeahead">
+                  {clientOnlyList.map(c => (
+                    <option key={c.id || c.name} value={c.name || ''} />
                   ))}
-                </select>
+                </datalist>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Site *</label>
@@ -4779,11 +4838,23 @@ const validateForSave = useCallback(() => {
               <div className="form-group">
                 <label className="form-label">Invoice Date</label>
                 <input type="date" className="form-input" value={details.invoiceDate}
-                  onChange={(e) => setDetails({ ...details, invoiceDate: e.target.value })} />
+                  onChange={(e) => {
+                    const invoiceDate = e.target.value;
+                    let dueDate = details.dueDate;
+                    if (invoiceDate) {
+                      const d = new Date(invoiceDate + 'T12:00:00');
+                      if (!Number.isNaN(d.getTime())) {
+                        d.setDate(d.getDate() + 30);
+                        dueDate = d.toISOString().slice(0, 10);
+                      }
+                    }
+                    setDetails({ ...details, invoiceDate, dueDate });
+                  }} />
               </div>
               <div className="form-group">
-                <label className="form-label">Due Date</label>
+                <label className="form-label">Due Date <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.72rem' }}>(auto +30d)</span></label>
                 <input type="date" className="form-input" value={details.dueDate}
+                  title="Defaults to Invoice Date + 30 days; override anytime"
                   onChange={(e) => setDetails({ ...details, dueDate: e.target.value })} />
               </div>
               <div className="form-group">
@@ -4878,7 +4949,7 @@ const validateForSave = useCallback(() => {
               </div>
             </div>
             
-            <div className="line-items-header sd-line-grid" style={{ display: 'grid', gridTemplateColumns: '2.8fr 0.9fr 0.9fr 0.65fr 0.7fr 0.85fr 0.85fr 0.75fr 0.65fr auto', gap: 6, fontSize: '0.72rem', fontWeight: 700, color: '#2563eb', padding: '0.35rem 0', borderBottom: '2px solid #e2e8f0', width: '100%' }}>
+            <div className="line-items-header sd-line-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(140px,2.8fr) minmax(88px,0.95fr) minmax(72px,0.85fr) minmax(52px,0.55fr) minmax(56px,0.6fr) minmax(72px,0.8fr) minmax(72px,0.8fr) minmax(64px,0.7fr) minmax(56px,0.55fr) auto', gap: 6, fontSize: '0.72rem', fontWeight: 700, color: '#2563eb', padding: '0.35rem 0', borderBottom: '2px solid #e2e8f0', width: '100%', alignItems: 'end' }}>
               <span>Description</span>
               <span>CostHead</span>
               <span>SAC</span>
