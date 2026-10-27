@@ -9,6 +9,7 @@ import { planBulkAllocation } from '../utils/bulkPayment';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
+import PageHeader from './PageHeader';
 
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
 
@@ -375,18 +376,16 @@ export default function ReceiptVoucher() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header" style={{ marginBottom: 8 }}>
-        <div>
-          <h1 className="page-title" style={{ marginBottom: 2 }}>Receipts & Payments</h1>
-          <p className="page-subtitle">Log incoming client payments and outgoing vendor expenses</p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>
-            <Layers size={18} /> Bulk Allocate
-          </button>
-          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> New Record</button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Receipt size={22} />}
+        title="Receipts & Payments"
+        subtitle="Log incoming client payments and outgoing vendor expenses"
+      >
+        <button className="btn btn-secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>
+          <Layers size={18} /> Bulk Allocate
+        </button>
+        <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> New Record</button>
+      </PageHeader>
 
       <UnassignedBanner count={unassignedReceipts.length} businessName={profile?.businessName} noun="receipt" onAssign={assignUnassignedReceipts} />
 

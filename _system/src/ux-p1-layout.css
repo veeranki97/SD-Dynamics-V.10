@@ -1,0 +1,13 @@
+/* P1 — list modules full main column (invoice print CSS untouched) */
+.main-content > .dashboard-container {
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box;
+}
+.main-content > .dashboard-container.dashboard-home {
+  max-width: min(1600px, 100%) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}

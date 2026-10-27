@@ -9,6 +9,8 @@ import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { getExpenseCategories } from '../utils/masterData';
 import { confirmAction } from './ConfirmModal';
+import PageHeader from './PageHeader';
+import { canDelete } from '../utils/roles';
 
 const PAYMENT_MODES = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Card', 'Other'];
 
@@ -283,7 +285,8 @@ export default function ExpenseTracker() {
       tone: 'danger',
     })) {
       try {
-        await deleteExpense(id);
+        if (!canDelete()) { toast('Viewer role cannot delete', 'warning'); return; }
+      await deleteExpense(id);
         try {
           const jnl = {
             id: 'jnl_exp_' + id,
@@ -348,16 +351,14 @@ export default function ExpenseTracker() {
 
   return (
     <div className="dashboard-container">
-      <div className="page-header" style={{ marginBottom: 8 }}>
-        <div>
-          <h1 className="page-title" style={{ marginBottom: 2 }}>Expenses</h1>
-          <p className="page-subtitle" style={{ margin: 0 }}>P&L · ITC claims</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
-          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Expense</button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Wallet size={22} />}
+        title="Expenses"
+        subtitle="P&L · ITC claims"
+      >
+        <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Export CSV</button>
+        <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Expense</button>
+      </PageHeader>
 
       <UnassignedBanner
         count={unassignedExpenses.length}

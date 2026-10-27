@@ -5,6 +5,7 @@ import {
   Building2, Landmark, Phone, MapPin
 } from 'lucide-react';
 import HelpButton from './HelpButton';
+import PageHeader from './PageHeader';
 import { 
   getAllClients, saveClient, deleteClient, 
   getAllPurchases, getAllExpenses, getProfile 
@@ -727,13 +728,11 @@ export default function VendorsView() {
   return (
     <div className="dashboard-container">
       {/* Header */}
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div>
-            <h1 className="page-title">Vendors</h1>
-            <p className="page-subtitle">Supplier-wise purchase bill ledger and payables</p>
-          </div>
-          <HelpButton title="Vendors — how to use">
+      <PageHeader
+        icon={<Building2 size={22} />}
+        title="Vendors"
+        subtitle="Supplier-wise purchase bill ledger and payables"
+        meta={<HelpButton title="Vendors — how to use">
             <ul style={{ paddingLeft: '1.1rem', margin: 0 }}>
               <li><strong>Click a vendor card</strong> to review all linked purchase bills and expenses.</li>
               <li><strong>Statement PDF</strong> — formal supplier account statement detailing billed sums vs payments made.</li>
@@ -741,21 +740,19 @@ export default function VendorsView() {
               <li><strong>Bank Details</strong> — store vendor bank A/C numbers &amp; IFSC for payouts.</li>
               <li><strong>Import / Export</strong> — upload spreadsheets or backup suppliers.</li>
             </ul>
-          </HelpButton>
-        </div>
-        <div className="flex gap-2">
-          <input type="file" accept=".csv" ref={csvInputRef} style={{ display: 'none' }} onChange={handleCSVImport} />
-          <button className="btn btn-secondary" onClick={() => csvInputRef.current?.click()} title="Import vendors from CSV">
-            <Upload size={16} /> Import CSV
-          </button>
-          <button className="btn btn-secondary" onClick={exportCSV} title="Export vendor list with balances">
-            <Download size={16} /> Export CSV
-          </button>
-          <button className="btn btn-primary" onClick={() => handleOpenAdd()}>
-            <Plus size={18} /> Add Vendor
-          </button>
-        </div>
-      </div>
+          </HelpButton>}
+      >
+        <input type="file" accept=".csv" ref={csvInputRef} style={{ display: 'none' }} onChange={handleCSVImport} />
+        <button className="btn btn-secondary" onClick={() => csvInputRef.current?.click()} title="Import vendors from CSV">
+          <Upload size={16} /> Import CSV
+        </button>
+        <button className="btn btn-secondary" onClick={exportCSV} title="Export vendor list with balances">
+          <Download size={16} /> Export CSV
+        </button>
+        <button className="btn btn-primary" onClick={() => handleOpenAdd()}>
+          <Plus size={18} /> Add Vendor
+        </button>
+      </PageHeader>
 
       {/* Dense list toolbar — search fills row */}
       <div className="list-module-toolbar glass-panel" style={{ marginBottom: '0.5rem', padding: '0.45rem 0.65rem' }}>

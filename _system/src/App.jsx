@@ -222,6 +222,10 @@ function PinLockGate({ onUnlock, autoLockMinutes, autoLockEnabled }) {
         >
           {busy ? 'Verifying...' : 'Verify PIN'}
         </button>
+        <p style={{ margin: '0.85rem 0 0', fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>
+          Screen lock only — data files on disk are not encrypted.
+          {autoLockEnabled ? ` Auto-locks after ${autoLockMinutes || 15} min idle.` : ''}
+        </p>
       </div>
     </div>
   );
