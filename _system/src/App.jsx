@@ -281,7 +281,13 @@ function App() {
   const PIN_SESSION_KEY = 'sd_app_unlocked';
   const [appLockEnabled, setAppLockEnabled] = useState(false);
   const [appUnlocked, setAppUnlocked] = useState(() => {
-    try { return sessionStorage.getItem(PIN_SESSION_KEY) === '1'; } catch { return false; }
+    // Fail closed: only treat as unlocked if BOTH session flag and token exist.
+    // Status API must still confirm; never open on flag alone after hard refresh spam.
+    try {
+      const flag = sessionStorage.getItem(PIN_SESSION_KEY) === '1';
+      const tok = !!(sessionStorage.getItem('sd_session_token') || '');
+      return flag && tok;
+    } catch { return false; }
   });
   const [appLockPrefs, setAppLockPrefs] = useState({ autoLockEnabled: true, autoLockMinutes: 15 });
   const lastActivityRef = useRef(Date.now());
@@ -309,31 +315,57 @@ function App() {
           autoLockEnabled: j.autoLockEnabled !== false,
           autoLockMinutes: Number(j.autoLockMinutes) || 15,
         });
+        // Persist lock-enabled so a failed status call cannot fail-open
+        try {
+          localStorage.setItem('sd_app_lock_enabled', j.enabled ? '1' : '0');
+        } catch {}
         if (j.enabled) {
           setAppLockEnabled(true);
-          // Keep session unlock across refresh; only force lock if never unlocked this tab
           let sessionOk = false;
           let hasToken = false;
           try {
             sessionOk = sessionStorage.getItem(PIN_SESSION_KEY) === '1';
             hasToken = !!(sessionStorage.getItem('sd_session_token') || '');
           } catch {}
-          // Need both UI unlock flag AND API session token (token survives restart only if signed)
+          // Optional server sessionValid flag if present
+          const serverSessionOk = j.sessionValid === true || j.authenticated === true;
+          if (j.sessionValid === false || j.authenticated === false) {
+            sessionOk = false;
+          }
           if (!sessionOk || !hasToken) {
             try {
               sessionStorage.removeItem(PIN_SESSION_KEY);
               sessionStorage.removeItem('sd_session_token');
             } catch {}
             setUnlocked(false);
-          } else {
+          } else if (serverSessionOk || (sessionOk && hasToken)) {
+            // Keep unlock only when both client flags present; server flag wins when false
             setAppUnlocked(true);
+          } else {
+            setUnlocked(false);
           }
         } else {
           setAppLockEnabled(false);
-          setUnlocked(true); // lock off → always open
+          setUnlocked(true); // lock feature off → always open
         }
       } catch {
-        if (!cancelled) { setAppLockEnabled(false); setUnlocked(true); }
+        // SECURITY: never unlock on status failure. If we previously knew lock was on, stay locked.
+        if (!cancelled) {
+          let wasEnabled = false;
+          try { wasEnabled = localStorage.getItem('sd_app_lock_enabled') === '1'; } catch {}
+          if (wasEnabled) {
+            setAppLockEnabled(true);
+            try {
+              sessionStorage.removeItem(PIN_SESSION_KEY);
+              sessionStorage.removeItem('sd_session_token');
+            } catch {}
+            setUnlocked(false);
+          } else {
+            // Unknown: keep current gate; do not force unlock
+            setAppLockEnabled(true);
+            setUnlocked(false);
+          }
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -362,8 +394,13 @@ function App() {
     const onLock = () => { if (appLockEnabled) setUnlocked(false); };
     const onPrefs = (e) => {
       if (e?.detail) setAppLockPrefs(p => ({ ...p, ...e.detail }));
-      if (e?.detail?.enabled === false) { setAppLockEnabled(false); setUnlocked(true); }
-      if (e?.detail?.enabled === true) { setAppLockEnabled(true); setUnlocked(true); }
+      if (e?.detail?.enabled === false) { setAppLockEnabled(false); setUnlocked(true); try { localStorage.setItem('sd_app_lock_enabled', '0'); } catch {} }
+      if (e?.detail?.enabled === true) {
+        setAppLockEnabled(true);
+        try { localStorage.setItem('sd_app_lock_enabled', '1'); } catch {}
+        // Enabling lock must re-prompt PIN — never auto-unlock
+        setUnlocked(false);
+      }
     };
     window.addEventListener('sd-app-lock-now', onLock);
     const onNeedPin = () => { if (appLockEnabled) setUnlocked(false); };
@@ -1487,7 +1524,6 @@ function App() {
             activeProfile={profile}
             onOpenSearch={() => setShowPalette(true)}
             onOpenNotifs={() => setShowNotifs(true)}
-            notifCount={notifTotal}
             darkMode={darkMode}
             onToggleTheme={() => setDarkMode(d => !d)}
             onLogout={() => {

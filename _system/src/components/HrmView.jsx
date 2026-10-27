@@ -8,14 +8,6 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const SKILL_CATS = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled'];
 const GENDERS = ['Male', 'Female', 'Other'];
 
-/** Mask UAN / PAN in lists (full value only on edit form). */
-function maskId(v, keep = 4) {
-  const s = String(v || '').trim();
-  if (!s) return '—';
-  if (s.length <= keep) return '•'.repeat(s.length);
-  return '•'.repeat(Math.max(0, s.length - keep)) + s.slice(-keep);
-}
-
 const emptyEmp = () => ({
   id: '',
   name: '',
@@ -121,6 +113,12 @@ export default function HrmView() {
 
 
   const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [month, year]);
+
+  const sitesForState = useMemo(() => {
+    const sites = config.sites || [];
+    if (!form?.state) return sites;
+    return sites.filter((s) => !s.state || s.state === form.state);
+  }, [config.sites, form?.state]);
 
   const loadEmployees = useCallback(async () => {
     try {
@@ -398,21 +396,10 @@ export default function HrmView() {
   <div class="words">Amount in Words: Rupees ${words} Only</div>
   <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
 </body></html>`;
-    const code = String(emp.employeeCode || emp.id || 'EMP').replace(/[/\\?%*:|"<>]/g, '-');
-    const slipName = 'Payslip-' + code + '-' + year + '-' + String(month).padStart(2, '0');
-    html = html.replace('<head>', '<head><title>' + slipName + '</title>');
-    const prevTitle = document.title;
-    try { document.title = slipName; } catch (_) {}
     const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (!w) {
-      try { document.title = prevTitle; } catch (_) {}
-      toast('Allow pop-ups to download payslip', 'warning');
-      return;
-    }
+    if (!w) { toast('Allow pop-ups to download payslip', 'warning'); return; }
     w.document.write(html);
     w.document.close();
-    try { w.document.title = slipName; } catch (_) {}
-    setTimeout(() => { try { document.title = prevTitle; } catch (_) {} }, 2000);
   };
 
 
@@ -430,53 +417,6 @@ export default function HrmView() {
       loadMinWages();
     } catch (e) { toast(e.message, 'error'); }
   };
-
-  const sitesForState = useMemo(() => {
-    const st = (form?.state || '').trim().toLowerCase();
-    const sites = Array.isArray(config.sites) ? config.sites : [];
-    if (!st) return sites;
-    const matched = sites.filter((s) => !s.state || String(s.state).trim().toLowerCase() === st);
-    return matched.length ? matched : sites;
-  }, [form?.state, config.sites]);
-
-  const hrmPipeline = useMemo(() => {
-    const active = employees.filter((e) => e.isActive !== false && !e.deleted);
-    const pfEmps = active.filter((e) => e.pfApplicable !== false);
-    const esiEmps = active.filter((e) => e.esiApplicable !== false);
-    const hasAtt = Array.isArray(attRows) && attRows.length > 0;
-    const hasPay = Array.isArray(payroll?.rows) && payroll.rows.length > 0;
-    const locked = !!payroll?.locked;
-    const pfRows = (payroll?.rows || []).filter((r) => Number(r.pfEE || 0) > 0 || Number(r.pfER || 0) > 0);
-    const esiRows = (payroll?.rows || []).filter((r) => Number(r.esiEE || 0) > 0 || Number(r.esiER || 0) > 0);
-    const reasonsEcr = [];
-    if (!active.length) reasonsEcr.push('No active employees — add staff in Employees');
-    else if (!pfEmps.length) reasonsEcr.push('No PF-applicable employees (enable PF on employee form)');
-    else if (!hasPay) reasonsEcr.push('Payroll not processed for ' + MONTH_NAMES[month - 1] + ' ' + year + ' — save attendance then Process');
-    else if (!pfRows.length) reasonsEcr.push('Payroll has no PF amounts (check UAN / basic / PF flag)');
-    const reasonsEsic = [];
-    if (!active.length) reasonsEsic.push('No active employees');
-    else if (!esiEmps.length) reasonsEsic.push('No ESI-applicable employees');
-    else if (!hasPay) reasonsEsic.push('Payroll not processed for this month');
-    else if (!esiRows.length) reasonsEsic.push('No ESI amounts (gross may be above ESI ceiling or ESI off)');
-    return {
-      active: active.length,
-      hasAtt,
-      hasPay,
-      locked,
-      canEcr: pfRows.length > 0,
-      canEsic: esiRows.length > 0,
-      reasonsEcr,
-      reasonsEsic,
-      steps: [
-        { ok: active.length > 0, label: 'Employees', detail: active.length + ' active' },
-        { ok: hasAtt, label: 'Attendance', detail: hasAtt ? 'Loaded / saved' : 'Load grid & save' },
-        { ok: hasPay, label: 'Payroll processed', detail: hasPay ? (payroll.rows.length + ' rows') : 'Run Process' },
-        { ok: locked, label: 'Payroll locked', detail: locked ? 'Read-only' : 'Optional lock' },
-        { ok: pfRows.length > 0, label: 'ECR ready', detail: pfRows.length ? pfRows.length + ' PF rows' : 'Blocked' },
-        { ok: esiRows.length > 0, label: 'ESIC ready', detail: esiRows.length ? esiRows.length + ' ESI rows' : 'Blocked' },
-      ],
-    };
-  }, [employees, attRows, payroll, month, year]);
 
   const filtered = employees.filter((e) =>
     !q || [e.name, e.employeeCode, e.department, e.site, e.state, e.uan, e.mobile].join(' ').toLowerCase().includes(q.toLowerCase())
@@ -503,12 +443,12 @@ export default function HrmView() {
   );
 
   return (
-    <div className="page-content hrm-page" style={{ maxWidth: '100%', width: '100%' }}>
+    <div className="page-content">
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 className="page-title">HRMS</h1>
           <p className="page-subtitle">
-            Attendance · Payroll · EPFO ECR · ESIC · Registers · UAN/PAN masked in lists
+            India-ready workforce · Attendance · Payroll · EPFO ECR · ESIC · Min wages · Wages register
           </p>
         </div>
         {periodBar}
@@ -524,7 +464,7 @@ export default function HrmView() {
 
       {tab === 'dashboard' && (
         <div>
-          <div className="stats-grid stats-grid-kpi-4" style={{ gap: 12, marginBottom: 16 }}>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
             {[
               ['Active workforce', dash?.activeEmployees ?? '—'],
               ['Gross payroll', dash ? `₹${Number(dash.monthlyCost).toLocaleString('en-IN')}` : '—'],
@@ -540,30 +480,9 @@ export default function HrmView() {
           <div className="glass-panel" style={{ padding: 16, marginBottom: 12 }}>
             <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
               <strong>Indian compliance path:</strong> 1) Add employees with State, Site, UAN / ESIC ·
-              2) Mark attendance (P / A / H / W / PL) · 3) Process payroll · 4) Download ECR + ESIC + wages register.
+              2) Mark attendance (P / A / H / W / PL) · 3) Process payroll · 4) Download ECR / ESIC (Filings) and attendance / wages (Registers).
               PF employee share 12%; EPS capped; ESI 0.75% + 3.25% employer when gross ≤ ESI wage ceiling.
             </p>
-          </div>
-          <div className="glass-panel" style={{ padding: 16, marginBottom: 12 }}>
-            <h3 style={{ marginTop: 0, fontSize: 14 }}>This month pipeline ({MONTH_NAMES[month - 1]} {year})</h3>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {hrmPipeline.steps.map((s) => (
-                <span key={s.label} style={{
-                  fontSize: 12, padding: '6px 10px', borderRadius: 8,
-                  border: '1px solid var(--border)',
-                  background: s.ok ? 'var(--success-light, #ecfdf5)' : 'var(--bg-muted, #f8fafc)',
-                  color: s.ok ? '#047857' : 'var(--text-muted)',
-                }}>
-                  {s.ok ? '✓' : '○'} {s.label}: {s.detail}
-                </span>
-              ))}
-            </div>
-            <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('directory')}>Employees</button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('attendance')}>Attendance</button>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('payroll')}>Payroll</button>
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setTab('filings')}>ECR / ESIC</button>
-            </div>
           </div>
           <div className="glass-panel" style={{ padding: 16 }}>
             <h3 style={{ marginTop: 0, fontSize: 14 }}>Site / department distribution</h3>
@@ -601,7 +520,7 @@ export default function HrmView() {
                     <td className="font-medium">{e.name}</td>
                     <td>{[e.state, e.site || e.department].filter(Boolean).join(' · ') || '—'}</td>
                     <td>{e.designation || '—'}</td>
-                    <td title={e.uan || ''}>{maskId(e.uan)}</td>
+                    <td>{e.uan || '—'}</td>
                     <td className="text-end">{Number(e.basic || 0).toLocaleString('en-IN')}</td>
                     <td>{e.pfApplicable ? 'Y' : 'N'}</td>
                     <td>{e.esiApplicable ? 'Y' : 'N'}</td>
@@ -756,66 +675,92 @@ export default function HrmView() {
         </div>
       )}
 
-      {(tab === 'exports' || tab === 'filings' || tab === 'registers') && (
-        <div className="glass-panel" style={{ padding: 20 }}>
-          <h3 style={{ marginTop: 0 }}>
-            {tab === 'registers' ? 'Statutory registers' : tab === 'filings' ? 'EPFO ECR / ESIC filings' : 'Statutory downloads'}
-          </h3>
-          <p className="text-muted" style={{ fontSize: 13 }}>
-            Period: <strong>{MONTH_NAMES[month - 1]} {year}</strong>. Files come from processed payroll. Verify on EPFO / ESIC portals before filing.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-            {hrmPipeline.steps.map((s) => (
-              <span key={s.label} style={{
-                fontSize: 12, padding: '6px 10px', borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: s.ok ? 'var(--success-light, #ecfdf5)' : 'var(--bg-muted, #f8fafc)',
-                color: s.ok ? '#047857' : 'var(--text-muted)',
-              }}>
-                {s.ok ? '✓' : '○'} {s.label}
-              </span>
-            ))}
-          </div>
-          {!hrmPipeline.canEcr && (
-            <div style={{ padding: 12, marginBottom: 12, borderRadius: 8, background: '#fff7ed', border: '1px solid #fed7aa', fontSize: 13 }}>
-              <strong>ECR not ready</strong>
-              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                {hrmPipeline.reasonsEcr.map((r) => <li key={r}>{r}</li>)}
-              </ul>
-              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('directory')}>Employees</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('attendance')}>Attendance</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('payroll')}>Payroll</button>
-              </div>
+      {/* Filings = portal upload files only (EPFO / ESIC) */}
+      {tab === 'filings' && (
+        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+            <div>
+              <h3 style={{ marginTop: 0, marginBottom: 4 }}>EPFO ECR / ESIC filings — {MONTH_NAMES[month - 1]} {year}</h3>
+              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: 640 }}>
+                Portal-ready contribution files. Process <strong>Payroll</strong> for this month first, then download and upload to the EPFO / ESIC portals.
+                Statutory books (attendance &amp; wages registers) are under the <strong>Registers</strong> tab.
+              </p>
             </div>
-          )}
-          {!hrmPipeline.canEsic && (
-            <div style={{ padding: 12, marginBottom: 12, borderRadius: 8, background: 'var(--bg-muted, #f8fafc)', border: '1px solid var(--border)', fontSize: 13 }}>
-              <strong>ESIC export may be empty</strong>
-              <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                {hrmPipeline.reasonsEsic.map((r) => <li key={r}>{r}</li>)}
-              </ul>
-            </div>
-          )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-            {hrmPipeline.canEcr ? (
-              <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download EPFO ECR (.txt)</a>
-            ) : (
-              <button type="button" className="btn btn-secondary" disabled title={hrmPipeline.reasonsEcr.join('; ')}>Download EPFO ECR (.txt)</button>
-            )}
-            {hrmPipeline.canEsic ? (
-              <a className="btn btn-primary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download ESIC</a>
-            ) : (
-              <button type="button" className="btn btn-secondary" disabled title={hrmPipeline.reasonsEsic.join('; ')}>Download ESIC</button>
-            )}
-            <a className="btn btn-secondary" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Attendance CSV</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Wages register</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/form-t?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form T</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/form-xvii?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form XVII</a>
+            {periodBar}
           </div>
-          <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>
-            Establishment: {config.establishmentCode || '—'} · ESIC code: {config.esicCode || '—'} · Set codes in HR Settings.
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginTop: 16 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>EPFO — Electronic Challan cum Return</div>
+              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
+                Text file for the EPFO portal (UAN-wise PF / EPS / EDLI). Use establishment code from HR Settings.
+              </p>
+              <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                Download EPFO ECR (.txt)
+              </a>
+            </div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>ESIC — contribution statement</div>
+              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
+                CSV of IP-wise ESI for eligible employees (gross within ESI ceiling). Employer code from HR Settings.
+              </p>
+              <a className="btn btn-secondary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                Download ESIC CSV
+              </a>
+            </div>
+          </div>
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 16 }}>
+            Tip: after download, validate row counts against Payroll totals for the same month before portal upload.
           </p>
+        </div>
+      )}
+
+      {/* Registers = statutory books (not portal filings) */}
+      {tab === 'registers' && (
+        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+            <div>
+              <h3 style={{ marginTop: 0, marginBottom: 4 }}>Statutory registers — {MONTH_NAMES[month - 1]} {year}</h3>
+              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: 640 }}>
+                Books for inspection / internal records. Attendance register needs attendance marked;
+                wages register needs payroll processed. Portal files (ECR / ESIC) are under <strong>ECR / ESIC</strong>.
+              </p>
+            </div>
+            {periodBar}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginTop: 16 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Attendance register</div>
+              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
+                Day-wise attendance (P / A / H / W / PL) for the selected month — muster-style CSV.
+              </p>
+              <a className="btn btn-secondary" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                Download attendance register CSV
+              </a>
+            </div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Wages register</div>
+              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
+                Earnings, deductions and net pay from processed payroll for the month.
+              </p>
+              <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                Download wages register CSV
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legacy exports id (if deep-linked) — same as both, rare */}
+      {tab === 'exports' && (
+        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
+          <h3 style={{ marginTop: 0 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
+          <p className="text-muted" style={{ fontSize: 13 }}>Prefer the <strong>ECR / ESIC</strong> and <strong>Registers</strong> tabs for clearer separation.</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 420 }}>
+            <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download EPFO ECR (.txt)</a>
+            <a className="btn btn-secondary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download ESIC CSV</a>
+            <a className="btn btn-secondary" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download attendance register CSV</a>
+            <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download wages register CSV</a>
+          </div>
         </div>
       )}
 
@@ -951,7 +896,7 @@ export default function HrmView() {
                   value={form.siteId || ''}
                   onChange={(e) => {
                     const id = e.target.value;
-                    const s = sitesForState.find((x) => x.id === id) || (config.sites || []).find((x) => x.id === id);
+                    const s = (config.sites || []).find((x) => x.id === id);
                     setForm({ ...form, siteId: id, site: s?.name || form.site || '' });
                   }}
                 >
