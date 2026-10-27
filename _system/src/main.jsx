@@ -43,6 +43,13 @@ if ('serviceWorker' in navigator) {
     }
     let alreadyReloaded = false
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      try {
+        if (sessionStorage.getItem('sd_sw_reloaded') === '1') {
+          console.info('[PWA] Skip repeat reload this session — restart from HTA if UI is stale');
+          return;
+        }
+        sessionStorage.setItem('sd_sw_reloaded', '1');
+      } catch { /* */ }
       if (alreadyReloaded) return
       alreadyReloaded = true
       window.location.reload()

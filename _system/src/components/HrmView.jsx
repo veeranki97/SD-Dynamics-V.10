@@ -151,8 +151,9 @@ export default function HrmView() {
     if (tab === 'dashboard') loadDash();
     if (tab === 'attendance') loadAtt();
     if (tab === 'payroll' || tab === 'filings' || tab === 'registers') loadPayroll();
-    if (tab === 'registers' || tab === 'attendance') loadAtt();
+    if (tab === 'statutory' || tab === 'registers' || tab === 'attendance') loadAtt();
     if (tab === 'minwages') loadMinWages();
+    if (tab === 'settings') { /* config already on mount */ }
     if (tab === 'employees') loadEmployees();
   }, [tab, month, year, loadDash, loadAtt, loadPayroll, loadMinWages, loadEmployees]);
 
@@ -427,8 +428,7 @@ export default function HrmView() {
     { id: 'directory', label: 'Employees' },
     { id: 'attendance', label: 'Attendance' },
     { id: 'payroll', label: 'Payroll' },
-    { id: 'filings', label: 'ECR / ESIC' },
-    { id: 'registers', label: 'Registers' },
+    { id: 'statutory', label: 'Statutory downloads' },
     { id: 'minwages', label: 'Min Wages' },
     { id: 'settings', label: 'HR Settings' },
   ];
@@ -480,7 +480,7 @@ export default function HrmView() {
           <div className="glass-panel" style={{ padding: 16, marginBottom: 12 }}>
             <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
               <strong>Indian compliance path:</strong> 1) Add employees with State, Site, UAN / ESIC ·
-              2) Mark attendance (P / A / H / W / PL) · 3) Process payroll · 4) Download ECR / ESIC (Filings) and attendance / wages (Registers).
+              2) Mark attendance (P / A / H / W / PL) · 3) Process payroll · 4) Download ECR / ESIC and registers from Statutory downloads.
               PF employee share 12%; EPS capped; ESI 0.75% + 3.25% employer when gross ≤ ESI wage ceiling.
             </p>
           </div>
@@ -675,20 +675,22 @@ export default function HrmView() {
         </div>
       )}
 
-      {/* Filings = portal upload files only (EPFO / ESIC) */}
-      {tab === 'filings' && (
+      {/* Statutory downloads — portal filings + registers (single surface) */}
+      {(tab === 'statutory' || tab === 'filings' || tab === 'registers' || tab === 'exports') && (
         <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
             <div>
-              <h3 style={{ marginTop: 0, marginBottom: 4 }}>EPFO ECR / ESIC filings — {MONTH_NAMES[month - 1]} {year}</h3>
-              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: 640 }}>
-                Portal-ready contribution files. Process <strong>Payroll</strong> for this month first, then download and upload to the EPFO / ESIC portals.
-                Statutory books (attendance &amp; wages registers) are under the <strong>Registers</strong> tab.
+              <h3 style={{ marginTop: 0, marginBottom: 4 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
+              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: 720 }}>
+                Process <strong>Payroll</strong> (and mark attendance) for this month first. Portal files go to EPFO / ESIC;
+                registers are for inspection and internal books. API report math is unchanged.
               </p>
             </div>
             {periodBar}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginTop: 16 }}>
+
+          <h4 style={{ margin: '16px 0 8px', fontSize: '0.8rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Portal filings</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>EPFO — Electronic Challan cum Return</div>
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
@@ -708,26 +710,9 @@ export default function HrmView() {
               </a>
             </div>
           </div>
-          <p className="text-muted" style={{ fontSize: 12, marginTop: 16 }}>
-            Tip: after download, validate row counts against Payroll totals for the same month before portal upload.
-          </p>
-        </div>
-      )}
 
-      {/* Registers = statutory books (not portal filings) */}
-      {tab === 'registers' && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
-            <div>
-              <h3 style={{ marginTop: 0, marginBottom: 4 }}>Statutory registers — {MONTH_NAMES[month - 1]} {year}</h3>
-              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: 640 }}>
-                Books for inspection / internal records. Attendance register needs attendance marked;
-                wages register needs payroll processed. Portal files (ECR / ESIC) are under <strong>ECR / ESIC</strong>.
-              </p>
-            </div>
-            {periodBar}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12, marginTop: 16 }}>
+          <h4 style={{ margin: '20px 0 8px', fontSize: '0.8rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Registers</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Attendance register</div>
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
@@ -747,22 +732,12 @@ export default function HrmView() {
               </a>
             </div>
           </div>
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 16 }}>
+            Tip: validate ECR / ESIC row counts against Payroll totals for the same month before portal upload.
+          </p>
         </div>
       )}
 
-      {/* Legacy exports id (if deep-linked) — same as both, rare */}
-      {tab === 'exports' && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
-          <h3 style={{ marginTop: 0 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
-          <p className="text-muted" style={{ fontSize: 13 }}>Prefer the <strong>ECR / ESIC</strong> and <strong>Registers</strong> tabs for clearer separation.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 420 }}>
-            <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download EPFO ECR (.txt)</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download ESIC CSV</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download attendance register CSV</a>
-            <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download wages register CSV</a>
-          </div>
-        </div>
-      )}
 
       {tab === 'settings' && (
         <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
@@ -836,7 +811,8 @@ export default function HrmView() {
         </div>
       )}
 
-      {/* Employee modal */}
+      
+{/* Employee modal */}
       {form && (
         <div className="modal-overlay" onClick={() => setForm(null)}>
           <div className="modal-content" style={{ maxWidth: 1100, maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
