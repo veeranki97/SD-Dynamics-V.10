@@ -5074,3 +5074,67 @@ html:not([data-theme="dark"]) .mobile-topbar-btn,
   width: 100% !important;
   box-sizing: border-box;
 }
+
+
+/* === SD MERGED PATCH CSS (do not add parallel ux-*.css files) === */
+/* Sources folded in: ux-list-dense.css, ux-p1-layout.css,
+   invoice-dense-snippet.css, invoice-list-sticky.css.
+   Invoice @media print rules above are intentionally untouched. */
+
+/* --- Full-width list modules (main column) --- */
+.main-content > .dashboard-container {
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  box-sizing: border-box;
+}
+.main-content > .dashboard-container.dashboard-home {
+  max-width: min(1600px, 100%) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* --- Dense list toolbars --- */
+.list-module-toolbar {
+  margin-bottom: 0.5rem !important;
+}
+.list-module-toolbar.glass-panel {
+  padding: 0.45rem 0.65rem;
+}
+.page-header {
+  margin-bottom: 0.5rem;
+}
+.page-header .page-title {
+  margin-bottom: 0.15rem;
+}
+.page-header .page-subtitle {
+  margin-top: 0;
+}
+.list-module .table-scroll,
+.list-module .table-responsive {
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+}
+
+/* --- Optional denser invoice editor workspace --- */
+.invoice-workspace .form-group { margin-bottom: 0.45rem; }
+.invoice-workspace .form-label { font-size: 0.72rem; margin-bottom: 0.15rem; }
+.invoice-workspace .form-input { min-height: 34px; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+.invoice-workspace .glass-panel { padding: 0.65rem 0.85rem; }
+.ig-top-toolbar { position: sticky; top: 0; z-index: 20; background: var(--surface, #fff); }
+.ig-sticky-totals-rail { position: static !important; }
+
+/* --- Sticky invoice list headers --- */
+.invoice-list-scroll .invoice-list-table thead th,
+.invoice-list-panel .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 1px 0 rgba(0,0,0,0.08);
+}
+:root[data-theme="dark"] .invoice-list-scroll .invoice-list-table thead th,
+:root[data-theme="dark"] .invoice-list-panel .data-table thead th {
+  background: var(--surface, #1e293b);
+}

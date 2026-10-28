@@ -1,9 +1,0 @@
-
-/* Optional denser invoice editor — append to index.css */
-.invoice-workspace .form-group { margin-bottom: 0.45rem; }
-.invoice-workspace .form-label { font-size: 0.72rem; margin-bottom: 0.15rem; }
-.invoice-workspace .form-input { min-height: 34px; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
-.invoice-workspace .glass-panel { padding: 0.65rem 0.85rem; }
-/* Sticky top toolbar only — not totals */
-.ig-top-toolbar { position: sticky; top: 0; z-index: 20; background: var(--surface, #fff); }
-.ig-sticky-totals-rail { position: static !important; }
