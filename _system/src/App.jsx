@@ -348,7 +348,7 @@ function App() {
     + (isLive('sesOverdue') ? (notifications.sesOverdue || []).length : 0)
     + (isLive('sesDueToday') ? (notifications.sesDueToday || []).length : 0);
 
-  const dismissableCount = ['overdue', 'dueSoon', 'lowStock', 'filings', 'autoFire'].filter(isLive).length;
+  const dismissableCount = ['overdue', 'dueSoon', 'lowStock', 'filings', 'autoFire', 'sesOverdue', 'sesDueToday'].filter(isLive).length;
 
   // --- Functions ---
   const setUnlocked = (v) => {
@@ -534,6 +534,8 @@ function App() {
   const navItems = [
     { id: 'dashboard', icon: Home, label: 'Dashboard', module: 'dashboard', group: 'Overview' },
     { id: 'invoices', icon: FileText, label: 'Invoices', module: 'invoicing', group: 'Sales & Receivables' },
+    { id: 'recurring', icon: RefreshCw, label: 'Recurring Invoices', module: 'recurring', group: 'Sales & Receivables' },
+    { id: 'payment-reminders', icon: Bell, label: 'Payment Reminders', module: 'dashboard', group: 'Sales & Receivables' },
     { id: 'clients', icon: Users, label: 'Clients', module: 'clients', group: 'Sales & Receivables' },
     { id: 'vendors', icon: Truck, label: 'Vendors', module: 'clients', group: 'Purchases & Expenses' },
     { id: 'purchaseorders', icon: ShoppingBag, label: 'Purchase Orders', module: 'purchases', group: 'Purchases & Expenses' },
@@ -544,17 +546,25 @@ function App() {
     { id: 'inventory', icon: Package, label: 'Services', module: 'inventory', group: 'Operations' },
     { id: 'receipts', icon: Receipt, label: 'Receipts', module: 'receipts', group: 'Cash & Banking' },
     { id: 'cashbook', icon: Banknote, label: 'Cash Book', module: 'reports', group: 'Cash & Banking' },
+    { id: 'payrecon', icon: Scale, label: 'Payment Reconciliation', module: 'reports', group: 'Cash & Banking' },
+    { id: 'bankfeed', icon: Landmark, label: 'Bank Feed', module: 'reports', group: 'Cash & Banking' },
     { id: 'vouchers', icon: Calculator, label: 'Vouchers', module: 'reports', group: 'Accounting' },
     { id: 'coa', icon: Layers, label: 'Chart of Accounts', module: 'reports', group: 'Accounting' },
     { id: 'generalledger', icon: ScrollText, label: 'General Ledger', module: 'reports', group: 'Accounting' },
     { id: 'finbooks', icon: Landmark, label: 'Financial Books', module: 'reports', group: 'Accounting' },
+    { id: 'budgets', icon: Target, label: 'Budgets', module: 'reports', group: 'Accounting' },
+    { id: 'servicerev', icon: BarChart3, label: 'Service Revenue', module: 'reports', group: 'Accounting' },
     { id: 'reports', icon: BarChart3, label: 'Reports', module: 'reports', group: 'Tax & Compliance' },
     { id: 'dataexport', icon: Download, label: 'Data export', module: 'reports', group: 'Tax & Compliance' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Tax & Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Tax & Compliance' },
+    { id: 'einvoice', icon: FileText, label: 'E-Invoice', module: 'dashboard', group: 'Tax & Compliance' },
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR & Payroll' },
     { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'Administration' },
     { id: 'workflows', icon: CheckSquare, label: 'Workflow rules', module: 'dashboard', group: 'Administration' },
+    { id: 'activity-log', icon: Activity, label: 'Activity Log', module: 'dashboard', group: 'Administration' },
+    { id: 'system-health', icon: Activity, label: 'System Health', module: 'dashboard', group: 'Administration' },
+    { id: 'guide', icon: HelpCircle, label: 'User Guide', module: 'dashboard', group: 'Administration' },
     { id: 'notifications', icon: Bell, label: 'Notifications', module: 'dashboard', group: 'Administration', onClick: () => setShowNotifs(true) },
     { id: 'darkmode', icon: Moon, label: 'Dark Mode', module: 'dashboard', group: 'Administration', onClick: () => setDarkMode(d => !d) },
     { id: 'controlpanel', icon: HardDrive, label: 'Control Panel', module: 'settings', group: 'Administration' },
@@ -1434,6 +1444,30 @@ function App() {
                     <span className="notice-icon">📋</span>
                     <div style={{ flex: 1 }}>
                       <strong>{notifications.filings.length} GST filing{notifications.filings.length !== 1 ? 's' : ''} due in next 10 days</strong>
+                    </div>
+                  </button>
+                )}
+                {isLive('lowStock') && (
+                  <button type="button" className="notice notice-warn" onClick={() => { setShowNotifs(false); setCurrentView('inventory'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">📦</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{notifications.lowStock.length} low stock item{notifications.lowStock.length !== 1 ? 's' : ''}</strong>
+                    </div>
+                  </button>
+                )}
+                {isLive('sesOverdue') && (
+                  <button type="button" className="notice notice-danger" onClick={() => { setShowNotifs(false); setCurrentView('tasks'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">🏗</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{(notifications.sesOverdue || []).length} SES follow-up overdue</strong>
+                    </div>
+                  </button>
+                )}
+                {isLive('sesDueToday') && (
+                  <button type="button" className="notice notice-warn" onClick={() => { setShowNotifs(false); setCurrentView('tasks'); }} style={{ cursor: 'pointer', border: 'none', textAlign: 'left' }}>
+                    <span className="notice-icon">🏗</span>
+                    <div style={{ flex: 1 }}>
+                      <strong>{(notifications.sesDueToday || []).length} SES due today</strong>
                     </div>
                   </button>
                 )}
