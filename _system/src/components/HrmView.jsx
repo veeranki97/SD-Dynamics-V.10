@@ -83,6 +83,8 @@ export default function HrmView() {
   const [busy, setBusy] = useState(false);
   const [leaveRows, setLeaveRows] = useState([]);
   const [leaveForm, setLeaveForm] = useState(null);
+  const [statSiteId, setStatSiteId] = useState('');
+  const [siteEdit, setSiteEdit] = useState(null);
 
   const applyMinWageFromMaster = useCallback((nextForm) => {
     const state = (nextForm.state || '').trim();
@@ -124,6 +126,11 @@ export default function HrmView() {
 
 
   const daysInMonth = useMemo(() => new Date(year, month, 0).getDate(), [month, year]);
+  const statUrl = useCallback((path) => {
+    let u = `/api/hrm/reports/${path}?month=${month}&year=${year}`;
+    if (statSiteId) u += `&siteId=${encodeURIComponent(statSiteId)}`;
+    return u;
+  }, [month, year, statSiteId]);
 
   const sitesForState = useMemo(() => {
     const sites = config.sites || [];
@@ -839,14 +846,39 @@ export default function HrmView() {
                 Download wages register CSV
               </a>
             </div>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Form T / Form XVII</div>
-              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
-                Extra labour registers from the same payroll/attendance period (existing APIs).
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <a className="btn btn-secondary btn-sm" href={`/api/hrm/reports/form-t?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form T</a>
-                <a className="btn btn-secondary btn-sm" href={`/api/hrm/reports/form-xvii?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form XVII</a>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)', gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 12, justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>CLRA labour registers (Excel)</div>
+                  <p className="text-muted" style={{ fontSize: 12, margin: '4px 0 0' }}>
+                    Form T, XVII, XXII, XX, XXI, XXIII, XIII — headers use contractor / establishment / principal employer (global HR Settings or per-site). Open .xls in Excel → Save As .xlsx if needed.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label className="text-muted" style={{ fontSize: 12 }}>Site filter</label>
+                  <select className="form-input" style={{ minWidth: 180 }} value={statSiteId} onChange={(e) => setStatSiteId(e.target.value)}>
+                    <option value="">All sites</option>
+                    {(config.sites || []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <span className="text-muted" style={{ fontSize: 12 }}>{MONTH_NAMES[month - 1]} {year}</span>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+                {[
+                  { path: 'form-t', title: 'Form T — Muster / Attendance', tip: 'Combined muster roll cum attendance' },
+                  { path: 'form-xvii', title: 'Form XVII — Wages', tip: 'Register of wages from payroll' },
+                  { path: 'form-xxii', title: 'Form XXII — Advances', tip: 'Nil until advances module captures data' },
+                  { path: 'form-xx', title: 'Form XX — Damage / Loss', tip: 'Nil deductions template' },
+                  { path: 'form-xxi', title: 'Form XXI — Fines', tip: 'Nil fines template' },
+                  { path: 'form-xxiii', title: 'Form XXIII — Overtime', tip: 'From attendance OT hrs' },
+                  { path: 'form-xiii', title: 'Form XIII — Workmen', tip: 'Register of workmen employed' },
+                ].map((r) => (
+                  <div key={r.path} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{r.title}</div>
+                    <p className="text-muted" style={{ fontSize: 11, margin: '0 0 10px' }}>{r.tip}</p>
+                    <a className="btn btn-secondary btn-sm" href={statUrl(r.path)} target="_blank" rel="noreferrer">Download Excel</a>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -993,7 +1025,10 @@ export default function HrmView() {
                 <tr key={s.id}>
                   <td>{s.name}</td>
                   <td>{s.state || 'Any'}</td>
-                  <td><button type="button" className="btn btn-secondary btn-sm" onClick={() => removeSite(s.id)}>Remove</button></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSiteEdit({ ...s })}>Statutory header</button>{' '}
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => removeSite(s.id)}>Remove</button>
+                  </td>
                 </tr>
               ))}
               {!(config.sites || []).length && <tr><td colSpan={3} className="text-muted">No sites — add Head Office / sites above</td></tr>}
@@ -1006,7 +1041,40 @@ export default function HrmView() {
 
       
 
-      {leaveForm && (
+      
+      {siteEdit && (
+        <div className="modal-overlay" onClick={() => setSiteEdit(null)}>
+          <div className="modal-content" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="section-title">Site statutory header — {siteEdit.name}</h3>
+            <p className="text-muted" style={{ fontSize: 12 }}>Used on Form T / XVII / XIII etc. when this site is selected for download. Overrides global HR Settings for that export.</p>
+            {[
+              ['contractorNameAddress', 'Contractor name and address'],
+              ['natureLocationOfWork', 'Nature and location of work'],
+              ['contractEstablishmentNameAddress', 'Establishment where contract work is carried on'],
+              ['principalEmployerNameAddress', 'Principal employer name and address'],
+            ].map(([k, lab]) => (
+              <div key={k} className="form-group">
+                <label className="form-label">{lab}</label>
+                <textarea className="form-input" rows={2} value={siteEdit[k] || ''} onChange={(e) => setSiteEdit({ ...siteEdit, [k]: e.target.value })} style={{ resize: 'vertical', minHeight: 56 }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setSiteEdit(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={async () => {
+                const sites = (config.sites || []).map((s) => s.id === siteEdit.id ? { ...s, ...siteEdit } : s);
+                try {
+                  const next = await api('/hrm/config', { method: 'POST', body: JSON.stringify({ ...config, sites }) });
+                  setConfig(next);
+                  setSiteEdit(null);
+                  toast('Site statutory header saved', 'success');
+                } catch (e) { toast(e.message, 'error'); }
+              }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+{leaveForm && (
         <div className="modal-overlay" onClick={() => setLeaveForm(null)}>
           <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
             <h3 className="section-title">Leave request</h3>

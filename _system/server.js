@@ -31,6 +31,7 @@ import {
   afterPurchaseSaved,
   afterPiToTiAdvance,
 } from './src/utils/glServerBridge.js';
+import { sendExcelXml, hrmSiteHeader, monthLabel as hrmMonthLabel } from './src/utils/hrmRegisters.js';
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3201,6 +3202,23 @@ app.get('/api/health', (req, res) => {
 // Port of Sai Durga GAS HR ERP — employees, attendance, payroll, PF/ESI
 // ============================================================
 const HRM_DIR = path.join(DATA_DIR, 'hrm');
+
+function hrmResolveSite(cfg, siteId) {
+  const sites = (cfg && cfg.sites) || [];
+  if (!siteId) return null;
+  return sites.find(s => String(s.id) === String(siteId) || String(s.name) === String(siteId)) || null;
+}
+function hrmFilterEmpBySite(emps, site) {
+  if (!site) return emps;
+  const sid = String(site.id || '');
+  const sname = String(site.name || '').toLowerCase();
+  return emps.filter(e => {
+    if (sid && String(e.siteId || '') === sid) return true;
+    if (sname && String(e.site || '').toLowerCase() === sname) return true;
+    return false;
+  });
+}
+
 function hrmEnsure() {
   ['employees', 'attendance', 'payroll', 'minwages', 'settings', 'leave'].forEach(d => {
     const p = path.join(HRM_DIR, d);
@@ -3686,11 +3704,16 @@ app.get('/api/hrm/reports/wages', (req, res) => {
 
 
 // ---- HRM CLRA registers (must be before SPA catch-all) ----
+
+// ---- CLRA labour registers (Excel SpreadsheetML .xls — open in Excel, Save As xlsx) ----
 app.get('/api/hrm/reports/form-t', (req, res) => {
   try {
     const month = Number(req.query.month);
     const year = Number(req.query.year);
     if (!month || !year) return res.status(400).send('month and year required');
+    const cfg = hrmGetConfig();
+    const site = hrmResolveSite(cfg, req.query.siteId);
+    const hdr = hrmSiteHeader(cfg, site);
     const key = year + '_' + month;
     const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
     if (!fs.existsSync(attFile)) return res.status(404).send('No attendance for this month — save attendance first');
@@ -3698,22 +3721,44 @@ app.get('/api/hrm/reports/form-t', (req, res) => {
     const emps = {};
     hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
     const days = new Date(year, month, 0).getDate();
-    const header = ['Sl.No', 'Name of the Employee', 'M/F'];
-    for (let d = 1; d <= days; d++) header.push(String(d));
-    header.push('No. of payable Days', 'Total OT Hrs');
-    const lines = [header.join(',')];
+    const title = 'FORM - T';
+    const subtitle = 'COMBINED MUSTER ROLL CUM REGISTER OF ATTENDANCE';
+    const rows = [
+      [{ v: title, title: true }],
+      [{ v: subtitle, bold: true }],
+      [{ v: 'Name and address of Contractor: ' + hdr.contractor }],
+      [{ v: 'Name and address of establishment in/under which contract is carried on: ' + hdr.establishment }],
+      [{ v: 'Nature and location of work: ' + hdr.nature }],
+      [{ v: 'Name and address of principal employer: ' + hdr.principal }],
+      [{ v: 'Period: ' + hrmMonthLabel(month, year) + (hdr.siteName ? ' | Site: ' + hdr.siteName : '') }],
+      [],
+    ];
+    const head = [{ v: 'Sl. No.', head: true }, { v: 'Name of the Employee', head: true }, { v: 'M / F', head: true }];
+    for (let d = 1; d <= days; d++) head.push({ v: String(d), head: true });
+    head.push({ v: 'No. of payable Days', head: true }, { v: 'Total OT Hrs', head: true });
+    rows.push(head);
     let i = 0;
-    (att.rows || []).forEach(r => {
+    let list = att.rows || [];
+    if (site) {
+      list = list.filter(r => {
+        const e = emps[r.empId] || {};
+        return hrmFilterEmpBySite([e], site).length > 0;
+      });
+    }
+    list.forEach(r => {
       i += 1;
       const e = emps[r.empId] || {};
-      const row = [i, String(e.name || r.empName || '').replace(/,/g, ' '), (e.gender || 'M').toString().slice(0, 1)];
-      for (let d = 1; d <= days; d++) row.push(String((r.days && r.days['D' + d]) || ''));
-      row.push(r.payableDays != null ? r.payableDays : '', r.otHours != null ? r.otHours : '');
-      lines.push(row.join(','));
+      const g = String(e.gender || 'M').charAt(0).toUpperCase();
+      const line = [{ v: i, num: true }, e.name || r.empName || '', g];
+      for (let d = 1; d <= days; d++) line.push(String((r.days && r.days['D' + d]) || ''));
+      line.push({ v: r.payableDays != null ? r.payableDays : '', num: true });
+      line.push({ v: r.otHours != null ? r.otHours : '', num: true });
+      rows.push(line);
     });
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="FormT_Muster_' + month + '_' + year + '.csv"');
-    res.send('\ufeff' + lines.join('\n'));
+    if (!list.length) rows.push(['', 'No attendance rows for this period/site']);
+    rows.push([]);
+    rows.push(['', '', '', 'For ' + (cfg.employerName || 'Contractor')]);
+    sendExcelXml(res, 'FormT_Muster_' + month + '_' + year + '.xls', [{ name: 'Form T', rows }]);
   } catch (e) {
     res.status(500).send(e.message || 'Form T failed');
   }
@@ -3724,33 +3769,224 @@ app.get('/api/hrm/reports/form-xvii', (req, res) => {
     const month = Number(req.query.month);
     const year = Number(req.query.year);
     if (!month || !year) return res.status(400).send('month and year required');
+    const cfg = hrmGetConfig();
+    const site = hrmResolveSite(cfg, req.query.siteId);
+    const hdr = hrmSiteHeader(cfg, site);
     const key = year + '_' + month;
     const file = path.join(HRM_DIR, 'payroll', safeFileName(key) + '.json');
     if (!fs.existsSync(file)) return res.status(404).send('Process payroll first');
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const header = ['Sl.No','Name of Workman','UAN','ESI','Designation','No.of working days','Daily Rate','Basic Wages','Dearness Allowance','Over Time','Others','Total','ESI 0.75%','PF 12%','Total Deductions','Net Amount Paid'];
-    const lines = [header.join(',')];
+    const emps = {};
+    hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+    const rows = [
+      [{ v: 'FORM - XVII REGISTER OF WAGES', title: true }],
+      [{ v: '[Vide Rule 78(1)(a)(i) of Contract Labour (R&A) Central & State Rules]', bold: true }],
+      [{ v: 'Name and address of Contractor: ' + hdr.contractor }],
+      [{ v: 'Name and address of establishment: ' + hdr.establishment }],
+      [{ v: 'Nature and location of work: ' + hdr.nature }],
+      [{ v: 'Name and address of principal employer: ' + hdr.principal }],
+      [{ v: 'Wage Period: ' + hrmMonthLabel(month, year) + (hdr.siteName ? ' | Site: ' + hdr.siteName : '') }],
+      [],
+      [
+        { v: 'Sl. No.', head: true }, { v: 'Name of Workman', head: true }, { v: 'UAN', head: true }, { v: 'ESI', head: true },
+        { v: 'Designation', head: true }, { v: 'No.of working days', head: true }, { v: 'Daily Rate', head: true },
+        { v: 'Basic Wages', head: true }, { v: 'Dearness Allowance', head: true }, { v: 'Over Time', head: true },
+        { v: 'Others', head: true }, { v: 'Total', head: true }, { v: 'ESI 0.75%', head: true }, { v: 'PF 12%', head: true },
+        { v: 'Total Deductions', head: true }, { v: 'Net Amount Paid', head: true },
+      ],
+    ];
     let i = 0;
-    (data.rows || []).forEach(r => {
-      if (!(Number(r.grossEarnings) > 0)) return;
+    let payRows = data.rows || [];
+    if (site) {
+      payRows = payRows.filter(r => hrmFilterEmpBySite([emps[r.empId] || {}], site).length > 0);
+    }
+    let tBasic = 0, tDa = 0, tOt = 0, tGross = 0, tEsi = 0, tPf = 0, tNet = 0;
+    payRows.forEach(r => {
       i += 1;
-      const daily = r.payableDays ? Math.round((Number(r.basicEarned) / r.payableDays) * 100) / 100 : 0;
-      const ded = (Number(r.esiEE) || 0) + (Number(r.pfEE) || 0);
-      lines.push([
-        i, String(r.name || '').replace(/,/g, ' '), r.uan || '', r.esicNumber || '',
-        String(r.designation || '').replace(/,/g, ' '), r.payableDays || 0, daily,
-        r.basicEarned || 0, r.daEarned || 0, 0,
-        (Number(r.hraEarned) || 0) + (Number(r.taEarned) || 0) + (Number(r.allowancesEarned) || 0),
-        r.grossEarnings || 0, r.esiEE || 0, r.pfEE || 0, ded, r.netSalary || 0
-      ].join(','));
+      const e = emps[r.empId] || {};
+      const basic = Number(r.basicEarned || 0);
+      const da = Number(r.daEarned || 0);
+      const ot = Number(r.otPay || 0);
+      const oth = Number(r.hraEarned || 0) + Number(r.allowancesEarned || 0);
+      const gross = Number(r.grossEarnings || basic + da + ot + oth);
+      const esi = Number(r.esiEE || 0);
+      const pf = Number(r.pfEE || 0);
+      const net = Number(r.netSalary || 0);
+      const days = Number(r.payableDays || 0);
+      const daily = days > 0 ? Math.round((Number(e.basic || 0) / 26) * 100) / 100 : 0;
+      tBasic += basic; tDa += da; tOt += ot; tGross += gross; tEsi += esi; tPf += pf; tNet += net;
+      rows.push([
+        { v: i, num: true }, e.name || r.name || '', e.uan || '', e.esicNumber || '',
+        e.designation || '', { v: days, num: true }, { v: daily, num: true },
+        { v: basic, num: true }, { v: da, num: true }, { v: ot, num: true }, { v: oth, num: true },
+        { v: gross, num: true }, { v: esi, num: true }, { v: pf, num: true },
+        { v: esi + pf, num: true }, { v: net, num: true },
+      ]);
     });
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="FormXVII_Wages_' + month + '_' + year + '.csv"');
-    res.send('\ufeff' + lines.join('\n'));
+    if (!payRows.length) rows.push(['', 'No payroll rows — process payroll for this period/site']);
+    rows.push([
+      { v: 'Total', bold: true }, '', '', '', '', '', '',
+      { v: tBasic, num: true }, { v: tDa, num: true }, { v: tOt, num: true }, '',
+      { v: tGross, num: true }, { v: tEsi, num: true }, { v: tPf, num: true },
+      { v: tEsi + tPf, num: true }, { v: tNet, num: true },
+    ]);
+    rows.push([]);
+    rows.push(['', '', '', 'For ' + (cfg.employerName || 'Contractor')]);
+    sendExcelXml(res, 'FormXVII_Wages_' + month + '_' + year + '.xls', [{ name: 'Form XVII', rows }]);
   } catch (e) {
     res.status(500).send(e.message || 'Form XVII failed');
   }
 });
+
+function hrmNilRegister(req, res, formTitle, formRule, filenamePrefix, nilMessage) {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const cfg = hrmGetConfig();
+    const site = hrmResolveSite(cfg, req.query.siteId);
+    const hdr = hrmSiteHeader(cfg, site);
+    let emps = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
+    if (site) emps = hrmFilterEmpBySite(emps, site);
+    const rows = [
+      [{ v: formTitle, title: true }],
+      [{ v: formRule, bold: true }],
+      [{ v: 'Name and address of contractor: ' + hdr.contractor }],
+      [{ v: 'Name and address of establishment: ' + hdr.establishment }],
+      [{ v: 'Nature and location of work: ' + hdr.nature }],
+      [{ v: 'Name and address of principal employer: ' + hdr.principal }],
+      [{ v: 'Period: ' + hrmMonthLabel(month, year) + (hdr.siteName ? ' | Site: ' + hdr.siteName : '') }],
+      [],
+      [{ v: 'Sl. No.', head: true }, { v: 'Name of workman', head: true }, { v: "Father's/ Husband's name", head: true }, { v: 'Remarks', head: true }],
+    ];
+    let i = 0;
+    emps.forEach(e => {
+      i += 1;
+      rows.push([{ v: i, num: true }, e.name || '', e.fatherName || '', i === 1 ? nilMessage : '']);
+    });
+    if (!emps.length) rows.push(['', 'No active employees for this site/period']);
+    rows.push([]);
+    rows.push(['', '', '', 'For ' + (cfg.employerName || 'Contractor')]);
+    sendExcelXml(res, filenamePrefix + '_' + month + '_' + year + '.xls', [{ name: formTitle.slice(0, 28), rows }]);
+  } catch (e) {
+    res.status(500).send(e.message || 'Register failed');
+  }
+}
+
+app.get('/api/hrm/reports/form-xxii', (req, res) => {
+  hrmNilRegister(req, res, 'FORM XXII — REGISTER OF ADVANCES', '[See Rule 78 (2) (d)]',
+    'FormXXII_Advances', 'No Advance for the Month (no advance records stored — extend module to capture advances)');
+});
+
+app.get('/api/hrm/reports/form-xx', (req, res) => {
+  hrmNilRegister(req, res, 'FORM - XX — Register of Deductions for Damage or Loss', '[See Rule 78 (2) (d)]',
+    'FormXX_DamageLoss', 'Nil Deduction for Damages & loss for the Month');
+});
+
+app.get('/api/hrm/reports/form-xxi', (req, res) => {
+  hrmNilRegister(req, res, 'FORM - XXI — REGISTER OF FINES', '[See Rule 78 (2) (d)]',
+    'FormXXI_Fines', 'No Fines For the Month');
+});
+
+app.get('/api/hrm/reports/form-xxiii', (req, res) => {
+  try {
+    const month = Number(req.query.month);
+    const year = Number(req.query.year);
+    if (!month || !year) return res.status(400).send('month and year required');
+    const cfg = hrmGetConfig();
+    const site = hrmResolveSite(cfg, req.query.siteId);
+    const hdr = hrmSiteHeader(cfg, site);
+    const key = year + '_' + month;
+    const attFile = path.join(HRM_DIR, 'attendance', safeFileName(key) + '.json');
+    const att = fs.existsSync(attFile) ? JSON.parse(fs.readFileSync(attFile, 'utf8')) : { rows: [] };
+    const emps = {};
+    hrmReadAll('employees').forEach(e => { emps[e.id] = e; });
+    const rows = [
+      [{ v: 'FORM XXIII — REGISTER OF OVERTIME', title: true }],
+      [{ v: '[Rule 78(2)(e)]', bold: true }],
+      [{ v: 'Name and address of contractor: ' + hdr.contractor }],
+      [{ v: 'Name and address of establishment: ' + hdr.establishment }],
+      [{ v: 'Nature and location of work: ' + hdr.nature }],
+      [{ v: 'Name and address of principal employer: ' + hdr.principal }],
+      [{ v: 'Period: ' + hrmMonthLabel(month, year) + (hdr.siteName ? ' | Site: ' + hdr.siteName : '') }],
+      [],
+      [
+        { v: 'Sl. No.', head: true }, { v: 'Name of workman', head: true }, { v: "Father's/ Husband's name", head: true },
+        { v: 'Sex', head: true }, { v: 'Designation', head: true }, { v: 'Total OT hours', head: true },
+        { v: 'Normal rate', head: true }, { v: 'OT rate (1.5x)', head: true }, { v: 'OT earnings', head: true },
+      ],
+    ];
+    let i = 0;
+    let anyOt = false;
+    (att.rows || []).forEach(r => {
+      const e = emps[r.empId] || {};
+      if (site && !hrmFilterEmpBySite([e], site).length) return;
+      const ot = Number(r.otHours || 0);
+      if (ot > 0) anyOt = true;
+      i += 1;
+      const daily = (Number(e.basic || 0) / 26) || 0;
+      const otRate = daily / 8 * 1.5;
+      const earn = Math.round(ot * otRate * 100) / 100;
+      rows.push([
+        { v: i, num: true }, e.name || r.empName || '', e.fatherName || '',
+        String(e.gender || '').charAt(0) || 'M', e.designation || '',
+        { v: ot, num: true }, { v: Math.round(daily / 8 * 100) / 100, num: true },
+        { v: Math.round(otRate * 100) / 100, num: true }, { v: earn, num: true },
+      ]);
+    });
+    if (!i) rows.push(['', 'No attendance — save attendance first']);
+    else if (!anyOt) rows.push(['', 'No Overtime for the Month (OT hrs all zero)']);
+    rows.push([]);
+    rows.push(['', '', '', 'For ' + (cfg.employerName || 'Contractor')]);
+    sendExcelXml(res, 'FormXXIII_OT_' + month + '_' + year + '.xls', [{ name: 'Form XXIII', rows }]);
+  } catch (e) {
+    res.status(500).send(e.message || 'Form XXIII failed');
+  }
+});
+
+app.get('/api/hrm/reports/form-xiii', (req, res) => {
+  try {
+    const cfg = hrmGetConfig();
+    const site = hrmResolveSite(cfg, req.query.siteId);
+    const hdr = hrmSiteHeader(cfg, site);
+    let emps = hrmReadAll('employees').filter(e => !e.deleted && e.isActive !== false);
+    if (site) emps = hrmFilterEmpBySite(emps, site);
+    const rows = [
+      [{ v: 'FORM XIII — Register of Workmen Employed by Contractor', title: true }],
+      [{ v: '[See Rule 75]', bold: true }],
+      [{ v: 'Nature and location of work: ' + hdr.nature }],
+      [{ v: 'Name and address of establishment: ' + hdr.establishment }],
+      [{ v: 'Name and address of principal employer: ' + hdr.principal }],
+      [{ v: 'Contractor: ' + hdr.contractor + (hdr.siteName ? ' | Site: ' + hdr.siteName : '') }],
+      [],
+      [
+        { v: 'Sl No.', head: true }, { v: 'Name and Surname of workmen', head: true }, { v: 'Age & Sex', head: true },
+        { v: "Father's / Husband's Name", head: true }, { v: 'Nature of Employment/ Designation', head: true },
+        { v: 'Permanent house address', head: true }, { v: 'Local Address', head: true },
+        { v: 'Date of commencement of employment', head: true }, { v: 'Date of termination', head: true },
+        { v: 'Reason for termination', head: true }, { v: 'Remarks', head: true },
+      ],
+    ];
+    let i = 0;
+    emps.forEach(e => {
+      i += 1;
+      const sex = String(e.gender || '').charAt(0) || '';
+      rows.push([
+        { v: i, num: true }, e.name || '', sex, e.fatherName || '', e.designation || e.skillCategory || '',
+        e.permanentAddress || e.address || e.site || '', e.localAddress || '',
+        e.doj || '', e.dol || '', e.terminationReason || '', '',
+      ]);
+    });
+    if (!emps.length) rows.push(['', 'No active employees']);
+    rows.push([]);
+    rows.push(['', '', '', 'For ' + (cfg.employerName || 'Contractor')]);
+    sendExcelXml(res, 'FormXIII_Workmen.xls', [{ name: 'Form XIII', rows }]);
+  } catch (e) {
+    res.status(500).send(e.message || 'Form XIII failed');
+  }
+});
+
+
 
 // ---- Monthly bills export for auditor (CSV) ----
 app.get('/api/bills/export-month', (req, res) => {
