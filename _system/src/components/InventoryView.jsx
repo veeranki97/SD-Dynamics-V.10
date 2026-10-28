@@ -48,12 +48,15 @@ export default function InventoryView({ embedded = false } = {}) {
     getStockAlertSettings().then(setStockAlerts).catch(() => {});
   }, []);
 
-  const filtered = search.trim()
-    ? products.filter(p =>
-        (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (p.hsn || '').toLowerCase().includes(search.toLowerCase())
-      )
-    : products;
+  const filtered = (() => {
+    const q = search.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!q) return products;
+    return products.filter(p => {
+      const name = String(p.name || '').toLowerCase().replace(/\s+/g, ' ');
+      const hsn = String(p.hsn || '').toLowerCase();
+      return name.includes(q) || hsn.includes(q);
+    });
+  })();
 
   const openAdd = () => {
     setForm({ ...emptyForm });
@@ -95,21 +98,28 @@ export default function InventoryView({ embedded = false } = {}) {
       // old caller reading .rate still gets the right number.
       const sellingPrice = form.sellingPrice ? parseFloat(form.sellingPrice) : 0;
       const purchasePrice = form.purchasePrice ? parseFloat(form.purchasePrice) : 0;
+      const nameTrim = form.name.trim();
+      const nameKey = nameTrim.toLowerCase().replace(/\s+/g, ' ');
+      let id = editingId;
+      if (!id) {
+        const hit = products.find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === nameKey);
+        if (hit?.id) id = hit.id;
+      }
       const product = {
-        ...(editingId ? { id: editingId } : {}),
+        ...(id ? { id } : {}),
         isService: true,
-        name: form.name.trim(),
+        name: nameTrim,
         hsn: form.hsn.trim(),
         purchasePrice,
         sellingPrice,
-        rate: sellingPrice, // mirror for legacy readers
+        rate: sellingPrice,
         taxPercent: form.taxPercent ? parseFloat(form.taxPercent) : 0,
         unit: form.unit,
         stock: form.stock ? parseFloat(form.stock) : 0,
         description: form.description.trim(),
       };
-      /* skip dup */ await saveProduct(product);
-      toast(editingId ? 'Product updated' : 'Product added', 'success');
+      await saveProduct(product);
+      toast(id && !editingId ? 'Matched existing service — updated' : (editingId ? 'Product updated' : 'Product added'), 'success');
       closeForm();
       loadProducts();
     } catch {
@@ -213,14 +223,15 @@ export default function InventoryView({ embedded = false } = {}) {
       )}
 
       {/* Toolbar: search + actions (full width when embedded under Master data) */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
-        marginBottom: 12, width: '100%',
+      <div className="list-module-toolbar glass-panel" style={{
+        display: 'flex', flexWrap: 'nowrap', gap: 8, alignItems: 'center',
+        marginBottom: 12, width: '100%', padding: '0.45rem 0.65rem', boxSizing: 'border-box',
       }}>
-        <div className="search-box" style={{ flex: 1, minWidth: 200, maxWidth: '100%', width: '100%' }}>
+        <div className="search-box" style={{ flex: '1 1 auto', minWidth: 0, maxWidth: 'none', width: 'auto' }}>
           <Search size={16} className="search-icon" />
-          <input type="text" placeholder="Search by name or SAC/HSN..." value={search}
-            onChange={e => setSearch(e.target.value)} className="search-input" />
+          <input type="text" placeholder="Search by name or SAC/HSN (any case)..." value={search}
+            onChange={e => setSearch(e.target.value)} className="search-input"
+            style={{ width: '100%' }} />
           {search && <button className="icon-btn" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={14} /></button>}
         </div>
         {embedded && (

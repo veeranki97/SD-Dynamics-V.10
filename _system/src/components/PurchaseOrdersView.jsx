@@ -692,6 +692,7 @@ useEffect(() => {
     if (!form.poNumber?.trim()) form.poNumber = await nextPONumber();
     const items = (form.items || []).map(it => ({ ...it, amount: calcItemAmount(it) }));
     const totals = calcPOTotals(items, form.taxRate, form.vendorState, profile?.state);
+    const isNewPo = !form.id;
     const payload = {
       ...form,
       site: asText(form.site) || form.site || 'Main Site',
@@ -702,6 +703,7 @@ useEffect(() => {
       fingerprint: await sha256Hex(JSON.stringify({
         po: form.poNumber, vendor: form.vendorName, items, totals, date: form.date,
       })),
+      createdAt: form.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     try {
@@ -714,7 +716,7 @@ useEffect(() => {
       return;
     }
 
-      await savePurchaseOrder(payload, { overwrite: true });
+      await savePurchaseOrder(payload, { overwrite: true, action: isNewPo ? 'create' : 'update' });
       try {
         await appendApprovalLog({
           type: 'PO',

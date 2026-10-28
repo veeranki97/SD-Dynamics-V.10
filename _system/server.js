@@ -1038,7 +1038,15 @@ app.get('/api/products', (req, res) => {
 });
 
 app.post('/api/products', (req, res) => {
-  const product = req.body;
+  const product = req.body || {};
+  const nameKey = String(product.name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!product.id && nameKey) {
+    try {
+      const all = readAllFromDir('products') || [];
+      const hit = all.find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === nameKey);
+      if (hit && hit.id) product.id = hit.id;
+    } catch (e) { /* new id */ }
+  }
   if (!product.id) product.id = 'prod_' + Date.now();
   const filePath = path.join(DATA_DIR, 'products', safeFileName(product.id) + '.json');
   writeJSON(filePath, product);

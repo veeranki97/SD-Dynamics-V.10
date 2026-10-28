@@ -5138,3 +5138,16 @@ html:not([data-theme="dark"]) .mobile-topbar-btn,
 :root[data-theme="dark"] .invoice-list-panel .data-table thead th {
   background: var(--surface, #1e293b);
 }
+
+/* === SD MERGED PATCH CSS (do not add parallel ux-*.css files) === */
+/* Master data → Services: search fills row beside actions */
+.master-services-tab .list-module-toolbar .search-box,
+.master-services-embed .list-module-toolbar .search-box {
+  max-width: none !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+.master-services-tab .list-module-toolbar .search-input,
+.master-services-embed .list-module-toolbar .search-input {
+  width: 100% !important;
+}

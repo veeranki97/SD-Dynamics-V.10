@@ -332,15 +332,20 @@ export const getAllExpenses = async () => {
   return apiFetch(`${API}/expenses`);
 };
 
-export const saveExpense = async (expense) => {
+export const saveExpense = async (expense, { action } = {}) => {
+  const hadId = !!(expense && expense.id);
   const res = await apiFetch(`${API}/expenses`, { method: 'POST', body: JSON.stringify(expense) });
   if (res.id) expense.id = res.id;
   try {
     await logActivity({
       entityType: 'expense',
-      entityId: expense?.id || res?.id,
-      action: 'save',
-      diff: { amount: expense?.amount, category: expense?.category },
+      entityId: expense?.expenseNumber || expense?.id || res?.id,
+      action: action || (hadId ? 'update' : 'create'),
+      diff: {
+        amount: expense?.amount,
+        category: expense?.category,
+        status: expense?.status,
+      },
     });
   } catch { /* ignore */ }
   return expense;
@@ -355,9 +360,22 @@ export const getAllPurchases = async () => {
   return apiFetch(`${API}/purchases`);
 };
 
-export const savePurchase = async (purchase) => {
+export const savePurchase = async (purchase, { action } = {}) => {
+  const hadId = !!(purchase && purchase.id);
   const res = await apiFetch(`${API}/purchases`, { method: 'POST', body: JSON.stringify(purchase) });
   if (res.id) purchase.id = res.id;
+  try {
+    await logActivity({
+      entityType: 'purchase',
+      entityId: purchase?.billNumber || purchase?.invoiceNumber || purchase?.id || res?.id,
+      action: action || (hadId ? 'update' : 'create'),
+      diff: {
+        amount: purchase?.totalAmount ?? purchase?.amount ?? purchase?.grandTotal,
+        status: purchase?.status,
+        vendorName: purchase?.vendorName,
+      },
+    });
+  } catch { /* ignore */ }
   return purchase;
 };
 
@@ -401,20 +419,23 @@ export const getAllPurchaseOrders = async () => {
   const data = await apiFetch(`${API}/purchaseorders`);
   return Array.isArray(data) ? data : (data?.items || []);
 };
-export const savePurchaseOrder = async (po, { overwrite = false } = {}) => {
+export const savePurchaseOrder = async (po, { overwrite = false, action } = {}) => {
   const payload = { ...(po || {}) };
+  const hadClientId = !!(po && po.id);
   if (!payload.id) {
     payload.id = 'po_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
+  if (!payload.createdAt) payload.createdAt = new Date().toISOString();
   const qs = overwrite ? '?overwrite=1' : '';
   const _r = await apiFetch(`${API}/purchaseorders${qs}`, { method: 'POST', body: JSON.stringify(payload) });
   po = payload;
   try {
+    const resolved = action || (!hadClientId ? 'create' : 'update');
     await logActivity({
       entityType: 'purchase_order',
       entityId: po?.poNumber || po?.id || po?.number,
-      action: 'save',
-      diff: { id: po?.id },
+      action: resolved,
+      diff: { id: po?.id, poNumber: po?.poNumber },
     });
   } catch { /* ignore */ }
   return _r;
@@ -482,8 +503,23 @@ export const saveReceipt = async (receipt) => {
       if (String(e.message || '').includes('exceeds outstanding')) throw e;
     }
   }
+  const hadId = !!(receipt && receipt.id);
   const res = await apiFetch(`${API}/receipts`, { method: 'POST', body: JSON.stringify(receipt) });
   if (res.id) receipt.id = res.id;
+  try {
+    const amt = Number(receipt.amount ?? receipt.paidAmount ?? 0) || 0;
+    await logActivity({
+      entityType: 'receipt',
+      entityId: receipt?.receiptNumber || receipt?.id || res?.id,
+      action: hadId ? 'update' : 'payment',
+      diff: {
+        amount: amt,
+        status: receipt?.status,
+        againstInvoice: receipt?.againstInvoice || receipt?.againstInvoiceId || receipt?.invoiceId,
+        partyName: receipt?.partyName || receipt?.clientName || receipt?.vendorName,
+      },
+    });
+  } catch { /* ignore */ }
   return receipt;
 };
 
@@ -685,13 +721,45 @@ export const getAllAccounts = async () => apiFetch(`${API}/accounts`);
 export const saveAccount = async (a) =>
   apiFetch(`${API}/accounts`, { method: 'POST', body: JSON.stringify(a) });
 
-export async function logActivity({ entityType, entityId, action, diff }) {
+/** Display name for audit trail. ActivityLogView hides "local"/"server" as "Not recorded". */
+async function resolveActivityUser(explicit) {
+  if (explicit && String(explicit).trim() && !['local', 'server'].includes(String(explicit).trim().toLowerCase())) {
+    return String(explicit).trim();
+  }
+  try {
+    const cached = sessionStorage.getItem('sd_activity_user') || localStorage.getItem('sd_activity_user');
+    if (cached && String(cached).trim() && !['local', 'server'].includes(String(cached).trim().toLowerCase())) {
+      return String(cached).trim();
+    }
+  } catch { /* */ }
+  try {
+    const p = await getProfile();
+    const name = (
+      p?.contactPerson || p?.ownerName || p?.authorizedSignatory ||
+      p?.contactName || p?.proprietorName || p?.businessName || p?.companyName || p?.tradeName || p?.email || ''
+    );
+    if (name && String(name).trim()) {
+      const n = String(name).trim();
+      try {
+        sessionStorage.setItem('sd_activity_user', n);
+        localStorage.setItem('sd_activity_user', n);
+      } catch { /* */ }
+      return n;
+    }
+  } catch { /* */ }
+  // Last resort: still avoid bare "local" so UI does not show "Not recorded"
+  return 'Owner';
+}
+
+export async function logActivity({ entityType, entityId, action, diff, user }) {
   try {
     const base = (typeof API !== 'undefined' ? API : '/api');
+    const who = await resolveActivityUser(user);
     const payload = {
       entityType: entityType || 'app',
       entityId: String(entityId || 'n/a'),
       action: action || 'event',
+      user: who,
       diff: diff || {},
       at: new Date().toISOString(),
     };
