@@ -3202,7 +3202,7 @@ app.get('/api/health', (req, res) => {
 // ============================================================
 const HRM_DIR = path.join(DATA_DIR, 'hrm');
 function hrmEnsure() {
-  ['employees', 'attendance', 'payroll', 'minwages', 'settings'].forEach(d => {
+  ['employees', 'attendance', 'payroll', 'minwages', 'settings', 'leave'].forEach(d => {
     const p = path.join(HRM_DIR, d);
     if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
   });
@@ -3424,7 +3424,12 @@ app.post('/api/hrm/payroll/process', (req, res) => {
     const hE = Math.round((hra / div) * payable);
     const dE = Math.round((da / div) * payable);
     const oE = Math.round((allow / div) * payable);
-    const gross = bE + hE + dE + oE;
+    // OT hours from attendance (P1) — daily rate from monthly basic / 26, multiplier default 1.5
+    const otHours = Math.max(0, Number(att.otHours) || 0);
+    const otMult = Number(cfg.otMultiplier) > 0 ? Number(cfg.otMultiplier) : 1.5;
+    const dailyRate = div > 0 ? (basic / 26) : 0;
+    const otPay = hrmRound2(otHours * dailyRate * otMult);
+    const gross = bE + hE + dE + oE + otPay;
     const pfBaseAmt = cfg.pfBase === 'BASIC' ? bE : (bE + dE);
     const pf = hrmCalcPF(pfBaseAmt, !!emp.pfApplicable, Number(cfg.pfCap) || 15000);
     const esi = hrmCalcESI(gross, !!emp.esiApplicable, Number(cfg.esiCap) || 21000);
@@ -3434,6 +3439,8 @@ app.post('/api/hrm/payroll/process', (req, res) => {
       employeeCode: emp.employeeCode,
       name: emp.name,
       payableDays: payable,
+      otHours: otHours,
+      otPay: otPay,
       basicEarned: bE, hraEarned: hE, daEarned: dE, allowancesEarned: oE,
       grossEarnings: gross,
       pfWages: pf.wages, pfEE: pf.ee, pfER: pf.er, eps: pf.eps,
@@ -3498,6 +3505,79 @@ app.get('/api/hrm/dashboard', (req, res) => {
     missingSal,
     siteDistribution: Object.entries(bySite).map(([name, count]) => ({ name, count })),
   });
+});
+
+
+// Leave register (simple CL/SL/EL — approve adjusts employee balance)
+app.get('/api/hrm/leave', (req, res) => {
+  const list = hrmReadAll('leave').filter(x => !x.deleted);
+  list.sort((a, b) => String(b.from || b.createdAt || '').localeCompare(String(a.from || a.createdAt || '')));
+  res.json(list);
+});
+app.post('/api/hrm/leave', (req, res) => {
+  hrmEnsure();
+  const body = req.body || {};
+  if (!body.empId) return res.status(400).json({ error: 'Employee required' });
+  if (!body.type || !['CL', 'SL', 'EL'].includes(String(body.type).toUpperCase())) {
+    return res.status(400).json({ error: 'Leave type must be CL, SL or EL' });
+  }
+  const days = Number(body.days);
+  if (!(days > 0)) return res.status(400).json({ error: 'Days must be > 0' });
+  const row = {
+    id: body.id || ('lv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)),
+    empId: body.empId,
+    empName: body.empName || '',
+    employeeCode: body.employeeCode || '',
+    type: String(body.type).toUpperCase(),
+    from: body.from || '',
+    to: body.to || body.from || '',
+    days: days,
+    note: body.note || '',
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  writeJSON(path.join(HRM_DIR, 'leave', safeFileName(row.id) + '.json'), row);
+  hrmInvalidate('leave');
+  res.json(row);
+});
+app.post('/api/hrm/leave/:id/decide', (req, res) => {
+  hrmEnsure();
+  const id = req.params.id;
+  const file = path.join(HRM_DIR, 'leave', safeFileName(id) + '.json');
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Leave not found' });
+  const row = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const decision = String((req.body || {}).status || '').toLowerCase();
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return res.status(400).json({ error: 'status must be approved or rejected' });
+  }
+  if (row.status === 'approved' && decision === 'approved') {
+    return res.json(row);
+  }
+  if (decision === 'approved' && row.status !== 'approved') {
+    // deduct balance from employee
+    const empFile = path.join(HRM_DIR, 'employees', safeFileName(row.empId) + '.json');
+    if (fs.existsSync(empFile)) {
+      const emp = JSON.parse(fs.readFileSync(empFile, 'utf8'));
+      const key = row.type === 'CL' ? 'leaveCL' : row.type === 'SL' ? 'leaveSL' : 'leaveEL';
+      const bal = Number(emp[key]);
+      const next = Number.isFinite(bal) ? bal - Number(row.days) : bal;
+      emp[key] = next;
+      emp.updatedAt = new Date().toISOString();
+      writeJSON(empFile, emp);
+      hrmInvalidate('employees');
+      if (Number.isFinite(bal) && next < 0) {
+        // allow but warn in response
+        row._balanceWarning = 'Balance went negative for ' + key;
+      }
+    }
+  }
+  row.status = decision;
+  row.decidedAt = new Date().toISOString();
+  row.updatedAt = row.decidedAt;
+  writeJSON(file, row);
+  hrmInvalidate('leave');
+  res.json(row);
 });
 
 app.get('/api/hrm/reports/ecr', (req, res) => {

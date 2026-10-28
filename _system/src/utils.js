@@ -39,43 +39,71 @@ export const GSTIN_STATE_MAP = {
 };
 
 export const numberToWords = (num) => {
-  if (num === 0) return 'Zero Rupees Only';
+  // Indian numbering: handles crore groups >= 100 (e.g. 100 Crore, 1000 Crore).
+  // Surgical fix: old convertToWords only supported 0-99 so crore>=100 printed "undefined Crore".
+  if (num == null || Number.isNaN(Number(num))) return 'Zero Rupees Only';
+  if (Number(num) === 0) return 'Zero Rupees Only';
 
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
   const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
 
-  const convertToWords = (n) => {
-    if (n < 20) return a[n];
+  // 0-99 only
+  const twoDigits = (n) => {
+    n = Math.floor(Math.abs(n));
+    if (n < 20) return a[n] || '';
     return b[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + a[n % 10] : '');
   };
 
+  // 0-999
+  const threeDigits = (n) => {
+    n = Math.floor(Math.abs(n));
+    if (n === 0) return '';
+    if (n < 100) return twoDigits(n);
+    const h = Math.floor(n / 100);
+    const r = n % 100;
+    return a[h] + 'Hundred' + (r ? ' ' + twoDigits(r) : ' ');
+  };
+
+  // Full Indian scale for non-negative integer rupees (recursive crore)
   const getIndianFormatString = (n) => {
+    n = Math.floor(Math.abs(Number(n) || 0));
+    if (n === 0) return '';
     let res = '';
     const crore = Math.floor(n / 10000000);
-    n -= crore * 10000000;
+    n = n % 10000000;
     const lakh = Math.floor(n / 100000);
-    n -= lakh * 100000;
+    n = n % 100000;
     const thousand = Math.floor(n / 1000);
-    n -= thousand * 1000;
-    const hundred = Math.floor(n / 100);
-    n -= hundred * 100;
+    n = n % 1000;
 
-    if (crore > 0) res += convertToWords(crore) + ' Crore ';
-    if (lakh > 0) res += convertToWords(lakh) + ' Lakh ';
-    if (thousand > 0) res += convertToWords(thousand) + ' Thousand ';
-    if (hundred > 0) res += convertToWords(hundred) + ' Hundred ';
-    if (n > 0) res += (res !== '' ? 'and ' : '') + convertToWords(n);
+    // Crore group may be >= 100 — recurse via same function
+    if (crore > 0) {
+      const croreWords = crore < 100 ? twoDigits(crore) : getIndianFormatString(crore);
+      res += croreWords.trim() + ' Crore ';
+    }
+    if (lakh > 0) res += twoDigits(lakh).trim() + ' Lakh ';
+    if (thousand > 0) res += twoDigits(thousand).trim() + ' Thousand ';
+    if (n > 0) {
+      const part = threeDigits(n).trim();
+      res += (res !== '' ? 'and ' : '') + part + (part.endsWith(' ') ? '' : ' ');
+    }
     return res.trim();
   };
 
-  const roundedNum = Math.round(num * 100) / 100;
-  const rupees = Math.floor(roundedNum);
-  const paise = Math.round((roundedNum - rupees) * 100);
+  const roundedNum = Math.round(Number(num) * 100) / 100;
+  const neg = roundedNum < 0;
+  const abs = Math.abs(roundedNum);
+  const rupees = Math.floor(abs);
+  const paise = Math.round((abs - rupees) * 100);
 
-  let result = getIndianFormatString(rupees) + ' Rupees';
+  let result = getIndianFormatString(rupees);
+  if (!result) result = 'Zero';
+  result = result + ' Rupees';
   if (paise > 0) {
-    result += ' and ' + getIndianFormatString(paise) + ' Paise';
+    const pWords = getIndianFormatString(paise) || twoDigits(paise).trim();
+    result += ' and ' + pWords + ' Paise';
   }
+  if (neg) result = 'Minus ' + result;
   return result + ' Only';
 };
 

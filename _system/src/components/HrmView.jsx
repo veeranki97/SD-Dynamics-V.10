@@ -1,12 +1,20 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from './Toast';
 import { confirmAction, promptAction } from './ConfirmModal';
-import { INDIAN_STATES } from '../utils';
+import { INDIAN_STATES, numberToWords } from '../utils';
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SKILL_CATS = ['Unskilled', 'Semi-skilled', 'Skilled', 'Highly Skilled'];
 const GENDERS = ['Male', 'Female', 'Other'];
+
+/** Mask sensitive IDs in lists (full value on employee edit form). */
+function maskId(v, keep = 4) {
+  const s = String(v || '').trim();
+  if (!s) return '—';
+  if (s.length <= keep) return '•'.repeat(s.length);
+  return '•'.repeat(Math.max(0, s.length - keep)) + s.slice(-keep);
+}
 
 const emptyEmp = () => ({
   id: '',
@@ -63,6 +71,7 @@ export default function HrmView() {
   const [config, setConfig] = useState({
     pfCap: 15000, esiCap: 21000, proration: 'ACTUAL', pfBase: 'BASIC_DA',
     sites: [], establishmentCode: '', esicCode: '', employerName: '',
+    contractorNameAddress: '', natureLocationOfWork: '', contractEstablishmentNameAddress: '', principalEmployerNameAddress: '',
   });
   const [form, setForm] = useState(null);
   const [attRows, setAttRows] = useState([]);
@@ -72,6 +81,8 @@ export default function HrmView() {
   const [siteDraft, setSiteDraft] = useState({ name: '', state: '' });
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
+  const [leaveRows, setLeaveRows] = useState([]);
+  const [leaveForm, setLeaveForm] = useState(null);
 
   const applyMinWageFromMaster = useCallback((nextForm) => {
     const state = (nextForm.state || '').trim();
@@ -145,17 +156,21 @@ export default function HrmView() {
   const loadMinWages = useCallback(async () => {
     try { setMinWages(await api('/hrm/minwages')); } catch { /* ignore */ }
   }, []);
+  const loadLeave = useCallback(async () => {
+    try { setLeaveRows(await api('/hrm/leave')); } catch { setLeaveRows([]); }
+  }, []);
 
   useEffect(() => { loadEmployees(); loadConfig(); }, [loadEmployees, loadConfig]);
   useEffect(() => {
     if (tab === 'dashboard') loadDash();
     if (tab === 'attendance') loadAtt();
-    if (tab === 'payroll' || tab === 'filings' || tab === 'registers') loadPayroll();
+    if (tab === 'payroll' || tab === 'filings' || tab === 'registers' || tab === 'statutory') loadPayroll();
     if (tab === 'statutory' || tab === 'registers' || tab === 'attendance') loadAtt();
     if (tab === 'minwages') loadMinWages();
+    if (tab === 'leave') loadLeave();
     if (tab === 'settings') { /* config already on mount */ }
     if (tab === 'employees') loadEmployees();
-  }, [tab, month, year, loadDash, loadAtt, loadPayroll, loadMinWages, loadEmployees]);
+  }, [tab, month, year, loadDash, loadAtt, loadPayroll, loadMinWages, loadEmployees, loadLeave]);
 
   const saveEmp = async () => {
     if (!form?.name?.trim()) { toast('Employee name is required', 'warning'); return; }
@@ -169,6 +184,9 @@ export default function HrmView() {
         hra: Number(form.hra) || 0,
         da: Number(form.da) || 0,
         allowances: Number(form.allowances) || 0,
+        leaveCL: Number(form.leaveCL) || 0,
+        leaveSL: Number(form.leaveSL) || 0,
+        leaveEL: Number(form.leaveEL) || 0,
       };
       // Empty id → new employee
       if (!payload.id) delete payload.id;
@@ -210,7 +228,7 @@ export default function HrmView() {
       if (existing) return existing;
       const days = {};
       for (let d = 1; d <= daysInMonth; d++) days['D' + d] = '';
-      return { empId: e.id, empName: e.name, employeeCode: e.employeeCode, days, payableDays: 0 };
+      return { empId: e.id, empName: e.name, employeeCode: e.employeeCode, days, payableDays: 0, otHours: 0 };
     });
     setAttRows(rows);
     if (!rows.length) toast('No active employees — add staff in Directory first', 'warning');
@@ -343,30 +361,32 @@ export default function HrmView() {
     const cfg = config || {};
     const pfRate = Number(cfg.pfEmployeePercent ?? 12) / 100;
     const esiRate = Number(cfg.esiEmployeePercent ?? 0.75) / 100;
-    const days = Number(payRow?.daysWorked ?? payRow?.workingDays ?? payRow?.presentDays ?? 0) || 0;
+    const days = Number(payRow?.payableDays ?? payRow?.daysWorked ?? payRow?.workingDays ?? payRow?.presentDays ?? 0) || 0;
     const daily = Number(payRow?.dailyRate ?? emp.dailyRate ?? (Number(emp.basic || 0) / 26)) || 0;
-    const basic = Number(payRow?.basic ?? payRow?.basicEarned ?? Math.round(daily * days * 0.2)) || 0;
-    const da = Number(payRow?.da ?? payRow?.dearness ?? Math.round(daily * days - basic)) || 0;
-    let totalEarn = Number(payRow?.gross ?? payRow?.totalEarnings ?? (basic + da)) || (basic + da);
+    const basic = Number(payRow?.basicEarned ?? payRow?.basic ?? emp.basic ?? 0) || 0;
+    const da = Number(payRow?.daEarned ?? payRow?.da ?? payRow?.dearness ?? emp.da ?? 0) || 0;
+    const hra = Number(payRow?.hraEarned ?? payRow?.hra ?? emp.hra ?? 0) || 0;
+    const allow = Number(payRow?.allowancesEarned ?? payRow?.allowances ?? emp.allowances ?? 0) || 0;
+    const otPay = Number(payRow?.otPay ?? 0) || 0;
+    let totalEarn = Number(payRow?.grossEarnings ?? payRow?.gross ?? payRow?.totalEarnings ?? 0) || 0;
+    if (!totalEarn) totalEarn = basic + da + hra + allow + otPay;
     if (!totalEarn && daily && days) totalEarn = Math.round(daily * days);
-    const pfBase = Math.min(totalEarn, Number(cfg.pfWageCeiling ?? 15000) || 15000);
-    const pf = Number(payRow?.pfEmployee ?? Math.round(pfBase * pfRate)) || 0;
-    const esiEligible = totalEarn <= (Number(cfg.esiWageCeiling ?? 21000) || 21000);
-    const esi = Number(payRow?.esiEmployee ?? (esiEligible ? Math.round(totalEarn * esiRate) : 0)) || 0;
+    const pf = Number(payRow?.pfEE ?? payRow?.pfEmployee ?? 0) || 0;
+    const esi = Number(payRow?.esiEE ?? payRow?.esiEmployee ?? 0) || 0;
     const totalDed = pf + esi;
-    const net = Math.max(0, totalEarn - totalDed);
+    const net = Number(payRow?.netSalary ?? Math.max(0, totalEarn - totalDed)) || 0;
     const biz = cfg.businessName || document.title || 'Business';
     const addr = cfg.businessAddress || '';
     const monthLabel = `${MONTH_NAMES[month - 1]} ${year}`.toUpperCase();
     const from = payRow?.periodFrom || `01/${String(month).padStart(2, '0')}/${year}`;
     const to = payRow?.periodTo || `${new Date(year, month, 0).getDate()}/${String(month).padStart(2, '0')}/${year}`;
-    const words = (() => {
-      try {
-        if (typeof numberToWordsIndian === 'function') return numberToWordsIndian(net);
-      } catch { /* */ }
-      return String(net);
-    })();
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Payslip ${emp.name || ''}</title>
+    let words = String(net);
+    try {
+      if (typeof numberToWords === 'function') {
+        words = String(numberToWords(net) || '').replace(/\s*Only\s*$/i, '').replace(/^Rupees\s+/i, '') || String(net);
+      }
+    } catch { /* */ }
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Payslip ${emp.name || ''}</title>
 <style>
   body{font-family:Georgia,serif;max-width:720px;margin:24px auto;color:#111;font-size:13px}
   h1{text-align:center;color:#1e3a5f;margin:0 0 4px;font-size:22px}
@@ -397,10 +417,21 @@ export default function HrmView() {
   <div class="words">Amount in Words: Rupees ${words} Only</div>
   <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
 </body></html>`;
+    const code = String(emp.employeeCode || emp.id || 'EMP').replace(/[/\\?%*:|"<>]/g, '-');
+    const slipName = 'Payslip-' + code + '-' + year + '-' + String(month).padStart(2, '0');
+    html = html.replace('<head>', '<head><title>' + slipName + '</title>');
+    const prevTitle = document.title;
+    try { document.title = slipName; } catch (_) {}
     const w = window.open('', '_blank', 'noopener,noreferrer');
-    if (!w) { toast('Allow pop-ups to download payslip', 'warning'); return; }
+    if (!w) {
+      try { document.title = prevTitle; } catch (_) {}
+      toast('Allow pop-ups to download payslip', 'warning');
+      return;
+    }
     w.document.write(html);
     w.document.close();
+    try { w.document.title = slipName; } catch (_) {}
+    setTimeout(() => { try { document.title = prevTitle; } catch (_) {} }, 2000);
   };
 
 
@@ -419,6 +450,33 @@ export default function HrmView() {
     } catch (e) { toast(e.message, 'error'); }
   };
 
+  const hrmPipeline = useMemo(() => {
+    const active = employees.filter((e) => e.isActive !== false && !e.deleted);
+    const hasAtt = Array.isArray(attRows) && attRows.length > 0;
+    const hasPay = Array.isArray(payroll?.rows) && payroll.rows.length > 0;
+    const pfRows = (payroll?.rows || []).filter((r) => Number(r.pfEE || 0) > 0 || Number(r.pfER || 0) > 0);
+    const esiRows = (payroll?.rows || []).filter((r) => Number(r.esiEE || 0) > 0 || Number(r.esiER || 0) > 0);
+    const reasonsEcr = [];
+    if (!active.length) reasonsEcr.push('No active employees');
+    else if (!hasPay) reasonsEcr.push('Process payroll for ' + MONTH_NAMES[month - 1] + ' ' + year + ' first');
+    else if (!pfRows.length) reasonsEcr.push('No PF amounts in payroll (check UAN / PF flag / basic)');
+    const reasonsEsic = [];
+    if (!active.length) reasonsEsic.push('No active employees');
+    else if (!hasPay) reasonsEsic.push('Process payroll for this month first');
+    else if (!esiRows.length) reasonsEsic.push('No ESI amounts (gross above ceiling or ESI off)');
+    return {
+      hasAtt, hasPay, canEcr: pfRows.length > 0, canEsic: esiRows.length > 0,
+      reasonsEcr, reasonsEsic,
+      steps: [
+        { ok: active.length > 0, label: 'Employees', detail: active.length + ' active' },
+        { ok: hasAtt, label: 'Attendance', detail: hasAtt ? 'Ready' : 'Load & save' },
+        { ok: hasPay, label: 'Payroll', detail: hasPay ? (payroll.rows.length + ' rows') : 'Process' },
+        { ok: pfRows.length > 0, label: 'ECR', detail: pfRows.length ? 'Ready' : 'Blocked' },
+        { ok: esiRows.length > 0, label: 'ESIC', detail: esiRows.length ? 'Ready' : 'Blocked' },
+      ],
+    };
+  }, [employees, attRows, payroll, month, year]);
+
   const filtered = employees.filter((e) =>
     !q || [e.name, e.employeeCode, e.department, e.site, e.state, e.uan, e.mobile].join(' ').toLowerCase().includes(q.toLowerCase())
   );
@@ -427,6 +485,7 @@ export default function HrmView() {
     { id: 'dashboard', label: 'Overview' },
     { id: 'directory', label: 'Employees' },
     { id: 'attendance', label: 'Attendance' },
+    { id: 'leave', label: 'Leave' },
     { id: 'payroll', label: 'Payroll' },
     { id: 'statutory', label: 'Statutory downloads' },
     { id: 'minwages', label: 'Min Wages' },
@@ -443,7 +502,7 @@ export default function HrmView() {
   );
 
   return (
-    <div className="page-content">
+    <div className="page-content hrm-page" style={{ width: '100%', maxWidth: '100%' }}>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 className="page-title">HRMS</h1>
@@ -454,7 +513,7 @@ export default function HrmView() {
         {periodBar}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {tabs.map((t) => (
           <button key={t.id} type="button"
             className={`btn btn-sm ${tab === t.id ? 'btn-primary' : 'btn-secondary'}`}
@@ -464,7 +523,7 @@ export default function HrmView() {
 
       {tab === 'dashboard' && (
         <div>
-          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12, marginBottom: 16 }}>
             {[
               ['Active workforce', dash?.activeEmployees ?? '—'],
               ['Gross payroll', dash ? `₹${Number(dash.monthlyCost).toLocaleString('en-IN')}` : '—'],
@@ -483,6 +542,25 @@ export default function HrmView() {
               2) Mark attendance (P / A / H / W / PL) · 3) Process payroll · 4) Download ECR / ESIC and registers from Statutory downloads.
               PF employee share 12%; EPS capped; ESI 0.75% + 3.25% employer when gross ≤ ESI wage ceiling.
             </p>
+          </div>
+          <div className="glass-panel" style={{ padding: 16, marginBottom: 12 }}>
+            <h3 style={{ marginTop: 0, fontSize: 14 }}>This month pipeline ({MONTH_NAMES[month - 1]} {year})</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {hrmPipeline.steps.map((s) => (
+                <span key={s.label} style={{
+                  fontSize: 12, padding: '6px 10px', borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: s.ok ? 'var(--success-light, #ecfdf5)' : 'var(--bg-muted, #f8fafc)',
+                  color: s.ok ? '#047857' : 'var(--text-muted)',
+                }}>{s.ok ? '✓' : '○'} {s.label}: {s.detail}</span>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('directory')}>Employees</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('attendance')}>Attendance</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setTab('payroll')}>Payroll</button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setTab('statutory')}>Statutory</button>
+            </div>
           </div>
           <div className="glass-panel" style={{ padding: 16 }}>
             <h3 style={{ marginTop: 0, fontSize: 14 }}>Site / department distribution</h3>
@@ -520,7 +598,7 @@ export default function HrmView() {
                     <td className="font-medium">{e.name}</td>
                     <td>{[e.state, e.site || e.department].filter(Boolean).join(' · ') || '—'}</td>
                     <td>{e.designation || '—'}</td>
-                    <td>{e.uan || '—'}</td>
+                    <td title={e.uan || ''}>{maskId(e.uan)}</td>
                     <td className="text-end">{Number(e.basic || 0).toLocaleString('en-IN')}</td>
                     <td>{e.pfApplicable ? 'Y' : 'N'}</td>
                     <td>{e.esiApplicable ? 'Y' : 'N'}</td>
@@ -540,7 +618,7 @@ export default function HrmView() {
 
       {tab === 'attendance' && (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center', padding: '12px 14px', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12, background: 'var(--surface, #fff)' }}>
             <button type="button" className="btn btn-secondary btn-sm" onClick={buildAttGrid}>Load grid</button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => fillAll('P')}>Fill P</button>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => fillAll('A')}>Fill A</button>
@@ -548,39 +626,54 @@ export default function HrmView() {
             <a className="btn btn-secondary btn-sm" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Download attendance CSV</a>
             <span className="text-muted" style={{ fontSize: 12 }}>Codes: P present · A absent · H half · W weekly off · PL paid leave</span>
           </div>
-          <div className="glass-panel" style={{ overflow: 'auto', maxHeight: '60vh' }}>
-            <table className="data-table" style={{ width: 'max-content', minWidth: '100%', fontSize: 12 }}>
+          <div className="glass-panel" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 205px)', minHeight: 'min(520px, calc(100vh - 260px))', borderRadius: 12, width: '100%', maxWidth: '100%' }}>
+            <table className="data-table" style={{ width: 'max-content', minWidth: '100%', fontSize: 12, borderCollapse: 'separate', borderSpacing: 0 }}>
               <thead>
                 <tr>
-                  <th style={{ position: 'sticky', left: 0, background: 'var(--surface, #fff)', zIndex: 1 }}>Employee</th>
+                  <th style={{ position: 'sticky', left: 0, background: 'var(--surface, #fff)', zIndex: 3, minWidth: 190, width: 190, boxShadow: '2px 0 4px rgba(15,23,42,0.05)' }}>Employee</th>
                   {Array.from({ length: daysInMonth }, (_, i) => (
-                    <th key={i} style={{ width: 28, textAlign: 'center' }}>{i + 1}</th>
+                    <th key={i} style={{ width: 36, minWidth: 36, textAlign: 'center', padding: '6px 2px', position: 'sticky', top: 0, zIndex: 2, background: 'var(--surface, #fff)' }}>{i + 1}</th>
                   ))}
-                  <th>Pay days</th>
+                  <th style={{ minWidth: 76, whiteSpace: 'nowrap' }}>Pay days</th>
+                  <th title="Overtime hours for payroll (× daily rate × OT multiplier)" style={{ minWidth: 84, whiteSpace: 'nowrap' }}>OT hrs</th>
                 </tr>
               </thead>
               <tbody>
                 {attRows.map((r) => (
                   <tr key={r.empId}>
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--surface, #fff)', fontWeight: 600 }}>{r.empName || r.employeeCode}</td>
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--surface, #fff)', fontWeight: 600, minWidth: 190, width: 190, zIndex: 1, boxShadow: '2px 0 4px rgba(15,23,42,0.05)', whiteSpace: 'nowrap' }}>{r.empName || r.employeeCode}</td>
                     {Array.from({ length: daysInMonth }, (_, i) => {
                       const k = 'D' + (i + 1);
                       return (
-                        <td key={k} style={{ padding: 2 }}>
+                        <td key={k} style={{ padding: '3px 2px', minWidth: 36, textAlign: 'center' }}>
                           <input
                             value={r.days?.[k] || ''}
                             onChange={(e) => setDay(r.empId, k, e.target.value.slice(0, 2))}
-                            style={{ width: 28, textAlign: 'center', fontSize: 11, padding: 2 }}
+                            style={{ width: 32, minWidth: 32, height: 30, boxSizing: 'border-box', textAlign: 'center', fontSize: 11, fontWeight: 600, padding: '3px 1px', borderRadius: 6, border: '1px solid var(--border, #cbd5e1)', background: 'var(--surface, #fff)' }}
                             maxLength={2}
                           />
                         </td>
                       );
                     })}
-                    <td className="text-end">{r.payableDays}</td>
+                    <td className="text-end" style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{r.payableDays}</td>
+                    <td>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        style={{ width: 68, minWidth: 68, padding: '5px 6px', fontSize: 12, borderRadius: 6 }}
+                        value={r.otHours ?? 0}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAttRows((prev) => prev.map((row) => row.empId === r.empId ? { ...row, otHours: v } : row));
+                        }}
+                      />
+                    </td>
                   </tr>
                 ))}
                 {!attRows.length && (
-                  <tr><td colSpan={daysInMonth + 2} className="text-muted" style={{ textAlign: 'center' }}>Click Load grid</td></tr>
+                  <tr><td colSpan={daysInMonth + 3} className="text-muted" style={{ textAlign: 'center' }}>Click Load grid</td></tr>
                 )}
               </tbody>
             </table>
@@ -617,7 +710,7 @@ export default function HrmView() {
                 <tr>
                   <th>Code</th><th>Name</th><th className="text-end">Days</th>
                   <th className="text-end">Gross</th><th className="text-end">PF EE</th>
-                  <th className="text-end">ESI EE</th><th className="text-end">Net</th>
+                  <th className="text-end">ESI EE</th><th className="text-end">OT</th><th className="text-end">Net</th>
                 </tr>
               </thead>
               <tbody>
@@ -625,15 +718,16 @@ export default function HrmView() {
                   <tr key={r.empId}>
                     <td>{r.employeeCode}</td>
                     <td>{r.name}</td>
-                    <td className="text-end">{r.payableDays}</td>
+                    <td className="text-end" style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{r.payableDays}</td>
                     <td className="text-end">{Number(r.grossEarnings || 0).toLocaleString('en-IN')}</td>
                     <td className="text-end">{Number(r.pfEE || 0).toLocaleString('en-IN')}</td>
                     <td className="text-end">{Number(r.esiEE || 0).toLocaleString('en-IN')}</td>
+                    <td className="text-end">{Number(r.otPay || 0).toLocaleString('en-IN')}</td>
                     <td className="text-end" style={{ fontWeight: 600 }}>{Number(r.netSalary || 0).toLocaleString('en-IN')}</td>
                   </tr>
                 ))}
                 {!payroll?.rows?.length && (
-                  <tr><td colSpan={7} className="text-muted">No payroll — save attendance then Process</td></tr>
+                  <tr><td colSpan={8} className="text-muted">No payroll — save attendance then Process</td></tr>
                 )}
               </tbody>
             </table>
@@ -677,7 +771,7 @@ export default function HrmView() {
 
       {/* Statutory downloads — portal filings + registers (single surface) */}
       {(tab === 'statutory' || tab === 'filings' || tab === 'registers' || tab === 'exports') && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
+        <div className="glass-panel" style={{ padding: 20, width: '100%', maxWidth: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
             <div>
               <h3 style={{ marginTop: 0, marginBottom: 4 }}>Statutory downloads — {MONTH_NAMES[month - 1]} {year}</h3>
@@ -696,18 +790,32 @@ export default function HrmView() {
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
                 Text file for the EPFO portal (UAN-wise PF / EPS / EDLI). Use establishment code from HR Settings.
               </p>
-              <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
-                Download EPFO ECR (.txt)
-              </a>
+              {hrmPipeline.canEcr ? (
+                <a className="btn btn-primary" href={`/api/hrm/reports/ecr?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                  Download EPFO ECR (.txt)
+                </a>
+              ) : (
+                <button type="button" className="btn btn-secondary" disabled title={hrmPipeline.reasonsEcr.join('; ')}>Download EPFO ECR (.txt)</button>
+              )}
+              {!hrmPipeline.canEcr && (
+                <p className="text-muted" style={{ fontSize: 11, margin: '8px 0 0' }}>{hrmPipeline.reasonsEcr[0]}</p>
+              )}
             </div>
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>ESIC — contribution statement</div>
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
                 CSV of IP-wise ESI for eligible employees (gross within ESI ceiling). Employer code from HR Settings.
               </p>
-              <a className="btn btn-secondary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
-                Download ESIC CSV
-              </a>
+              {hrmPipeline.canEsic ? (
+                <a className="btn btn-secondary" href={`/api/hrm/reports/esic?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
+                  Download ESIC CSV
+                </a>
+              ) : (
+                <button type="button" className="btn btn-secondary" disabled title={hrmPipeline.reasonsEsic.join('; ')}>Download ESIC CSV</button>
+              )}
+              {!hrmPipeline.canEsic && (
+                <p className="text-muted" style={{ fontSize: 11, margin: '8px 0 0' }}>{hrmPipeline.reasonsEsic[0]}</p>
+              )}
             </div>
           </div>
 
@@ -716,7 +824,7 @@ export default function HrmView() {
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Attendance register</div>
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
-                Day-wise attendance (P / A / H / W / PL) for the selected month — muster-style CSV.
+                Day-wise attendance (P / A / H / W / PL) for the selected month. Current download is CSV; the attached statutory workbook requires a formatted XLSX export route.
               </p>
               <a className="btn btn-secondary" href={`/api/hrm/reports/attendance?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
                 Download attendance register CSV
@@ -725,11 +833,21 @@ export default function HrmView() {
             <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
               <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Wages register</div>
               <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
-                Earnings, deductions and net pay from processed payroll for the month.
+                Earnings, deductions and net pay from processed payroll. Current download is CSV; Form XVII layout needs a formatted XLSX export route.
               </p>
               <a className="btn btn-secondary" href={`/api/hrm/reports/wages?month=${month}&year=${year}`} target="_blank" rel="noreferrer">
                 Download wages register CSV
               </a>
+            </div>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, background: 'var(--surface, #fff)' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6 }}>Form T / Form XVII</div>
+              <p className="text-muted" style={{ fontSize: 12, margin: '0 0 12px', lineHeight: 1.4 }}>
+                Extra labour registers from the same payroll/attendance period (existing APIs).
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <a className="btn btn-secondary btn-sm" href={`/api/hrm/reports/form-t?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form T</a>
+                <a className="btn btn-secondary btn-sm" href={`/api/hrm/reports/form-xvii?month=${month}&year=${year}`} target="_blank" rel="noreferrer">Form XVII</a>
+              </div>
             </div>
           </div>
           <p className="text-muted" style={{ fontSize: 12, marginTop: 16 }}>
@@ -739,8 +857,67 @@ export default function HrmView() {
       )}
 
 
+
+      {tab === 'leave' && (
+        <div style={{ width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
+              Leave register (CL / SL / EL). Approve deducts balance on the employee master.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={() => setLeaveForm({
+              empId: '', type: 'CL', from: new Date().toISOString().slice(0, 10), to: '', days: 1, note: '',
+            })}>+ Leave request</button>
+          </div>
+          <div className="glass-panel" style={{ overflow: 'auto', width: '100%' }}>
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead>
+                <tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th className="text-end">Days</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {leaveRows.map((lv) => (
+                  <tr key={lv.id}>
+                    <td>{lv.empName || lv.employeeCode || lv.empId}</td>
+                    <td>{lv.type}</td>
+                    <td>{lv.from || '—'}</td>
+                    <td>{lv.to || '—'}</td>
+                    <td className="text-end">{lv.days}</td>
+                    <td>{lv.status}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {lv.status === 'pending' && (
+                        <>
+                          <button type="button" className="btn btn-primary btn-sm" onClick={async () => {
+                            try {
+                              await api('/hrm/leave/' + encodeURIComponent(lv.id) + '/decide', { method: 'POST', body: JSON.stringify({ status: 'approved' }) });
+                              toast('Leave approved', 'success');
+                              loadLeave(); loadEmployees();
+                            } catch (e) { toast(e.message || 'Approve failed — is server updated with leave API?', 'error'); }
+                          }}>Approve</button>{' '}
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={async () => {
+                            try {
+                              await api('/hrm/leave/' + encodeURIComponent(lv.id) + '/decide', { method: 'POST', body: JSON.stringify({ status: 'rejected' }) });
+                              toast('Leave rejected', 'info');
+                              loadLeave();
+                            } catch (e) { toast(e.message, 'error'); }
+                          }}>Reject</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!leaveRows.length && (
+                  <tr><td colSpan={7} className="text-muted" style={{ textAlign: 'center', padding: 24 }}>
+                    No leave requests yet. Click <strong>+ Leave request</strong> to add one.
+                    If submit fails, ensure server.js includes <code>/api/hrm/leave</code> routes.
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {tab === 'settings' && (
-        <div className="glass-panel" style={{ padding: 20, maxWidth: 1100 }}>
+        <div className="glass-panel" style={{ padding: 20, width: '100%', maxWidth: '100%' }}>
           <h3 style={{ marginTop: 0 }}>HR Settings</h3>
           <p className="text-muted" style={{ fontSize: 13 }}>
             PF wage ceiling default ₹15,000; ESI eligibility typically when gross ≤ ₹21,000 (update if law changes). Sites below feed the employee form location picker (filter by state).
@@ -757,6 +934,22 @@ export default function HrmView() {
             <div className="form-group">
               <label className="form-label">ESIC employer code</label>
               <input className="form-input" value={config.esicCode || ''} onChange={(e) => setConfig({ ...config, esicCode: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Contractor name and address</label>
+              <textarea className="form-input" rows={2} value={config.contractorNameAddress || ''} onChange={(e) => setConfig({ ...config, contractorNameAddress: e.target.value })} placeholder="Name and full postal address of contractor" style={{ resize: 'vertical', minHeight: 64 }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Nature and location of work</label>
+              <textarea className="form-input" rows={2} value={config.natureLocationOfWork || ''} onChange={(e) => setConfig({ ...config, natureLocationOfWork: e.target.value })} placeholder="Nature of work and site/location address" style={{ resize: 'vertical', minHeight: 64 }} />
+            </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Name and address of establishment where contract work is carried on</label>
+              <textarea className="form-input" rows={2} value={config.contractEstablishmentNameAddress || ''} onChange={(e) => setConfig({ ...config, contractEstablishmentNameAddress: e.target.value })} placeholder="Establishment name, site address, village/taluk/district/state/PIN" style={{ resize: 'vertical', minHeight: 64 }} />
+            </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Name and address of principal employer</label>
+              <textarea className="form-input" rows={2} value={config.principalEmployerNameAddress || ''} onChange={(e) => setConfig({ ...config, principalEmployerNameAddress: e.target.value })} placeholder="Principal employer's legal name and full address" style={{ resize: 'vertical', minHeight: 64 }} />
             </div>
             <div className="form-group">
               <label className="form-label">PF wage cap (₹)</label>
@@ -812,6 +1005,71 @@ export default function HrmView() {
       )}
 
       
+
+      {leaveForm && (
+        <div className="modal-overlay" onClick={() => setLeaveForm(null)}>
+          <div className="modal-content" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="section-title">Leave request</h3>
+            <div className="form-group">
+              <label className="form-label">Employee *</label>
+              <select className="form-input" value={leaveForm.empId || ''} onChange={(e) => {
+                const id = e.target.value;
+                const emp = employees.find((x) => x.id === id);
+                setLeaveForm({
+                  ...leaveForm,
+                  empId: id,
+                  empName: emp?.name || '',
+                  employeeCode: emp?.employeeCode || '',
+                });
+              }}>
+                <option value="">Select</option>
+                {employees.filter((e) => e.isActive !== false).map((e) => (
+                  <option key={e.id} value={e.id}>{e.name} ({e.employeeCode || '—'}) · CL {e.leaveCL ?? '—'} / SL {e.leaveSL ?? '—'} / EL {e.leaveEL ?? '—'}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Type</label>
+              <select className="form-input" value={leaveForm.type || 'CL'} onChange={(e) => setLeaveForm({ ...leaveForm, type: e.target.value })}>
+                <option value="CL">Casual (CL)</option>
+                <option value="SL">Sick (SL)</option>
+                <option value="EL">Earned (EL)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">From</label>
+              <input className="form-input" type="date" value={leaveForm.from || ''} onChange={(e) => setLeaveForm({ ...leaveForm, from: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">To</label>
+              <input className="form-input" type="date" value={leaveForm.to || ''} onChange={(e) => setLeaveForm({ ...leaveForm, to: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Days</label>
+              <input className="form-input" type="number" min={0.5} step={0.5} value={leaveForm.days ?? 1} onChange={(e) => setLeaveForm({ ...leaveForm, days: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Note</label>
+              <input className="form-input" value={leaveForm.note || ''} onChange={(e) => setLeaveForm({ ...leaveForm, note: e.target.value })} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setLeaveForm(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={async () => {
+                if (!leaveForm.empId) { toast('Select employee', 'warning'); return; }
+                setBusy(true);
+                try {
+                  await api('/hrm/leave', { method: 'POST', body: JSON.stringify({ ...leaveForm, days: Number(leaveForm.days) || 1 }) });
+                  toast('Leave request saved', 'success');
+                  setLeaveForm(null);
+                  loadLeave();
+                } catch (e) { toast(e.message, 'error'); }
+                setBusy(false);
+              }}>Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
 {/* Employee modal */}
       {form && (
         <div className="modal-overlay" onClick={() => setForm(null)}>
@@ -901,6 +1159,14 @@ export default function HrmView() {
                 </div>
               ) : null}
 
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 12 }}>
+              <div className="form-group"><label className="form-label">Leave CL balance</label>
+                <input className="form-input" type="number" value={form.leaveCL ?? 12} onChange={(e) => setForm({ ...form, leaveCL: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label">Leave SL balance</label>
+                <input className="form-input" type="number" value={form.leaveSL ?? 6} onChange={(e) => setForm({ ...form, leaveSL: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label">Leave EL balance</label>
+                <input className="form-input" type="number" value={form.leaveEL ?? 15} onChange={(e) => setForm({ ...form, leaveEL: e.target.value })} /></div>
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
               <label><input type="checkbox" checked={!!form.pfApplicable} onChange={(e) => setForm({ ...form, pfApplicable: e.target.checked })} /> PF applicable</label>
