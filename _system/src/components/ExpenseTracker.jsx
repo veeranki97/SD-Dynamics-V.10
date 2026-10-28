@@ -261,14 +261,7 @@ export default function ExpenseTracker() {
       } catch (jerr) {
         console.warn('[expense] journal post failed', jerr);
       }
-      try {
-        await logActivity({
-          entityType: 'expense',
-          entityId: expId,
-          action: editingId ? 'update' : 'create',
-          diff: { amount: expense.amount, category: expense.category, description: expense.description },
-        });
-      } catch { /* ignore */ }
+      // Activity is logged once inside saveExpense with EXP/… voucher number
       toast(editingId ? 'Expense updated' : 'Expense added', 'success');
       closeForm();
       loadExpenses();

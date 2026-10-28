@@ -58,10 +58,32 @@ export function getSesReminderBuckets(list) {
   return { overdue, dueToday, upcoming, open };
 }
 
+export function billRequiresAribaSesFollowUp(bill) {
+  if (!bill) return false;
+  const t = String(bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
+  if (t.includes('quot') || t.includes('proforma') || t.includes('credit') || t.includes('delivery') || t.includes('challan')) {
+    return false;
+  }
+  const d = bill.data?.details || bill.data || {};
+  if (bill.requiresAribaSes || bill.aribaSesRequired || d.requiresAribaSes || d.aribaSesRequired) return true;
+  const ses = bill.sesRef || bill.aribaSes || d.sesRef || d.aribaSes || d.sesNumber;
+  if (ses && String(ses).trim()) return true;
+  return false;
+}
+
 export function createSesFollowUpFromBill(bill, extra = {}) {
-  if (!bill) return { skipped: true, task: null };
+  if (!bill) return { skipped: true, task: null, reason: 'no-bill' };
+  // Action menu uses force / fromActionMenu so user click always runs create path
+  if (!extra.force && !extra.fromActionMenu && !billRequiresAribaSesFollowUp(bill)) {
+    return { skipped: true, task: null, reason: 'not-eligible' };
+  }
   const inv =
-    bill.invoiceNumber || bill.number || bill.id || extra.invoiceNo || 'invoice';
+    bill.invoiceNumber ||
+    bill.number ||
+    bill.data?.details?.invoiceNumber ||
+    extra.invoiceNo ||
+    bill.id ||
+    'invoice';
   const party =
     bill.client?.name || bill.clientName || bill.party || extra.clientName || '';
   const sesRef =
@@ -113,12 +135,17 @@ export function createSesFollowUpTask({
     lastRemindedAt: null,
     createdAt: new Date().toISOString(),
   };
-  const exists = list.some(
-    (t) => !t.done && t.type === 'ariba_ses' && String(t.invoiceNo) === String(inv)
+  const invKey = String(inv || '').trim();
+  const existing = list.find(
+    (t) => !t.done && t.type === 'ariba_ses' && String(t.invoiceNo || '').trim() === invKey
   );
-  if (exists) return { skipped: true, task: null };
+  if (existing) {
+    try { window.dispatchEvent(new CustomEvent('sd-tasks-changed')); } catch (_) {}
+    return { skipped: true, task: existing, reason: 'duplicate' };
+  }
   saveTasks([task, ...list]);
-  return { skipped: false, task };
+  try { window.dispatchEvent(new CustomEvent('sd-tasks-changed')); } catch (_) {}
+  return { skipped: false, task, reason: 'created' };
 }
 
 /** Push due date by N days (default +3). */

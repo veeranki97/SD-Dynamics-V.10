@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Banknote } from 'lucide-react';
+import { Banknote, TrendingUp, TrendingDown, Wallet, ArrowLeftRight, Search, CalendarDays, Landmark } from 'lucide-react';
 import { getAllReceipts, getAllBills, getAllExpenses, getProfile, getAllJournals, getAllAccounts } from '../store';
 import { activeGlJournals } from '../utils/glPosting';
 import { formatCurrency, belongsToProfile, localToday } from '../utils';
@@ -137,6 +137,8 @@ export default function CashBookView() {
     try { return Number(localStorage.getItem('freegstbill_cashbook_ob') || 0); } catch { return 0; }
   });
   const [tab, setTab] = useState('ledger');
+  const [searchText, setSearchText] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [dayDate, setDayDate] = useState(() => (typeof localToday === 'function' ? localToday() : new Date().toISOString().slice(0, 10)));
   const [obDate, setObDate] = useState(() => {
     try { return localStorage.getItem('freegstbill_cashbook_ob_date') || '2024-04-01'; } catch { return '2024-04-01'; }
@@ -242,6 +244,22 @@ export default function CashBookView() {
   };
 
   const closing = rows.length ? rows[rows.length - 1].balance : Number(ob) || 0;
+  const totalIn = rows.reduce((sum, row) => sum + (Number(row.inflow) || 0), 0);
+  const totalOut = rows.reduce((sum, row) => sum + (Number(row.outflow) || 0), 0);
+  const netMovement = totalIn - totalOut;
+  const filteredRows = rows.filter(row => {
+    const q = searchText.trim().toLowerCase();
+    const matchesSearch = !q || [row.date, row.type, row.ref, row.name].some(value => String(value || '').toLowerCase().includes(q));
+    const matchesType = typeFilter === 'all' || (typeFilter === 'in' ? row.inflow > 0 : typeFilter === 'out' ? row.outflow > 0 : row.type === typeFilter);
+    return matchesSearch && matchesType;
+  });
+  const cashBookCardStyle = {
+    background: 'var(--surface, #fff)', border: '1px solid var(--border, #e2e8f0)',
+    borderRadius: 14, padding: '16px 18px', minWidth: 0, boxShadow: '0 2px 8px rgba(15,23,42,0.035)'
+  };
+  const cashBookLabelStyle = { color: 'var(--text-muted, #64748b)', fontSize: 12, fontWeight: 600, letterSpacing: '0.035em', textTransform: 'uppercase' };
+  const cashBookValueStyle = { marginTop: 8, fontSize: 'clamp(18px, 2vw, 25px)', fontWeight: 750, letterSpacing: '-0.035em', color: 'var(--text-primary, #0f172a)', overflowWrap: 'anywhere' };
+  const cashBookIconStyle = { width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#eff6ff', color: '#1d4ed8', flexShrink: 0 };
 
   return (
     <div className="page">
@@ -267,22 +285,70 @@ export default function CashBookView() {
           }}>{tab === 'day' ? 'Export Day Book PDF' : 'Export Cash Book PDF'}</button>
       </PageHeader>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button type="button" className={`btn ${tab === 'ledger' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('ledger')}>Bank Ledger</button>
-        <button type="button" className={`btn ${tab === 'day' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('day')}>Day Book</button>
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0 18px', padding: 5, borderRadius: 12, background: 'var(--surface-muted, #f1f5f9)', width: 'fit-content', maxWidth: '100%' }}>
+        <button type="button" className={`btn ${tab === 'ledger' ? 'btn-primary' : 'btn-secondary'}`} style={{ borderRadius: 9, minHeight: 38 }} onClick={() => setTab('ledger')}><Landmark size={15} style={{ marginRight: 7, verticalAlign: 'text-bottom' }} />Bank Ledger</button>
+        <button type="button" className={`btn ${tab === 'day' ? 'btn-primary' : 'btn-secondary'}`} style={{ borderRadius: 9, minHeight: 38 }} onClick={() => setTab('day')}><CalendarDays size={15} style={{ marginRight: 7, verticalAlign: 'text-bottom' }} />Day Book</button>
       </div>
+
+      {tab === 'ledger' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 205px), 1fr))', gap: 10, marginBottom: 14 }}>
+          <div style={cashBookCardStyle}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div><div style={cashBookLabelStyle}>Closing balance</div><div style={cashBookValueStyle}>{formatCurrency(closing)}</div><div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12, marginTop: 5 }}>Balance after latest entry</div></div>
+              <div style={cashBookIconStyle}><Wallet size={19} /></div>
+            </div>
+          </div>
+          <div style={cashBookCardStyle}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div><div style={cashBookLabelStyle}>Total money in</div><div style={{ ...cashBookValueStyle, color: '#047857' }}>{formatCurrency(totalIn)}</div><div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12, marginTop: 5 }}>Cash and bank debits</div></div>
+              <div style={{ ...cashBookIconStyle, background: '#ecfdf5', color: '#047857' }}><TrendingUp size={19} /></div>
+            </div>
+          </div>
+          <div style={cashBookCardStyle}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div><div style={cashBookLabelStyle}>Total money out</div><div style={{ ...cashBookValueStyle, color: '#b91c1c' }}>{formatCurrency(totalOut)}</div><div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12, marginTop: 5 }}>Cash and bank credits</div></div>
+              <div style={{ ...cashBookIconStyle, background: '#fef2f2', color: '#b91c1c' }}><TrendingDown size={19} /></div>
+            </div>
+          </div>
+          <div style={cashBookCardStyle}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div><div style={cashBookLabelStyle}>Net movement</div><div style={{ ...cashBookValueStyle, color: netMovement >= 0 ? '#047857' : '#b91c1c' }}>{netMovement > 0 ? '+' : ''}{formatCurrency(netMovement)}</div><div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12, marginTop: 5 }}>{rows.length} ledger {rows.length === 1 ? 'entry' : 'entries'}</div></div>
+              <div style={{ ...cashBookIconStyle, background: '#f5f3ff', color: '#6d28d9' }}><ArrowLeftRight size={19} /></div>
+            </div>
+          </div>
+        </div>
+      ) : (() => {
+        const dayRows = rows.filter(r => r.date === dayDate);
+        const tin = dayRows.reduce((sum, row) => sum + (Number(row.inflow) || 0), 0);
+        const tout = dayRows.reduce((sum, row) => sum + (Number(row.outflow) || 0), 0);
+        const priorRows = rows.filter(row => row.date <= dayDate);
+        const dayClosing = priorRows.length ? priorRows[priorRows.length - 1].balance : Number(ob) || 0;
+        const cards = [
+          { label: 'Money in · selected day', value: tin, color: '#047857', icon: <TrendingUp size={19} />, hint: `${dayRows.length} voucher${dayRows.length === 1 ? '' : 's'} on this date` },
+          { label: 'Money out · selected day', value: tout, color: '#b91c1c', icon: <TrendingDown size={19} />, hint: 'Payments and expenses for this date' },
+          { label: 'Net movement · selected day', value: tin - tout, color: tin - tout >= 0 ? '#047857' : '#b91c1c', icon: <ArrowLeftRight size={19} />, hint: `Closing balance: ${formatCurrency(dayClosing)}` },
+        ];
+        return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 205px), 1fr))', gap: 10, marginBottom: 14 }}>
+          {cards.map(card => <div key={card.label} style={cashBookCardStyle}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <div><div style={cashBookLabelStyle}>{card.label}</div><div style={{ ...cashBookValueStyle, color: card.color }}>{formatCurrency(card.value)}</div><div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12, marginTop: 5 }}>{card.hint}</div></div>
+              <div style={{ ...cashBookIconStyle, background: card.color === '#047857' ? '#ecfdf5' : card.color === '#b91c1c' ? '#fef2f2' : '#f5f3ff', color: card.color }}>{card.icon}</div>
+            </div>
+          </div>)}
+        </div>;
+      })()}
 
       {tab === 'day' && (() => {
         const dayRows = rows.filter(r => r.date === dayDate);
         const tin = dayRows.reduce((s, r) => s + r.inflow, 0);
         const tout = dayRows.reduce((s, r) => s + r.outflow, 0);
         return (
-          <div className="list-module-toolbar glass-panel mb-4">
-            <div className="form-group" style={{ maxWidth: 220 }}>
-              <label className="form-label">Date</label>
+          <div className="list-module-toolbar glass-panel mb-3" style={{ padding: '10px 14px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ maxWidth: 240, marginBottom: 0 }}>
+              <label className="form-label"><CalendarDays size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Report date</label>
               <input type="date" className="form-input" value={dayDate} onChange={e => setDayDate(e.target.value)} />
             </div>
-            <p><strong>In:</strong> {formatCurrency(tin)} · <strong>Out:</strong> {formatCurrency(tout)}</p>
+            <span style={{ color: 'var(--text-muted, #64748b)', fontSize: 12 }}>Daily totals are shown above for the selected date.</span>
             <table className="data-table" style={{ width: '100%' }}>
               <thead>
                 <tr>
@@ -327,12 +393,30 @@ export default function CashBookView() {
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ width: '100%' }}>
+          <div className="list-module glass-panel" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 14px', marginBottom: 12, borderRadius: 12 }}>
+            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
+              <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted, #64748b)' }} />
+              <input type="search" className="form-input" placeholder="Search date, voucher, party or type…" aria-label="Search cash book entries" value={searchText} onChange={e => setSearchText(e.target.value)} style={{ width: '100%', paddingLeft: 36, margin: 0 }} />
+            </div>
+            <select className="form-input" aria-label="Filter cash book entries" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ width: 'auto', minWidth: 155, margin: 0 }}>
+              <option value="all">All movements</option>
+              <option value="in">Money in</option>
+              <option value="out">Money out</option>
+              <option value="Receipt">Receipts</option>
+              <option value="Expense">Expenses</option>
+              <option value="Reversal">Reversals</option>
+              <option value="Inflow">Other inflows</option>
+              <option value="Outflow">Other outflows</option>
+            </select>
+            <span style={{ fontSize: 12, color: 'var(--text-muted, #64748b)', whiteSpace: 'nowrap' }}>Showing {filteredRows.length} of {rows.length}</span>
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border, #e2e8f0)', borderRadius: 12, background: 'var(--surface, #fff)' }}>
+            <table className="data-table" style={{ width: '100%', margin: 0 }}>
               <thead>
                 <tr>
-                  <th>Date</th><th>Type</th><th>Ref</th><th>Particulars</th>
-                  <th className="text-end">In</th><th className="text-end">Out</th><th className="text-end">Balance</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Date</th><th>Type</th><th>Voucher / Ref</th><th>Party / Particulars</th>
+                  <th className="text-end">Money in</th><th className="text-end">Money out</th><th className="text-end">Running balance</th>
                 </tr>
               </thead>
               <tbody>
@@ -341,7 +425,7 @@ export default function CashBookView() {
                   <td></td><td></td>
                   <td className="text-end"><strong>{formatCurrency(ob)}</strong></td>
                 </tr>
-                {rows.map((r, i) => (
+                {filteredRows.map((r, i) => (
                   <tr key={i}>
                     <td>{r.date}</td>
                     <td>{r.type}</td>
@@ -352,8 +436,8 @@ export default function CashBookView() {
                     <td className="text-end"><strong>{formatCurrency(r.balance)}</strong></td>
                   </tr>
                 ))}
-                {rows.length === 0 && (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8' }}>No movements after OB date</td></tr>
+                {filteredRows.length === 0 && (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8', padding: '28px 12px' }}>{rows.length === 0 ? 'No movements after OB date' : 'No entries match your search or filter'}</td></tr>
                 )}
               </tbody>
             </table>

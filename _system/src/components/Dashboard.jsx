@@ -2329,9 +2329,16 @@ const openPaymentModal = (bill) => {
                             ? { label: 'Send Reminder', onClick: () => sendReminder({ ...bill, clientPhone: getClientPhone(bill) }) } : null,
                           { label: 'Ariba SES follow-up', onClick: () => {
                             try {
-                              const r = createSesFollowUpFromBill(bill);
-                              if (r.skipped) toast('Open Ariba follow-up already exists for this invoice', 'info');
-                              else toast('Ariba SES reminder set (due in 3 days) — Tasks + Notifications bell', 'success');
+                              // Always force from action menu (user intent) — do not require SES field on form
+                              const r = createSesFollowUpFromBill(bill, { force: true, fromActionMenu: true });
+                              try { window.dispatchEvent(new CustomEvent('sd-tasks-changed')); } catch (_) {}
+                              if (r.skipped && r.reason === 'duplicate') {
+                                toast('Open Ariba follow-up already exists for ' + (r.task?.invoiceNo || bill.invoiceNumber || 'invoice') + ' — open Tasks → Ariba SES', 'info');
+                              } else if (r.skipped) {
+                                toast('Could not create SES follow-up' + (r.reason ? ' (' + r.reason + ')' : ''), 'warning');
+                              } else {
+                                toast('Ariba SES reminder set for ' + (r.task?.invoiceNo || bill.invoiceNumber || 'invoice') + ' · due ' + (r.task?.due || 'in 3 days') + ' — open Tasks → Ariba SES', 'success');
+                              }
                             } catch (e) { toast(e.message || 'Could not create task', 'error'); }
                           } },
                           { label: 'Cancel', onClick: () => handleDelete(bill), danger: true },

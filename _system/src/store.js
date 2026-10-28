@@ -335,16 +335,27 @@ export const getAllExpenses = async () => {
 export const saveExpense = async (expense, { action } = {}) => {
   const hadId = !!(expense && expense.id);
   const res = await apiFetch(`${API}/expenses`, { method: 'POST', body: JSON.stringify(expense) });
-  if (res.id) expense.id = res.id;
+  if (res && res.id) expense.id = res.id;
+  if (res && res.expenseNumber && !expense.expenseNumber) expense.expenseNumber = res.expenseNumber;
   try {
+    const voucher =
+      expense?.expenseNumber ||
+      expense?.voucherNo ||
+      expense?.voucherNumber ||
+      res?.expenseNumber ||
+      res?.voucherNo ||
+      null;
+    // Prefer human voucher (EXP/26-27/007); never log bare exp_<timestamp> when voucher exists
+    const entityId = voucher || expense?.id || res?.id;
     await logActivity({
       entityType: 'expense',
-      entityId: expense?.expenseNumber || expense?.id || res?.id,
+      entityId,
       action: action || (hadId ? 'update' : 'create'),
       diff: {
         amount: expense?.amount,
         category: expense?.category,
         status: expense?.status,
+        expenseNumber: voucher || undefined,
       },
     });
   } catch { /* ignore */ }
@@ -722,32 +733,43 @@ export const saveAccount = async (a) =>
   apiFetch(`${API}/accounts`, { method: 'POST', body: JSON.stringify(a) });
 
 /** Display name for audit trail. ActivityLogView hides "local"/"server" as "Not recorded". */
+function _looksLikeEmail(s) {
+  return typeof s === 'string' && s.includes('@') && s.includes('.');
+}
+
 async function resolveActivityUser(explicit) {
   if (explicit && String(explicit).trim() && !['local', 'server'].includes(String(explicit).trim().toLowerCase())) {
-    return String(explicit).trim();
+    // Prefer not locking in email if we can resolve a person/business name below
+    if (!_looksLikeEmail(String(explicit).trim())) return String(explicit).trim();
   }
+  try {
+    const p = await getProfile();
+    const person = (
+      p?.contactPerson || p?.ownerName || p?.authorizedSignatory ||
+      p?.contactName || p?.proprietorName || ''
+    );
+    const business = p?.businessName || p?.companyName || p?.tradeName || '';
+    const name = (person && String(person).trim()) || (business && String(business).trim()) || '';
+    if (name) {
+      try {
+        sessionStorage.setItem('sd_activity_user', name);
+        localStorage.setItem('sd_activity_user', name);
+      } catch { /* */ }
+      return name;
+    }
+    // Only use email if no person/business name on profile
+    if (p?.email && String(p.email).trim()) {
+      return String(p.email).trim();
+    }
+  } catch { /* */ }
   try {
     const cached = sessionStorage.getItem('sd_activity_user') || localStorage.getItem('sd_activity_user');
     if (cached && String(cached).trim() && !['local', 'server'].includes(String(cached).trim().toLowerCase())) {
-      return String(cached).trim();
+      // Skip cached pure emails when we want display names (already tried profile)
+      if (!_looksLikeEmail(String(cached).trim())) return String(cached).trim();
     }
   } catch { /* */ }
-  try {
-    const p = await getProfile();
-    const name = (
-      p?.contactPerson || p?.ownerName || p?.authorizedSignatory ||
-      p?.contactName || p?.proprietorName || p?.businessName || p?.companyName || p?.tradeName || p?.email || ''
-    );
-    if (name && String(name).trim()) {
-      const n = String(name).trim();
-      try {
-        sessionStorage.setItem('sd_activity_user', n);
-        localStorage.setItem('sd_activity_user', n);
-      } catch { /* */ }
-      return n;
-    }
-  } catch { /* */ }
-  // Last resort: still avoid bare "local" so UI does not show "Not recorded"
+  if (explicit && String(explicit).trim()) return String(explicit).trim();
   return 'Owner';
 }
 

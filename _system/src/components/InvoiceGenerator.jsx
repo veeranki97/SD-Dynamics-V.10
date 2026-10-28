@@ -4833,6 +4833,8 @@ const validateForSave = useCallback(() => {
               <div className="form-group">
                 <label className="form-label">Invoice Number</label>
                 <input type="text" className="form-input" value={details.invoiceNumber}
+                  readOnly={!!(hasBeenSaved.current || editingBill?.id)}
+                  title={hasBeenSaved.current || editingBill?.id ? 'Invoice number is locked after first save. Use a new invoice to get a new number.' : 'Invoice number'}
                   onChange={(e) => setDetails({ ...details, invoiceNumber: e.target.value })} />
               </div>
               <div className="form-group">

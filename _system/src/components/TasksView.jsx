@@ -31,10 +31,23 @@ export default function TasksView() {
     window.addEventListener('sd-tasks-changed', onChange);
     window.addEventListener('storage', onChange);
     const onCreate = (ev) => {
-      const bill = ev.detail;
-      const { skipped, task } = createSesFollowUpFromBill(bill);
-      if (skipped) toast('Open Ariba follow-up already exists for this invoice', 'info');
-      else toast('Ariba SES reminder set for ' + (task?.invoiceNo || 'invoice') + ' · due ' + (task?.due || ''), 'success');
+      const detail = ev.detail;
+      // Already a saved task object (dispatched after create) — only refresh UI
+      if (detail && (detail.type === 'ariba_ses' || String(detail.id || '').startsWith('task_ses_'))) {
+        refresh();
+        setFilter('ariba');
+        toast('Ariba SES reminder: ' + (detail.invoiceNo || 'invoice') + (detail.due ? ' · due ' + detail.due : ''), 'success');
+        return;
+      }
+      // Bill from action menu — force create (user clicked SES follow-up)
+      const { skipped, task, reason } = createSesFollowUpFromBill(detail, { fromActionMenu: true, force: true });
+      if (skipped && reason === 'duplicate') {
+        toast('Open Ariba follow-up already exists for ' + (task?.invoiceNo || detail?.invoiceNumber || 'this invoice') + ' — shown under Ariba SES', 'info');
+      } else if (skipped) {
+        toast('Could not create SES follow-up' + (reason ? ' (' + reason + ')' : ''), 'warning');
+      } else {
+        toast('Ariba SES reminder set for ' + (task?.invoiceNo || 'invoice') + ' · due ' + (task?.due || ''), 'success');
+      }
       refresh();
       setFilter('ariba');
     };
@@ -51,7 +64,7 @@ export default function TasksView() {
   const visible = useMemo(() => {
     let list = tasks || [];
     if (filter === 'open') list = list.filter((t) => !t.done);
-    else if (filter === 'ariba') list = list.filter((t) => t.type === 'ariba_ses' && !t.done);
+    else if (filter === 'ariba') list = list.filter((t) => !t.done && (t.type === 'ariba_ses' || String(t.title || '').startsWith('Ariba:')));
     else if (filter === 'due-soon') list = list.filter((t) => !t.done && daysRelativeToDue(t.due) != null && daysRelativeToDue(t.due) >= -3 && daysRelativeToDue(t.due) <= 0);
     else if (filter === 'completed') list = list.filter((t) => !!t.done);
     else if (filter === 'overdue')
@@ -215,9 +228,28 @@ export default function TasksView() {
         .tasks-premium .task-search { flex:1 1 240px; min-width:180px; position:relative; }
         .tasks-premium .task-search input { width:100%; box-sizing:border-box; min-height:40px; padding:9px 12px 9px 36px; border:1px solid var(--task-border); border-radius:10px; background:var(--input-bg, var(--card-bg, #fff)); color:inherit; }
         .tasks-premium .task-search-icon { position:absolute; left:12px; top:10px; color:var(--task-muted); pointer-events:none; }
-        .tasks-premium .task-create { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,310px) auto; gap:10px; align-items:center; min-width:0; }
+        .tasks-premium .task-create { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,170px) auto; gap:8px; align-items:center; min-width:0; }
         .tasks-premium .task-create > * { min-width:0; }
-        .tasks-premium .task-create input { min-height:40px; box-sizing:border-box; width:100%; }
+        .tasks-premium .task-create input { min-height:34px; box-sizing:border-box; width:100%; font-size:0.85rem; }
+        .tasks-premium .task-create-panel { padding:10px 12px !important; margin-bottom:10px !important; }
+        .tasks-premium .task-create-panel .task-create-head { margin-bottom:8px !important; }
+        .tasks-premium .task-create-panel .task-create-head strong { font-size:13px; }
+        .tasks-premium .task-quickdates { margin-top:4px !important; gap:3px !important; }
+        .tasks-premium .task-quickdates button { padding:3px 6px !important; font-size:10px !important; border-radius:6px !important; }
+        .tasks-premium .task-filter .btn { padding:4px 9px !important; font-size:11px !important; min-height:28px; line-height:1.2; border-radius:999px !important; }
+        .tasks-premium .task-metrics { gap:8px !important; margin-bottom:10px !important; }
+        .tasks-premium .task-metric { padding:10px 12px !important; border-radius:12px !important; }
+        .tasks-premium .task-metric-value { font-size:20px !important; margin-top:4px !important; }
+        .tasks-premium .task-metric-label { font-size:11px !important; }
+        .tasks-premium .task-smart { padding:10px 12px !important; margin-bottom:10px !important; gap:10px !important; }
+        .tasks-premium .task-smart-icon { width:32px !important; height:32px !important; font-size:16px !important; border-radius:10px !important; }
+        .tasks-premium .task-hero { margin-bottom:10px !important; }
+        .tasks-premium .task-toolbar { gap:8px !important; margin-bottom:8px !important; }
+        .tasks-premium .task-search input { min-height:34px !important; padding:6px 10px 6px 32px !important; font-size:0.85rem; }
+        .tasks-premium .task-sort { min-height:34px !important; font-size:12px; }
+        .tasks-premium .task-table thead th { padding:8px 12px !important; }
+        .tasks-premium .task-table tbody td { padding:9px 12px !important; }
+        .tasks-premium .task-empty { padding:28px 12px !important; }
         .tasks-premium .task-filter { display:flex; gap:6px; flex-wrap:wrap; }
         .tasks-premium .task-filter .btn { border-radius:9px; }
         .tasks-premium .task-table-wrap { width:100%; overflow-x:auto; border:1px solid var(--task-border); border-radius:14px; background:var(--card-bg, var(--surface, #fff)); }
@@ -232,7 +264,7 @@ export default function TasksView() {
         .tasks-premium .task-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
         .tasks-premium .task-empty { padding:44px 16px; text-align:center; color:var(--task-muted); }
         .tasks-premium .task-empty strong { display:block; color:inherit; font-size:15px; margin-bottom:5px; }
-        @media (max-width:1000px) { .tasks-premium .task-create { grid-template-columns:minmax(0,1fr) minmax(260px,300px); } .tasks-premium .task-create > input { grid-column:1 / -1; } .tasks-premium .task-create > button { justify-self:start; } .tasks-premium .task-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        @media (max-width:1000px) { .tasks-premium .task-create { grid-template-columns:minmax(0,1fr) minmax(140px,160px) auto; } .tasks-premium .task-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
         @media (max-width:600px) { .tasks-premium .task-create { grid-template-columns:minmax(0,1fr); } .tasks-premium .task-create > input { grid-column:auto; } .tasks-premium .task-create > button { width:100%; justify-self:stretch; } .tasks-premium .task-quickdates { flex-wrap:wrap; } .tasks-premium .task-metric { padding:12px; } .tasks-premium .task-metric-value { font-size:22px; } }
       `}</style>
 
@@ -276,12 +308,20 @@ export default function TasksView() {
         </div>
       )}
 
-      <div className="glass-panel" style={{ padding: 16, marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 12 }}><span style={{ fontSize: 18 }}>＋</span><div><strong>Create a task</strong><div className="task-sub">Add a follow-up with an optional due date.</div></div></div>
+      <div className="glass-panel task-create-panel">
+        <div className="task-create-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ fontSize: 15 }}>＋</span><div><strong>Create a task</strong><div className="task-sub" style={{ marginTop: 1 }}>Optional due date · Enter to add</div></div></div>
         <div className="task-create">
           <input className="form-input" aria-label="Task title" placeholder="What needs to get done?" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
-          <div className="task-date-field"><input className="form-input" aria-label="Task due date" type="date" value={due} onChange={(e) => setDue(e.target.value)} /><div className="task-quickdates"><span className="task-sub">Quick due:</span><button type="button" onClick={() => setDueOffset(0)}>Today</button><button type="button" onClick={() => setDueOffset(1)}>Tomorrow</button><button type="button" onClick={() => setDueOffset(3)}>+3 days</button><button type="button" onClick={() => setDue('')}>No date</button></div></div>
-          <button type="button" className="btn btn-primary" onClick={add} style={{ minHeight: 40, padding: '0 18px', whiteSpace: 'nowrap' }}>＋ Add task</button>
+          <div className="task-date-field">
+            <input className="form-input" aria-label="Task due date" type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+            <div className="task-quickdates">
+              <button type="button" onClick={() => setDueOffset(0)}>Today</button>
+              <button type="button" onClick={() => setDueOffset(1)}>Tomorrow</button>
+              <button type="button" onClick={() => setDueOffset(3)}>+3d</button>
+              <button type="button" onClick={() => setDue('')}>Clear</button>
+            </div>
+          </div>
+          <button type="button" className="btn btn-primary btn-sm" onClick={add} style={{ minHeight: 34, padding: '0 14px', whiteSpace: 'nowrap' }}>＋ Add</button>
         </div>
       </div>
 
