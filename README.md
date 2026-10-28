@@ -16,44 +16,48 @@
 
 Your data never leaves your computer. No cloud. No signup. No tracking. Open-source and offline-first.
 
-<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge" alt="Latest release" /></a>
+<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge" alt="Latest Release" /></a>
 
-<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 19, 2026</sub>
+<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 2026</sub>
 
-[⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [⭐ Source](https://github.com/veeranki97/SD-Dynamics-V.10)
+[⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [⭐ GitHub](https://github.com/veeranki97/SD-Dynamics-V.10)
 
 </div>
 
 ---
 
-## What's new in v2.4.0
+## What's new in v2.5.2
 
-This release includes the latest reliability and packaging improvements for SD Dynamics V.10, with a stronger release pipeline and better local runtime compatibility.
+This release focuses on production reliability, packaging stability, and smoother local installation for SD Dynamics V.10. It strengthens the installer and release pipeline, improves compatibility across desktop environments, and keeps the offline-first workflow intact for GST billing, vendor ledgers, TDS/TCS tracking, and service-project accounting.
 
-- **Node.js 18+ required** for native modules and release tooling.
-- **Tesseract OCR asset bundling** is now part of the install/build flow via `postinstall` and `prebuild` hooks.
+- **Version bumped to 2.5.2** for the current production release line.
+- **Node.js 18+ required** for native modules, local runtime compatibility, and release tooling.
+- **Tesseract OCR asset bundling** is fully integrated into the install and build flow via `postinstall` and `prebuild`.
 - **Release verification and packaging flow** is hardened with `release:zip` and `verify:release` scripts.
-- **Windows installer and updater scripts** remain available for local deployment, backup, and maintenance.
-- **SQLite + JSON hybrid storage** continues to support faster large-data workflows and safe migration.
+- **Windows installer and updater scripts** remain supported for local deployment, backup, and maintenance.
+- **SQLite + JSON hybrid storage** continues to support large-data workflows and safe migration.
+- **Launcher and packaging reliability** improved for ZIP-based downloads and local installs.
+- **Offline-first desktop app behavior** remains unchanged: no cloud dependency, no subscription, no external database required.
 
 ---
 
 ## Install in 60 Seconds — one launcher per platform
 
-Requirements: **Node.js 18+** and npm. The download ZIP holds a **launcher for each system**, a plain-English **`READ ME FIRST.txt`**, and a `_system/` folder with everything else. Extract the ZIP, double-click the launcher for your computer, and follow the prompts.
+Requirements: **Node.js 18+** and npm. The download ZIP contains a **launcher for each system**, a plain-English **`READ ME FIRST.txt`**, and a `_system/` folder with everything else. Extract the ZIP, do the setup, and launch.
 
 ```text
 SD-Dynamics-V.10/
 ├── SD Dynamics - WINDOWS.hta    ← Windows: double-click this
 ├── READ ME FIRST.txt            ← step-by-step, in plain English
 ├── install.ps1                  ← one-command installer for PowerShell
-└── _system/                     ← the app (hidden after install)
+└── _system/                     ← the app package and runtime files
 ```
 
 **Prefer one command?** Paste this into PowerShell — no admin rights needed:
 ```powershell
 irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
 ```
+
 It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynamics`, installs Node.js if you do not have it, and creates the Desktop shortcut.
 
 ---
@@ -61,7 +65,7 @@ It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynami
 ## 📑 Table of Contents
 
 * [Install in 60 Seconds](#install-in-60-seconds--one-launcher-per-platform)
-* [What's new in v2.4.0](#whats-new-in-v240)
+* [What's new in v2.5.2](#whats-new-in-v252)
 * [Why Choose SD Dynamics V.10?](#why-choose-sd-dynamics-v10)
 * [Your First Invoice in 5 Minutes](#your-first-invoice-in-5-minutes)
 * [Key Features](#key-features)
@@ -109,7 +113,7 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
 * **100% offline** — runs on localhost, works without internet after installation.
 * **Your data stays on YOUR computer** — invoices, GSTIN, vendor ledgers, and client records stored as local SQLite database + JSON backup.
 * **GST compliant** — auto-calculates CGST/SGST/IGST, generates GSTR-1 & GSTR-3B data, and supports complex GST tax splitting.
-* **Fast & responsive** — SQLite database with indexed queries (60%+ faster on large datasets).
+* **Fast & responsive** — SQLite database with indexed queries and hybrid storage for large datasets.
 * **Custom formatting** — finely-tuned PDF print formatting, ready for corporate clients and rigorous tender documentation.
 * **Open-source (MIT licensed)** — built and maintained by Veeranki Bharath Kumar.
 
@@ -124,12 +128,12 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
   - Full-text indexing: invoiceNumber, docDate, clientName, status, workOrderId
   - WAL (Write-Ahead Logging) for safe concurrent access
   - JSON mirror enabled by default for data safety and fallback
-  - **Settings page loads ~60% faster** on 10,000+ records
-* **Hybrid Storage:** JSONs remain on disk as backup; SQLite for speed
+  - **Settings page loads faster** on large datasets
+* **Hybrid Storage:** JSON files remain on disk as backup; SQLite is used for speed
   - Disable JSON mirror if needed: `SD_JSON_MIRROR=0` (advanced users)
   - Force re-import: `SD_SQLITE_REIMPORT=1` at startup
 * **System Health Panel:** Monitor SQLite status, record counts, and re-import
-* **Migration Script:** `scripts/migrate-to-sqlite.mjs` for manual re-import
+* **Migration Tooling:** `scripts/migrate-to-sqlite.mjs` for manual re-import
 
 ### Invoicing & Billing
 
@@ -144,13 +148,13 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
 * **GSTR-1 & GSTR-3B Computation:** Output tax liability, Input Tax Credit, and net tax payable computed offline.
 * **GSTR-2B Reconciliation:** Import JSON downloaded from the GST portal to auto-match against your purchase records.
 * **E-Way Bill JSON:** Download NIC-format JSON for e-way bill portal upload.
-* **Income Tax (ITR) Computation:** Built-in module for tax tracking, advance-tax schedules, and surcharge calculations (Updated for October 2026).
+* **Income Tax (ITR) Computation:** Built-in module for tax tracking, advance-tax schedules, and surcharge calculations.
 
 ### Business Management
 
 * **Vendor & Client Ledgers:** Save clients and subcontractors with GSTINs, track outstanding amounts, and maintain full vendor history.
 * **Multi-Business Profiles:** Run multiple business entities side-by-side, each with its own GSTIN and bank details.
-* **Automated Backup:** Daily automatic backups to `data/backups/YYYY-MM-DD/` with a 30-day retention Trash bin.
+* **Automated Backup:** Daily automatic backups to `data/backups/YYYY-MM-DD/` with a 30-day retention trash bin.
 * **Command Palette:** `Ctrl+K` spotlight-style search across invoices, clients, products, and ledgers.
 
 ---
@@ -172,7 +176,7 @@ SD Dynamics V.10 is the open-source alternative that changes everything, especia
 
 | Who | How They Use It |
 | --- | --- |
-| **Service & Civil Contractors** | Manage project billing for solar plant O&M, civil construction, electrical operations, and vegetation removal. Record TDS meticulously and maintain robust vendor and project logs. |
+| **Service & Civil Contractors** | Manage project billing for solar plant O&M, civil construction, electrical operations, and vegetation removal. Record TDS meticulously and maintain robust vendor and subcontractor ledgers. |
 | **Freelancers & Consultants** | Invoice clients for projects or hourly work. |
 | **Small Shops & Retail Stores** | Quick bill generation with UPI QR code and stock tracking. |
 | **Manufacturers & Traders** | GST tax invoices with HSN codes, delivery challans, e-way bill JSON. |
@@ -216,4 +220,3 @@ This project is licensed under the [MIT License](LICENSE) — free to use, modif
 ---
 
 **SD Dynamics V.10** by Veeranki Bharath Kumar · MIT Licensed · October 2026
-
