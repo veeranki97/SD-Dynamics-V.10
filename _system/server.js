@@ -3985,6 +3985,8 @@ app.get('/api/hrm/reports/form-xiii', (req, res) => {
     res.status(500).send(e.message || 'Form XIII failed');
   }
 });
+console.log('[hrm] labour register Excel routes: form-t, form-xvii, form-xxii, form-xx, form-xxi, form-xxiii, form-xiii');
+
 
 
 
@@ -4093,6 +4095,27 @@ app.post('/api/sqlite-reimport', (req, res) => {
   }
 });
 
+
+
+app.get('/api/hrm/reports/list', (req, res) => {
+  res.json({
+    ok: true,
+    routes: [
+      '/api/hrm/reports/form-t',
+      '/api/hrm/reports/form-xvii',
+      '/api/hrm/reports/form-xxii',
+      '/api/hrm/reports/form-xx',
+      '/api/hrm/reports/form-xxi',
+      '/api/hrm/reports/form-xxiii',
+      '/api/hrm/reports/form-xiii',
+      '/api/hrm/reports/ecr',
+      '/api/hrm/reports/esic',
+      '/api/hrm/reports/attendance',
+      '/api/hrm/reports/wages',
+    ],
+    tip: 'If form-* returns No such endpoint, this server.js is not the one running — restart after copying server.js + src/utils/hrmRegisters.js',
+  });
+});
 
 app.get('{*path}', (req, res) => {
   if (req.path.startsWith('/api')) return res.status(404).json({ error: 'No such endpoint' });
