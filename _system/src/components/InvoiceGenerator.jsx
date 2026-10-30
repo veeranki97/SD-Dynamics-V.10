@@ -25,6 +25,42 @@ import { toast } from './Toast';
 import QRCode from 'qrcode';
 
 
+// Premium invoice helpers: currency-aware amount words without changing shared utils.
+const IG_CURRENCY_WORDS = {
+  INR: ['Rupees', 'Paise'], USD: ['Dollars', 'Cents'], EUR: ['Euros', 'Cents'],
+  GBP: ['Pounds', 'Pence'], AED: ['Dirhams', 'Fils'], SAR: ['Riyals', 'Halalas'],
+  CAD: ['Canadian Dollars', 'Cents'], AUD: ['Australian Dollars', 'Cents'],
+  SGD: ['Singapore Dollars', 'Cents'], NZD: ['New Zealand Dollars', 'Cents'],
+  JPY: ['Yen', 'Sen'], CNY: ['Yuan', 'Fen']
+};
+const igWordsUnderThousand = (n) => {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  let out = [];
+  if (n >= 100) { out.push(ones[Math.floor(n / 100)], 'Hundred'); n %= 100; }
+  if (n >= 10 && n < 20) out.push(teens[n - 10]);
+  else { if (n >= 20) out.push(tens[Math.floor(n / 10)]); if (n % 10) out.push(ones[n % 10]); }
+  return out.filter(Boolean).join(' ');
+};
+const igIntegerWords = (value) => {
+  let n = Math.floor(Math.abs(Number(value) || 0));
+  if (!n) return 'Zero';
+  const scales = [['Crore', 10000000], ['Lakh', 100000], ['Thousand', 1000]];
+  const parts = [];
+  scales.forEach(([name, size]) => { if (n >= size) { const q = Math.floor(n / size); parts.push(igWordsUnderThousand(q) + ' ' + name); n %= size; } });
+  if (n) parts.push(igWordsUnderThousand(n));
+  return parts.join(' ');
+};
+const igAmountInWords = (amount, currency = 'INR') => {
+  const code = String(currency || 'INR').toUpperCase();
+  const [majorName, minorName] = IG_CURRENCY_WORDS[code] || [code, 'Minor Units'];
+  const abs = Math.abs(Number(amount) || 0);
+  const major = Math.floor(abs + 0.0000001);
+  const minor = Math.round((abs - major) * 100) % 100;
+  return `${Number(amount) < 0 ? 'Minus ' : ''}${igIntegerWords(major)} ${majorName}${minor ? ' and ' + igIntegerWords(minor) + ' ' + minorName : ''} Only`;
+};
+
 const IG_FOCUS_STYLE = `
 .ig-premium-form .form-input:focus,
 .ig-premium-form select.form-input:focus {
@@ -65,6 +101,9 @@ const IG_FOCUS_STYLE = `
 .ig-premium-form .line-items-header.sd-line-grid {
   margin-bottom: 0.25rem;
 }
+.line-item-row.ig-row-dragging{opacity:.45;outline:2px dashed var(--primary,#2563eb);outline-offset:-2px;cursor:grabbing}
+.line-item-row.sd-line-grid{cursor:grab}
+.line-item-row.sd-line-grid input,.line-item-row.sd-line-grid select,.line-item-row.sd-line-grid button,.line-item-row.sd-line-grid textarea{cursor:auto}
 `;
 
 // Rich text editor component that works with contentEditable properly
@@ -329,7 +368,7 @@ const LineItem = memo(function LineItem({
   currency, profileCountry, suggestions,
   onFieldChange, onSelectProduct, onSetProductSearch,
   onAddCustomUnit, onAddCustomSac, onRemoveCustomUnit, onRemove, clampNonNeg,
-  isLastRow, onAddRow,
+  isLastRow, onAddRow, onReorderItem,
 }) {
   // v1.10.37 — Keyboard shortcut: Enter on any input inside the LAST
   // row adds a new row. Muscle-memory for POS users — reported: "if
@@ -348,7 +387,16 @@ const LineItem = memo(function LineItem({
     onAddRow?.();
   };
   return (
-    <div className="line-item-row sd-line-grid" data-item-id={item.id} onKeyDown={handleRowKeyDown}
+    <div className="line-item-row sd-line-grid" data-item-id={item.id} draggable onDragStart={(e) => {
+        const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : '';
+        if (['input', 'textarea', 'select', 'button', 'option'].includes(tag) || (e.target && e.target.isContentEditable)) {
+          e.preventDefault();
+          return;
+        }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(item.id));
+        e.currentTarget.classList.add('ig-row-dragging');
+      }} onDragEnd={(e) => e.currentTarget.classList.remove('ig-row-dragging')} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }} onDrop={(e) => { e.preventDefault(); const fromId = e.dataTransfer.getData('text/plain'); if (fromId && fromId !== String(item.id)) onReorderItem?.(fromId, item.id); }} onKeyDown={handleRowKeyDown}
       style={{ display: 'grid', gridTemplateColumns: 'minmax(140px,2.8fr) minmax(88px,0.95fr) minmax(72px,0.85fr) minmax(52px,0.55fr) minmax(56px,0.6fr) minmax(72px,0.8fr) minmax(72px,0.8fr) minmax(64px,0.7fr) minmax(56px,0.55fr) auto', gap: 6, alignItems: 'start', width: '100%', minWidth: 720 }}>
       <div className="line-item-field" style={{ position: 'relative', minWidth: 0, flex: '1 1 auto' }}>
         <label className="form-label">Description</label>
@@ -717,6 +765,7 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
       getAllClients().then((all) => {
         const list = (all || []).filter(c => !c.isVendor && c.type !== 'vendor');
         const master = list.find(c => (c.name || '').toLowerCase() === (wo.clientName || p.clientName || '').toLowerCase());
+        const st = (master?.state || wo.clientState || p.clientState || wo.state || p.state || '').trim();
         setClient(prev => ({
           ...prev,
           name: wo.clientName || p.clientName || prev.name,
@@ -724,21 +773,29 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
           address: master?.address || prev.address,
           city: master?.city || prev.city,
           pin: master?.pin || prev.pin,
-          state: master?.state || prev.state,
+          state: st || prev.state,
           gstin: master?.gstin || prev.gstin,
           phone: master?.phone || prev.phone,
           email: master?.email || prev.email,
         }));
-        if (master?.state) {
-          setDetails(d => ({ ...d, placeOfSupply: master.state }));
+        if (st) {
+          setDetails(d => ({ ...d, placeOfSupply: d.placeOfSupply || st }));
+          setFilterState(st); // Filter State UI (not billing) — keep in sync after WO convert
         }
       }).catch(() => {
+        const st = (wo.clientState || p.clientState || wo.state || p.state || '').trim();
         setClient(prev => ({
           ...prev,
           name: wo.clientName || p.clientName || prev.name,
           site: wo.site || p.site || prev.site || '',
+          state: st || prev.state,
         }));
+        if (st) {
+          setDetails(d => ({ ...d, placeOfSupply: d.placeOfSupply || st }));
+          setFilterState(st);
+        }
       });
+      const woState = (wo.clientState || p.clientState || wo.state || p.state || '').trim();
       setDetails(prev => ({
         ...prev,
         periodStart: wo.periodStart || p.periodStart || prev.periodStart || '',
@@ -746,7 +803,12 @@ export default function InvoiceGenerator({ onBack, profile: profileProp, editing
         workDetails: wo.title || wo.workDescription || wo.notes || p.title || prev.workDetails || '',
         workOrderNo: wo.woNumber || p.woNumber || prev.workOrderNo || '',
         site: wo.site || p.site || prev.site || '',
+        placeOfSupply: woState || prev.placeOfSupply || '',
       }));
+      if (woState) {
+        setClient(prev => ({ ...prev, state: prev.state || woState }));
+        setFilterState(woState); // sync Filter State dropdown immediately (before master fetch)
+      }
       if (wo.items && wo.items.length) {
         try {
           const mapped = woItemsToInvoiceItems(wo.items, allBillsForCredit || [], wo);
@@ -1158,7 +1220,32 @@ const validateForSave = useCallback(() => {
     }, 2000);
 
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [invoiceType, client, details, items, customTerms, customNotes, internalNote, extraSections, invoiceOptions, isMeaningfulInvoice]);
+  }, [invoiceType, client, details, items, customTerms, invoiceOptions, isMeaningfulInvoice]);
+
+  // Notes have their own debounce so typing in long notes does not restart
+  // the line-item/invoice autosave timer. Uses the same save path and guards.
+  const noteSnapshotRef = useRef({ customNotes, internalNote, extraSections });
+  useEffect(() => {
+    const previous = noteSnapshotRef.current;
+    if (previous.customNotes === customNotes && previous.internalNote === internalNote &&
+        JSON.stringify(previous.extraSections) === JSON.stringify(extraSections)) return;
+    noteSnapshotRef.current = { customNotes, internalNote, extraSections };
+    if (!hasInitialized.current || !details.invoiceNumber || !isMeaningfulInvoice()) return;
+    if (!editingBill && !hasBeenSaved.current) return;
+    const timer = setTimeout(async () => {
+      try {
+        setAutoSaveStatus('saving');
+        await saveInvoiceToDB(true);
+        setAutoSaveStatus('saved');
+        isDirty.current = false;
+        setTimeout(() => setAutoSaveStatus(s => s === 'saved' ? 'idle' : s), 2000);
+      } catch (err) {
+        console.error('Invoice notes auto-save failed:', err);
+        setAutoSaveStatus('idle');
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [customNotes, internalNote, extraSections, details.invoiceNumber, editingBill, isMeaningfulInvoice]);
 
   // Save-before-leave guard. P2 #32 rewrites this from the dangerous
   // browser `confirm()` (OK = save, Cancel = stay — users conditioned to
@@ -1621,6 +1708,18 @@ const validateForSave = useCallback(() => {
     if (field === 'name') {
       setProductSearch({ itemId: id, query: value });
     }
+  }, []);
+
+  const reorderItems = useCallback((fromId, toId) => {
+    setItems(prev => {
+      const fromIndex = prev.findIndex(row => String(row.id) === String(fromId));
+      const toIndex = prev.findIndex(row => String(row.id) === String(toId));
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
   }, []);
 
   const selectProduct = useCallback((itemId, product) => {
@@ -3335,7 +3434,7 @@ const validateForSave = useCallback(() => {
   <meta charset="UTF-8">
   <title>Print Receipt</title>
   <style>
-    @page { size: ${widthMm}mm auto; margin: 0; }
+    @page { size: ${widthMm}mm auto; margin: 2mm; }
     html, body { margin: 0; padding: 0; background: #fff; color: #000; }
     #invoice-preview {
       margin: 0 !important;
@@ -3602,6 +3701,10 @@ const validateForSave = useCallback(() => {
     <div className="ig-premium-form generator-container sd-inv-form">
       <style>{IG_FOCUS_STYLE + `
 .ig-fixed-savebar{position:sticky;top:0;z-index:40;background:var(--surface,var(--card,#fff));box-shadow:0 1px 0 var(--border);}
+.line-item-row[draggable="true"]{cursor:grab}
+.line-item-row.ig-row-dragging{opacity:.45;outline:2px dashed var(--primary,#2563eb);outline-offset:-2px}
+@media(max-width:767px){.ig-fixed-savebar{position:sticky;top:0;overflow-x:auto;max-width:100%;}.ig-fixed-savebar>div{flex-wrap:wrap;gap:6px!important}.ig-fixed-savebar button{min-height:36px;white-space:nowrap}.ig-panel{padding:8px!important}.line-item-row input,.line-item-row select{font-size:16px!important;min-height:38px!important}}
+@media(max-width:420px){.ig-fixed-savebar{align-items:flex-start}.ig-fixed-savebar button{padding:6px 8px;font-size:.78rem}}
 .ig-wo-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:0.78rem;font-weight:600;border:1px solid #bfdbfe;cursor:pointer;}
 .ig-billing-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface,#fff);margin-bottom:10px;font-size:0.82rem;}
 .ig-panel{padding:10px 12px!important;margin-bottom:10px!important;}
@@ -4346,7 +4449,7 @@ const validateForSave = useCallback(() => {
             {/* Row 1: Filter State | Client | Site */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Filter State</label>
+                <label className="form-label" title="Narrows the client list only. Billing State is set below.">Filter clients by state</label>
                 <select className="form-input" value={filterState}
                   onChange={e => { setFilterState(e.target.value); }}>
                   <option value="">All states</option>
@@ -4601,6 +4704,7 @@ const validateForSave = useCallback(() => {
                 <label className="form-label">Company / Client Name</label>
                 <div style={{ display: 'flex', gap: '0.4rem' }}>
                   <input type="text" className="form-input" style={{ flex: 1 }} value={client.name} ref={clientNameRef}
+                    role="combobox" aria-autocomplete="list" aria-expanded={showClientSuggestions} aria-controls="ig-client-suggestions" aria-label="Company / Client Name"
                     onChange={(e) => {
                       setClient({ ...client, name: e.target.value });
                       setSelectedClientId(null);
@@ -4640,11 +4744,11 @@ const validateForSave = useCallback(() => {
                   )}
                 </div>
                 {showClientSuggestions && savedClients.length > 0 && (
-                  <div className="client-suggestions" ref={clientSuggestionsRef}>
+                  <div className="client-suggestions" id="ig-client-suggestions" role="listbox" ref={clientSuggestionsRef}>
                     {filteredClients.length > 0 && filteredClients.map((cli, i) => (
                       <div key={cli.id} className="client-suggestion-row"
                         style={i === clientPickerIdx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
-                        <button type="button" className="client-suggestion-item"
+                        <button type="button" role="option" aria-selected={i === clientPickerIdx} className="client-suggestion-item"
                           onMouseEnter={() => setClientPickerIdx(i)}
                           onClick={() => selectSavedClient(cli)}>
                           <div className="client-suggestion-main">
@@ -4832,10 +4936,35 @@ const validateForSave = useCallback(() => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div className="form-group">
                 <label className="form-label">Invoice Number</label>
-                <input type="text" className="form-input" value={details.invoiceNumber}
-                  readOnly={!!(hasBeenSaved.current || editingBill?.id)}
-                  title={hasBeenSaved.current || editingBill?.id ? 'Invoice number is locked after first save. Use a new invoice to get a new number.' : 'Invoice number'}
-                  onChange={(e) => setDetails({ ...details, invoiceNumber: e.target.value })} />
+                <input
+                  type="text"
+                  className="form-input"
+                  value={details.invoiceNumber}
+                  readOnly
+                  disabled
+                  title="System-assigned invoice number. Not editable — use New Invoice for the next number."
+                  style={{ background: 'var(--bg-secondary, #f1f5f9)', color: 'var(--text-muted, #64748b)', cursor: 'not-allowed', fontWeight: 600 }}
+                />
+              </div>
+              <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!details.requiresAribaSes}
+                    onChange={(e) => setDetails({ ...details, requiresAribaSes: e.target.checked })}
+                  />
+                  Requires Ariba SES follow-up
+                </label>
+                {details.requiresAribaSes && (
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ marginTop: 6 }}
+                    placeholder="SES / Ariba reference (optional)"
+                    value={details.sesRef || ''}
+                    onChange={(e) => setDetails({ ...details, sesRef: e.target.value })}
+                  />
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Invoice Date</label>
@@ -4988,6 +5117,7 @@ const validateForSave = useCallback(() => {
                 clampNonNeg={clampNonNeg}
                 isLastRow={idx === items.length - 1}
                 onAddRow={addItem}
+                onReorderItem={reorderItems}
               />
             ))}
             {/* line tools moved to Line Items header */}
@@ -5028,9 +5158,23 @@ const validateForSave = useCallback(() => {
             <div className="row grand"><span>Grand Total:</span><span>{formatCurrency(Number(totals.total) || 0, invoiceOptions.currency || 'INR')}</span></div>
             {invoiceOptions.showAmountWords !== false && (
               <div style={{ marginTop: 8, fontSize: '0.78rem', fontStyle: 'italic', color: '#64748b' }}>
-                {numberToWords ? numberToWords(Math.round(Number(totals.total) || 0)) : ''}
+                {igAmountInWords(Number(totals.total) || 0, invoiceOptions.currency || 'INR')}
               </div>
             )}
+            {(() => {
+              const costOf = (item) => {
+                const raw = item.costPrice ?? item.unitCost ?? item.purchasePrice ?? item.costRate;
+                return raw === '' || raw == null || !Number.isFinite(Number(raw)) ? null : Number(raw);
+              };
+              const priced = items.filter(item => costOf(item) !== null);
+              if (!priced.length) return null;
+              const costTotal = priced.reduce((sum, item) => sum + costOf(item) * (Number(item.quantity) || Number(item.qty) || 0), 0);
+              const revenueTotal = priced.reduce((sum, item) => sum + (Number(item.rate) || 0) * (Number(item.quantity) || Number(item.qty) || 0), 0);
+              const margin = revenueTotal ? ((revenueTotal - costTotal) / revenueTotal) * 100 : 0;
+              return <div style={{ marginTop: 8, fontSize: '.78rem', color: margin < 0 ? '#b91c1c' : '#64748b' }} title="Based only on line items with explicit cost data; excludes tax and invoice-level adjustments">
+                Estimated gross margin: <strong>{formatCurrency(revenueTotal - costTotal, invoiceOptions.currency || 'INR')}</strong> ({margin.toFixed(1)}%)
+              </div>;
+            })()}
           </div>
 
           {/* Terms */}

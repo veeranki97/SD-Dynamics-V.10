@@ -13,6 +13,17 @@ import ActionMenu from './ActionMenu';
 import { sendMailSmart } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 
+/** Indian states/UTs for WO client state + GST same-state check (not free text). */
+const IN_STATES = [
+  'Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Goa','Gujarat','Haryana',
+  'Himachal Pradesh','Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Manipur',
+  'Meghalaya','Mizoram','Nagaland','Odisha','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana',
+  'Tripura','Uttar Pradesh','Uttarakhand','West Bengal',
+  'Andaman and Nicobar Islands','Chandigarh','Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi','Jammu and Kashmir','Ladakh','Lakshadweep','Puducherry',
+];
+
+
 function calcWOTotals(items, taxRate, clientState, hostState) {
   const sub = (items || []).reduce((s, it) => s + calcItemAmount(it), 0);
   const rate = Number(taxRate) || 0;
@@ -359,6 +370,8 @@ const updateItem = (idx, field, value) => {
             woNumber,
             clientName: form.clientName || '',
             clientId: form.clientId || '',
+            clientState: form.clientState || '',
+            hostState: form.hostState || '',
             site: form.site || '',
             title: form.title || '',
             notes: form.notes || '',
@@ -490,6 +503,18 @@ const updateItem = (idx, field, value) => {
             <label className="form-label">SITE</label>
             <input className="form-input" value={form.site || ''}
               onChange={e => setForm({ ...form, site: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">CLIENT STATE</label>
+            <select
+              className="form-input"
+              value={form.clientState || ''}
+              onChange={e => setForm({ ...form, clientState: e.target.value })}
+              title="Used for CGST/SGST vs IGST on this WO and when converting to Tax Invoice"
+            >
+              <option value="">— Select state —</option>
+              {IN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
           <div className="form-group">
             <label className="form-label">STATUS</label>
@@ -922,6 +947,8 @@ Regards`,
                                 workOrderId: woRow.id,
                                 woNumber: woRow.woNumber,
                                 clientName: woRow.clientName,
+                                clientState: woRow.clientState || woRow.state || '',
+                                hostState: woRow.hostState || '',
                                 site: woRow.site,
                                 title: woRow.title || woRow.workDetails,
                                 costCenterId: woRow.costCenterId,

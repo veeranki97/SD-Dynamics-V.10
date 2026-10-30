@@ -1,6 +1,6 @@
 {
   "name": "sd-dynamics",
-  "version": "2.4.0",
+  "version": "2.5.2",
   "description": "SD Dynamics — GST billing & service ERP (Work Orders, PO, ledgers, Cost Centers, Sai Durga/Tally PDF). Built on Free GST Billing Software (MIT).",
   "author": "Bharat <saidurga>",
   "license": "MIT",
