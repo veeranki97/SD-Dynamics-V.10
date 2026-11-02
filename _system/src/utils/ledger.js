@@ -123,12 +123,15 @@ export function journalFromTaxInvoice(bill) {
     else entries.push({ account: ACCOUNTS.ROUND_OFF, debit: -diff, credit: 0 });
   }
 
+  const invRef = bill.id || bill.invoiceNumber;
   return {
-    id: 'jnl_inv_' + (bill.id || bill.invoiceNumber),
+    id: 'jnl_inv_' + invRef,
     date: bill.invoiceDate || bill.data?.details?.invoiceDate,
     narration: `Invoice ${bill.invoiceNumber} — ${bill.clientName || bill.data?.client?.name || ''}`,
     refType: 'invoice',
-    refId: bill.id || bill.invoiceNumber,
+    refId: invRef,
+    eventId: 'create',
+    idempotencyKey: 'gl:invoice:' + String(invRef) + ':create',
     party: bill.clientName || bill.data?.client?.name || '',
     clientName: bill.clientName || bill.data?.client?.name || '',
     costCenterId: bill.costCenterId || bill.data?.costCenterId || null,
@@ -157,6 +160,8 @@ export function journalFromPayment(bill, paymentAmount, mode = 'bank', paymentMe
     costCenterId: bill.costCenterId || bill.data?.costCenterId || paymentMeta.costCenterId || null,
     workOrderId: bill.workOrderId || bill.data?.workOrderId || paymentMeta.workOrderId || null,
     id: 'jnl_pay_' + (bill.id || bill.invoiceNumber) + '_' + payId,
+    eventId: String(payId),
+    idempotencyKey: 'gl:payment:' + String(bill.id || bill.invoiceNumber) + ':' + String(payId),
     date: payDate,
     narration: isAdvance
       ? `Advance received against ${bill.invoiceNumber || bill.id || paymentMeta.againstDoc || 'document'}${party ? ' — ' + party : ''}`
@@ -298,14 +303,17 @@ export function journalFromExpense(exp) {
     });
   }
   entries.push({ account: ACCOUNTS.CASH_BANK, debit: 0, credit: netPay });
+  const expRef = exp.expenseNumber || exp.voucherNo || exp.id || Date.now();
   return {
-    id: 'jnl_exp_' + (exp.id || Date.now()),
+    id: 'jnl_exp_' + expRef,
     date: exp.date,
     narration: tds > 0
       ? `${exp.description || 'Expense'} (TDS ${exp.tdsSection || ''} ₹${tds})`
       : (exp.description || 'Expense'),
     refType: 'expense',
-    refId: exp.id,
+    refId: exp.id || expRef,
+    eventId: 'create',
+    idempotencyKey: 'gl:expense:' + String(expRef) + ':create',
     costCenterId: exp.costCenterId || null,
     site: exp.site || null,
     workOrderId: exp.workOrderId || null,

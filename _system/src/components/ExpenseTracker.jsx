@@ -4,7 +4,7 @@ import { getAllExpenses, saveExpense, deleteExpense, getProfile, getAllWorkOrder
 import { resolveWoCostCenter, resolveWoSite } from '../utils/workOrder';
 import { formatCurrency, getFYOptions, belongsToProfile, isUnassignedToBusiness, toCsvLine } from '../utils';
 import { journalFromExpense } from '../utils/ledger';
-import { saveJournalIfLegacy } from '../utils/glClient';
+import { postDocumentJournal } from '../utils/glClient';
 import UnassignedBanner from './UnassignedBanner';
 import { toast } from './Toast';
 import { getExpenseCategories } from '../utils/masterData';
@@ -252,17 +252,25 @@ export default function ExpenseTracker() {
       const saved = await saveExpense(expense);
       const expId = (saved && saved.id) || expense.id || editingId;
       
+      let glWarn = '';
       try {
-        const jnl = journalFromExpense({ ...expense, id: expId });
+        const jnl = journalFromExpense({ ...expense, id: expId, expenseNumber: expense.expenseNumber || expense.voucherNo });
         if (jnl) {
-          jnl.overwrite = true;
-          await saveJournalIfLegacy(saveJournal, jnl);
+          const gl = await postDocumentJournal(saveJournal, jnl, { overwrite: true });
+          if (!gl.ok) {
+            glWarn = gl.error || 'ledger journal failed';
+            console.warn('[expense] journal post failed', glWarn);
+          }
         }
       } catch (jerr) {
+        glWarn = jerr?.message || 'ledger journal failed';
         console.warn('[expense] journal post failed', jerr);
       }
-      // Activity is logged once inside saveExpense with EXP/… voucher number
-      toast(editingId ? 'Expense updated' : 'Expense added', 'success');
+      if (glWarn) {
+        toast((editingId ? 'Expense updated' : 'Expense added') + ', but ledger post failed: ' + glWarn, 'warning');
+      } else {
+        toast(editingId ? 'Expense updated' : 'Expense added', 'success');
+      }
       closeForm();
       loadExpenses();
     } catch {
@@ -293,7 +301,7 @@ export default function ExpenseTracker() {
             entries: [],
             overwrite: true,
           };
-          await saveJournalIfLegacy(saveJournal, jnl);
+          await postDocumentJournal(saveJournal, jnl, { overwrite: true });
         } catch (jerr) {
           console.warn('[expense] journal void failed', jerr);
         }

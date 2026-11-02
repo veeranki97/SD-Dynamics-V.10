@@ -2370,7 +2370,7 @@ const validateForSave = useCallback(() => {
       } catch (jErr) {
         console.warn('Journal post skipped:', jErr);
         const msg = jErr?.body?.error || jErr?.message || 'unknown';
-        try { toast(`Invoice saved, but ledger journal failed (${msg}). Open Books → Journals if needed.`, 'warning'); } catch { /* */ }
+        try { toast(`Invoice saved, but ledger journal failed (${msg}). Re-save is safe — journal id is stable (no double-post).`, 'warning'); } catch { /* */ }
       }
       // Lock source PI/Quotation ONLY after Tax Invoice is saved (convert discard safe)
       try {
