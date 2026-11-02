@@ -216,7 +216,12 @@ export function afterTaxInvoiceSaved(ctx, bill) {
 
 export function afterReceiptSaved(ctx, receipt, bill) {
   const meta = ctx.getMeta();
-  const lines = linesReceipt({ ...receipt, clientName: receipt.clientName || bill?.clientName }, meta);
+  const lines = linesReceipt({
+    ...receipt,
+    clientName: receipt.clientName || bill?.clientName,
+    invoiceType: bill?.invoiceType || bill?.data?.invoiceType || receipt.invoiceType,
+    againstDocType: bill?.invoiceType || receipt.againstDocType,
+  }, meta);
   if (!lines) return { skipped: true };
   // Prefer internal id as sourceId (stable); human number in narration/ref
   const sourceId = String(receipt.id || receipt.paymentId || '').trim();

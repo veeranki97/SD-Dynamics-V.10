@@ -477,8 +477,14 @@ function App() {
 
   const handleConvertToInvoice = async (bill, targetType = 'tax-invoice') => {
     const st = String(bill.status || '').toLowerCase();
-    if (st === 'converted' || st === 'cancelled' || bill.convertedToInvoiceId || bill.data?.convertedToInvoiceId) {
-      alert('This document was already converted and is locked.');
+    if (
+      st === 'converted'
+      || st === 'cancelled'
+      || bill.convertedToInvoiceId
+      || bill.data?.convertedToInvoiceId
+      || bill.data?.convertedLocked
+    ) {
+      alert('This document was already converted and is locked. Open the Tax Invoice to record any further payment.');
       return;
     }
     const dest = String(targetType || 'tax-invoice').toLowerCase();
@@ -517,11 +523,17 @@ function App() {
     else clone.status = 'partial';
     
     if (Array.isArray(clone.payments) && clone.payments.length) {
+      // PI/DC cash already hit Bank as advance — do NOT treat as new bank receipts on Tax Invoice.
       clone.payments = clone.payments.map(p => ({
         ...p,
-        note: [p.note, 'Against ' + (srcType || 'source') + ' ' + (bill.invoiceNumber || bill.id)].filter(Boolean).join(' | '),
+        mode: 'advance-apply',
+        noBank: true,
+        settlement: 'advance-apply',
+        note: [p.note, 'Advance transferred from ' + (srcType || 'source') + ' ' + (bill.invoiceNumber || bill.id)].filter(Boolean).join(' | '),
         againstSourceDoc: bill.invoiceNumber || bill.id,
       }));
+      clone.advanceApplied = paid;
+      if (clone.data) clone.data.advanceApplied = paid;
     }
     setEditingBill(clone);
     setCurrentView('new');
@@ -558,7 +570,6 @@ function App() {
     { id: 'dataexport', icon: Download, label: 'Data export', module: 'reports', group: 'Tax & Compliance' },
     { id: 'filing', icon: BookOpen, label: 'GST Returns', module: 'gstReturns', group: 'Tax & Compliance' },
     { id: 'incometax', icon: Calculator, label: 'Income Tax', module: 'incomeTax', group: 'Tax & Compliance' },
-    { id: 'einvoice', icon: FileText, label: 'E-Invoice', module: 'dashboard', group: 'Tax & Compliance' },
     { id: 'hrm', icon: Users, label: 'HRMS', module: 'dashboard', group: 'HR & Payroll' },
     { id: 'tasks', icon: CheckSquare, label: 'Tasks', module: 'dashboard', group: 'Administration' },
     { id: 'workflows', icon: CheckSquare, label: 'Workflow rules', module: 'dashboard', group: 'Administration' },
@@ -1377,7 +1388,7 @@ function App() {
           <Suspense fallback={<ViewLoading />}><PaymentRemindersView /></Suspense>
         )
         : currentView === 'einvoice' ? (
-          <Suspense fallback={<ViewLoading />}><EinvoiceSettingsPanel /></Suspense>
+          <Suspense fallback={<ViewLoading />}><SettingsView /></Suspense>
         )
         : currentView === 'chart-settings' ? (
           <SettingsView onSaved={(p) => setProfile(p)} />

@@ -65,9 +65,18 @@ export function linesReceipt(payment, meta) {
   if (amt <= 0) return null;
   const mode = String(payment.mode || payment.paymentMode || 'bank').toLowerCase();
   const bankId = mode.includes('cash') ? mapId(meta, 'cash') : mapId(meta, 'operatingBank');
+  const party = payment.clientName || payment.party || '';
+  // Proforma / explicit advance → Cr Advances from Customers (not Debtors)
+  const invType = String(payment.invoiceType || payment.billType || payment.againstDocType || '').toLowerCase();
+  const isAdvance =
+    /advance/i.test(String(payment.note || ''))
+    || invType.includes('proforma')
+    || invType.includes('estimate')
+    || payment.isAdvance === true;
+  const creditId = isAdvance ? mapId(meta, 'advancesFromCustomers') : mapId(meta, 'receivables');
   return [
-    { accountId: bankId, debit: amt, credit: 0, partyType: 'client', partyId: payment.clientName || payment.party || '' },
-    { accountId: mapId(meta, 'receivables'), debit: 0, credit: amt, partyType: 'client', partyId: payment.clientName || payment.party || '' },
+    { accountId: bankId, debit: amt, credit: 0, partyType: 'client', partyId: party },
+    { accountId: creditId, debit: 0, credit: amt, partyType: 'client', partyId: party },
   ];
 }
 

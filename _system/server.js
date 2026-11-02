@@ -783,6 +783,62 @@ app.post('/api/bills', (req, res) => {
     console.warn('[gl] afterTaxInvoiceSaved', ge.message);
   }
 
+  // Convert lock: if this tax invoice was created from PI / DC / Quotation,
+  // mark the source as converted so it cannot be converted again.
+  try {
+    const srcRef = String(
+      bill.convertedFrom
+      || bill.data?.convertedFrom
+      || bill.data?.details?.convertedFrom
+      || bill.data?.details?.convertedFromPi
+      || ''
+    ).trim();
+    const invType = String(bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
+    const isTaxLike = invType.includes('tax') || invType === 'invoice' || invType === '';
+    if (srcRef && isTaxLike) {
+      const billsDir = path.join(DATA_DIR, 'bills');
+      if (fs.existsSync(billsDir)) {
+        for (const f of fs.readdirSync(billsDir).filter((n) => n.endsWith('.json'))) {
+          let src;
+          try { src = readJSON(path.join(billsDir, f), null); } catch { continue; }
+          if (!src) continue;
+          const match =
+            String(src.id || '') === srcRef
+            || String(src.invoiceNumber || '') === srcRef;
+          if (!match) continue;
+          const srcType = String(src.invoiceType || src.data?.invoiceType || '').toLowerCase();
+          const isSourceDoc =
+            srcType.includes('proforma')
+            || srcType.includes('estimate')
+            || srcType.includes('quot')
+            || srcType.includes('challan')
+            || srcType.includes('delivery');
+          if (!isSourceDoc) continue;
+          const already =
+            String(src.status || '').toLowerCase() === 'converted'
+            && (src.convertedToInvoiceId || src.data?.convertedToInvoiceId);
+          if (already) break;
+          const locked = {
+            ...src,
+            status: 'converted',
+            convertedAt: new Date().toISOString(),
+            convertedToInvoiceId: bill.invoiceNumber || bill.id,
+            data: {
+              ...(src.data || {}),
+              convertedLocked: true,
+              convertedToInvoiceId: bill.invoiceNumber || bill.id,
+            },
+          };
+          writeJSON(path.join(billsDir, f), locked);
+          console.log('[convert] locked source', src.invoiceNumber || src.id, '→', bill.invoiceNumber || bill.id);
+          break;
+        }
+      }
+    }
+  } catch (lockE) {
+    console.warn('[convert] source lock failed', lockE.message);
+  }
+
   res.json({ success: true, taxWarnings });
 });
 

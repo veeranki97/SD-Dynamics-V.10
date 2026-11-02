@@ -2172,7 +2172,7 @@ const validateForSave = useCallback(() => {
       lastPrintedAt: extraPatch.lastPrintedAt ?? editingBill?.lastPrintedAt ?? null,
       // Work Order link (custom) — used by budget ceiling check
       workOrderId: selectedWorkOrderId || undefined,
-      data: { profile, client, details: { ...details, invoiceNumber: finalInvoiceNumber, periodStart: details.periodStart || '', periodEnd: details.periodEnd || '', workDetails: details.workDetails || '', workOrderNo: details.workOrderNo || '', site: client.site || details.site || '' }, items, totals, invoiceType, customTerms, customNotes, internalNote, extraSections, invoiceOptions: invoiceOptionsWithSnapshot, taxInclusive, workOrderId: selectedWorkOrderId || undefined, site: client.site || '' }
+      data: { profile, client, details: { ...details, invoiceNumber: finalInvoiceNumber, periodStart: details.periodStart || '', periodEnd: details.periodEnd || '', workDetails: details.workDetails || '', workOrderNo: details.workOrderNo || '', site: client.site || details.site || '', convertedFrom: details.convertedFrom || editingBill?._sourceDocNumber || editingBill?._sourceProformaNumber || '', convertedFromType: details.convertedFromType || editingBill?._sourceDocType || '' }, items, totals, invoiceType, customTerms, customNotes, internalNote, extraSections, invoiceOptions: invoiceOptionsWithSnapshot, taxInclusive, workOrderId: selectedWorkOrderId || undefined, site: client.site || '' }
     };
     // Editing an existing bill → always overwrite. NEW bill on second-and-
     // later save this session → also overwrite (same invoice number, would
@@ -2372,29 +2372,40 @@ const validateForSave = useCallback(() => {
         const msg = jErr?.body?.error || jErr?.message || 'unknown';
         try { toast(`Invoice saved, but ledger journal failed (${msg}). Re-save is safe — journal id is stable (no double-post).`, 'warning'); } catch { /* */ }
       }
-      // Lock source PI/Quotation ONLY after Tax Invoice is saved (convert discard safe)
+      // Lock source PI/DC/Quotation after Tax Invoice is saved (convert discard-safe).
+      // Server also locks via convertedFrom; this is a second client-side guarantee.
       try {
         const srcId = editingBill?._sourceDocId || editingBill?._sourceProformaId;
         const srcNo = editingBill?._sourceDocNumber || editingBill?._sourceProformaNumber
-          || bill?.data?.details?.convertedFrom;
-        if (editingBill?._convertToType && (srcId || srcNo)) {
+          || bill?.data?.details?.convertedFrom
+          || bill?.convertedFrom;
+        const isConvert = !!(editingBill?._convertToType || srcNo || srcId);
+        if (isConvert && (srcId || srcNo)) {
           const allSrc = await getAllBills();
           const source = allSrc.find(b =>
             (srcId && (b.id === srcId || b.invoiceNumber === srcId))
             || (srcNo && (b.invoiceNumber === srcNo || b.id === srcNo))
           );
-          if (source && String(source.status || '').toLowerCase() !== 'converted') {
-            await saveBill({
-              ...source,
-              status: 'converted',
-              convertedAt: new Date().toISOString(),
-              convertedToInvoiceId: bill.invoiceNumber || bill.id,
-              data: {
-                ...(source.data || {}),
-                convertedLocked: true,
+          if (source) {
+            const alreadyLocked =
+              String(source.status || '').toLowerCase() === 'converted'
+              && (source.convertedToInvoiceId || source.data?.convertedToInvoiceId);
+            if (!alreadyLocked) {
+              await saveBill({
+                ...source,
+                status: 'converted',
+                convertedAt: new Date().toISOString(),
                 convertedToInvoiceId: bill.invoiceNumber || bill.id,
-              },
-            }, { overwrite: true });
+                data: {
+                  ...(source.data || {}),
+                  convertedLocked: true,
+                  convertedToInvoiceId: bill.invoiceNumber || bill.id,
+                },
+              }, { overwrite: true, force: true });
+            }
+          } else {
+            console.warn('[convert] source not found for lock', srcId, srcNo);
+            try { toast('Tax Invoice saved. Source document was not found to lock — check list status.', 'warning'); } catch { /* */ }
           }
         }
       } catch (lockErr) {

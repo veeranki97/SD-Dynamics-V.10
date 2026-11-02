@@ -44,11 +44,20 @@ const resolveAlreadyPaid = (bill) => {
   return parseMoney(bill?.paidAmount);
 };
 const isPaymentDocType = (t) => {
-  // Pay / Mark paid / Record payment: tax invoices only (not PI, QUO, DC, CN).
+  // Tax invoices + Proforma (advance). Not quotation / DC / credit / debit notes.
   const s = String(t || 'tax-invoice').toLowerCase().replace(/[\s_]+/g, '-');
   if (!s || s === 'invoice') return true;
-  if (s.includes('proforma') || s.includes('quotation') || s.includes('estimate') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
+  if (s.includes('proforma') || s.includes('estimate')) return true;
+  if (s.includes('quotation') || s.includes('challan') || s.includes('delivery') || s.includes('credit') || s.includes('debit')) return false;
   return s === 'tax-invoice' || s.includes('tax-invoice') || (s.includes('tax') && !s.includes('credit'));
+};
+/** True only if document can still accept a bank/cash receipt (not converted / cancelled). */
+const canRecordPayment = (bill) => {
+  if (!bill) return false;
+  const st = String(bill.status || '').toLowerCase();
+  if (st === 'converted' || st === 'cancelled') return false;
+  if (bill.convertedToInvoiceId || bill.data?.convertedToInvoiceId || bill.data?.convertedLocked) return false;
+  return isPaymentDocType(bill.invoiceType || bill.data?.invoiceType);
 };
 
 const STATUS_CONFIG = {
@@ -669,6 +678,10 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
   };
 
   const executeRecordPayment = async (bill, { amount, date, mode, note, source = 'manual' }) => {
+    // Converted PI/DC must not take a second bank receipt — cash already on advance / tax invoice.
+    if (!canRecordPayment(bill)) {
+      throw new Error('Cannot record payment on a converted or locked document. Pay the Tax Invoice instead.');
+    }
     // Merge payment onto LATEST stored bill so we never rewrite line items on a
     // finalized invoice. Server: "Only payment fields (paidAmount, payments, status) may change."
     let base = bill;
@@ -1197,10 +1210,10 @@ const openPaymentModal = (bill) => {
     let sel = getSelectedBills();
     if (sel.length === 0) return;
     if (newStatus === 'paid') {
-      const payOk = sel.filter(b => isPaymentDocType(b.invoiceType || b.data?.invoiceType));
+      const payOk = sel.filter(b => canRecordPayment(b));
       const skipped = sel.length - payOk.length;
       if (payOk.length === 0) {
-        toast('Mark paid applies to tax invoices only (not PI / QUO / DC)', 'error');
+        toast('Mark paid applies to open tax invoices and proforma only (not converted / quotation / DC)', 'error');
         return;
       }
       if (skipped > 0) toast(`Skipped ${skipped} non-tax document(s)`, 'info');
@@ -2272,7 +2285,7 @@ const openPaymentModal = (bill) => {
                       {visibleColumns.printed && <td className="text-muted" style={{ textAlign: 'center' }}>{Number(bill.printedCount) || 0}×</td>}
                       <td className="text-muted">{(bill.paidAmount || 0) > 0 ? formatCurrency(bill.paidAmount, billCurrency) : <span className="cell-empty">—</span>}</td>
                       {visibleColumns.status && <td>
-                        {isPaymentDocType(bill.invoiceType) ? (
+                        {canRecordPayment(bill) ? (
                           <>
                             <select className="status-select" value={isOverdue && status !== 'overdue' ? 'overdue' : status}
                               style={{ background: sc.bg, color: sc.color, borderColor: sc.color + '44' }}
@@ -2319,7 +2332,7 @@ const openPaymentModal = (bill) => {
                             && !bill.data?.convertedLocked
                             && (!(String(bill.invoiceType||'').includes('quot')) || String(bill.status||'').toLowerCase() === 'accepted')
                             ? { label: 'Convert to Delivery Challan', onClick: () => onConvert?.(bill, 'delivery-challan') } : null,
-                          isPaymentDocType(bill.invoiceType) && (status || bill.status) !== 'cancelled' ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
+                          canRecordPayment(bill) ? { label: 'Record Payment', onClick: () => openPaymentModal(bill) } : null,
                           { label: 'WhatsApp', onClick: () => shareWhatsApp(bill) },
                           { label: 'Email', onClick: () => shareEmail(bill) },
                           (String(bill.invoiceType||'').includes('quot')) ? { label: 'Mark Draft', onClick: () => handleStatusChange(bill, 'draft') } : null,
