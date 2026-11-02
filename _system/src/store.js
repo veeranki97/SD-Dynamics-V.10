@@ -494,8 +494,11 @@ export const getAllReceipts = async () => {
 };
 
 export const saveReceipt = async (receipt) => {
-  // Payment ceiling: cannot exceed outstanding unless advanceCredit flag
-  if (receipt && !receipt.advanceCredit && (receipt.againstInvoiceId || receipt.invoiceId || receipt.againstInvoice)) {
+  // Payment ceiling: cannot exceed outstanding unless advanceCredit flag.
+  // CRITICAL: Record Payment saves the bill (with this payment in payments[] /
+  // paidAmount) BEFORE saveReceipt. Using paidAmount alone makes outstanding 0
+  // and wrongly rejects the receipt → no Bank GL → empty Cash Book.
+  if (receipt && !receipt.advanceCredit && !receipt.allowAdvanceCredit && (receipt.againstInvoiceId || receipt.invoiceId || receipt.againstInvoice)) {
     const invKey = receipt.againstInvoiceId || receipt.invoiceId || receipt.againstInvoice;
     try {
       const bills = await getAllBills();
@@ -503,10 +506,25 @@ export const saveReceipt = async (receipt) => {
       const bill = list.find(b => b.id === invKey || b.invoiceNumber === invKey);
       if (bill) {
         const total = Number(bill.totalAmount ?? bill.data?.totals?.total ?? 0) || 0;
-        const paid = Number(bill.paidAmount ?? 0) || 0;
-        const outstanding = Math.max(0, Math.round((total - paid) * 100) / 100);
+        const rid = receipt.id ? String(receipt.id) : '';
+        const pays = Array.isArray(bill.payments) ? bill.payments : [];
+        let paidPrior = 0;
+        if (pays.length) {
+          paidPrior = pays.reduce((s, p) => {
+            if (!p) return s;
+            if (rid && p.id && String(p.id) === rid) return s; // exclude this receipt
+            return s + (Number(p.amount) || 0);
+          }, 0);
+        } else {
+          paidPrior = Number(bill.paidAmount ?? 0) || 0;
+          const amtSelf = Number(receipt.amount ?? receipt.paidAmount ?? 0) || 0;
+          // If paidAmount already includes this payment (bill saved first), peel it off
+          if (amtSelf > 0 && paidPrior + 0.001 >= amtSelf) paidPrior = Math.max(0, paidPrior - amtSelf);
+        }
+        paidPrior = Math.round(paidPrior * 100) / 100;
+        const outstanding = Math.max(0, Math.round((total - paidPrior) * 100) / 100);
         const amt = Number(receipt.amount ?? receipt.paidAmount ?? 0) || 0;
-        if (amt > outstanding + 0.05) {
+        if (amt > outstanding + 1) {
           throw new Error(`Payment ₹${amt.toFixed(2)} exceeds outstanding ₹${outstanding.toFixed(2)}. Set advanceCredit to allow overpayment.`);
         }
       }

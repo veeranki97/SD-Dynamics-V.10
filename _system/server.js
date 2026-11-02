@@ -618,6 +618,47 @@ function assertPeriodNotLocked(dateStr, res) {
   return true;
 }
 
+
+function postGlForBillPayments(bill) {
+  if (!bill || !glCtx) return;
+  const payments = Array.isArray(bill.payments) ? bill.payments : [];
+  if (!payments.length) return;
+  const invType = String(bill.invoiceType || bill.data?.invoiceType || '').toLowerCase();
+  if (String(bill.status || '').toLowerCase() === 'converted') return;
+  if (bill.convertedToInvoiceId || bill.data?.convertedToInvoiceId || bill.data?.convertedLocked) return;
+  for (const p of payments) {
+    if (!p || !p.id) continue;
+    const mode = String(p.mode || p.paymentMode || 'bank').toLowerCase();
+    if (mode === 'advance-apply' || p.noBank || p.settlement === 'advance-apply') continue;
+    const amt = Math.round((Number(p.amount) || 0) * 100) / 100;
+    if (amt <= 0) continue;
+    const receipt = {
+      id: String(p.id),
+      amount: amt,
+      paidAmount: amt,
+      date: p.date || bill.invoiceDate || new Date().toISOString().slice(0, 10),
+      mode: mode,
+      paymentMode: mode,
+      receiptNumber: p.receiptNo || p.receiptNumber || '',
+      receiptNo: p.receiptNo || p.receiptNumber || '',
+      clientName: bill.clientName || bill.data?.client?.name || '',
+      invoiceType: invType,
+      againstDocType: invType,
+      againstInvoice: bill.invoiceNumber || bill.id || '',
+      invoiceNumber: bill.invoiceNumber || '',
+      note: p.note || '',
+    };
+    try {
+      const r = afterReceiptSaved(glCtx, receipt, bill);
+      if (r && r.ok && !r.skipped) console.log('[gl] receipt from bill.payment', receipt.id, bill.invoiceNumber);
+      else if (r && r.skipped) console.log('[gl] receipt skip', r.reason || r, receipt.id);
+    } catch (e) {
+      console.warn('[gl] postGlForBillPayments', e.message);
+    }
+  }
+}
+
+
 app.post('/api/bills', (req, res) => {
   try {
     const bill0 = req.body || {};
@@ -767,6 +808,7 @@ app.post('/api/bills', (req, res) => {
     const glRes = afterTaxInvoiceSaved(glCtx, bill);
     if (glRes && glRes.ok && !glRes.skipped) console.log('[gl] tax_invoice posted', bill.invoiceNumber || bill.id);
     else if (glRes && glRes.skipped) console.log('[gl] tax_invoice skip', glRes.reason, bill.invoiceNumber || bill.id);
+    try { postGlForBillPayments(bill); } catch (pe) { console.warn('[gl] bill payments', pe.message); }
     // PI → TI advance: if client sent advanceApplied / convertedFromPi with amount
     const adv = Number(bill.advanceApplied || bill.data?.advanceApplied || 0);
     const fromPi = bill.convertedFrom || bill.data?.convertedFrom || bill.data?.details?.convertedFromPi;
@@ -1230,18 +1272,59 @@ app.post('/api/receipts', (req, res) => {
   }
   const filePath = path.join(DATA_DIR, 'receipts', safeFileName(receipt.id) + '.json');
   writeJSON(filePath, receipt);
+  let bill = null;
+  const invNo = receipt.invoiceNumber || receipt.againstInvoice || receipt.billId;
   try {
-    let bill = null;
-    const invNo = receipt.invoiceNumber || receipt.againstInvoice || receipt.billId;
     if (invNo) {
       const bills = readAllFromDir('bills') || [];
       bill = bills.find(b =>
         String(b.invoiceNumber || '') === String(invNo) || String(b.id || '') === String(invNo)
       ) || null;
     }
-    afterReceiptSaved(glCtx, receipt, bill);
+    const glR = afterReceiptSaved(glCtx, receipt, bill);
+    if (glR && glR.ok && !glR.skipped) {
+      console.log('[gl] receipt posted', receipt.id, receipt.receiptNumber || '', invNo || '');
+    } else if (glR && glR.skipped) {
+      console.log('[gl] receipt skipped', glR.reason || 'skip', receipt.id);
+    } else if (glR && glR.error) {
+      console.warn('[gl] receipt post error', glR.error, receipt.id);
+    }
   } catch (ge) {
     console.warn('[gl] afterReceiptSaved', ge.message);
+    try {
+      const amt = Math.round((Number(receipt.amount || receipt.paidAmount) || 0) * 100) / 100;
+      if (amt > 0 && glCtx && glCtx.saveJournal) {
+        const mode = String(receipt.mode || receipt.paymentMode || 'bank').toLowerCase();
+        const bankId = mode.includes('cash') ? 'acc_1100' : 'acc_1210';
+        const bankName = mode.includes('cash') ? '1100 — Cash-in-Hand' : '1210 — Primary Operating Bank';
+        const invT = String((bill && (bill.invoiceType || (bill.data && bill.data.invoiceType))) || receipt.invoiceType || '').toLowerCase();
+        const isAdv = invT.includes('proforma') || invT.includes('estimate');
+        const crId = isAdv ? 'acc_2300' : 'acc_1300';
+        const crName = isAdv ? '2300 — Advances from Customers' : '1300 — Sundry Debtors';
+        glCtx.saveJournal({
+          id: 'jnl_gl_receipt_' + String(receipt.id).replace(/[^a-z0-9_-]/gi, '_').slice(0, 48),
+          date: String(receipt.date || receipt.paymentDate || new Date().toISOString().slice(0, 10)).slice(0, 10),
+          narration: 'Receipt ' + (receipt.receiptNumber || receipt.receiptNo || receipt.id) + (invNo ? ' against ' + invNo : ''),
+          sourceType: 'receipt',
+          sourceId: String(receipt.id),
+          refType: 'receipt',
+          refId: receipt.receiptNumber || receipt.id,
+          refLabel: receipt.receiptNumber || receipt.receiptNo || receipt.id,
+          receiptNumber: receipt.receiptNumber || receipt.receiptNo,
+          receiptNo: receipt.receiptNo || receipt.receiptNumber,
+          glEngine: true,
+          entries: [
+            { accountId: bankId, account: bankName, debit: amt, credit: 0, party: receipt.clientName || '' },
+            { accountId: crId, account: crName, debit: 0, credit: amt, party: receipt.clientName || '' },
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        console.log('[gl] receipt FALLBACK journal written', receipt.id);
+      }
+    } catch (fb) {
+      console.warn('[gl] receipt fallback failed', fb.message);
+    }
   }
   res.json({ success: true, id: receipt.id, receiptNumber: receipt.receiptNumber || receipt.receiptNo || null });
 });

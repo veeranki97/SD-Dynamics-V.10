@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
@@ -265,14 +265,14 @@
   // Runs a PowerShell script under _system/ with UAC-neutral defaults.
   // Style 1 = visible window (the user watches the install happen),
   // false = don't wait, so this window stays alive and keeps polling.
-  function runScript(name) {
+  function runScript(name, waitForExit) {
     var scriptPath = SYSTEM + '\\' + name;
     if (!fso.FileExists(scriptPath)) {
       alert('Missing file: ' + name + '\n\nPlease download the app again from GitHub.');
       return false;
     }
     var cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"';
-    try { shell.Run(cmd, 1, false); return true; }
+    try { shell.Run(cmd, 1, waitForExit === true); return true; }
     catch (e) { alert('Could not start ' + name + ':\n' + e.message); return false; }
   }
 
@@ -492,7 +492,7 @@
       { label: 'Back up my data', run: function () { runScript('backup-windows.ps1'); } },
       { label: 'Restore a backup', run: function () { runScript('restore-windows.ps1'); } },
       { label: 'Move to another PC', run: function () { runScript('move-windows.ps1'); } },
-      { label: 'Stop the app safely', run: function () { runScript('stop-windows.ps1'); } },
+      { label: 'Stop the app safely', run: function () { runScript('stop-windows.ps1', true); } },
       { label: 'Reset document counters (test use)', run: function () { runScript('reset-counters-windows.ps1'); } },
       { label: 'Rebuild app', run: function () { runScript('rebuild-windows.ps1'); } },
       { label: 'Run system diagnostics', run: function () { runScript('diagnostics-windows.ps1'); } }

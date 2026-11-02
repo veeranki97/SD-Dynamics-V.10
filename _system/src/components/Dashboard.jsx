@@ -713,11 +713,14 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
     const priorPayments = Array.isArray(base.payments) ? base.payments.slice() : [];
     const payments = [...priorPayments, paymentEntry];
     const totalPaid = Math.round(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) / 100;
-    const nextStatus = (totalPaid + 0.01 >= billTotal && billTotal > 0)
-      ? 'paid'
-      : (totalPaid > 0 ? 'partial' : (base.status === 'overdue' ? 'overdue' : 'unpaid'));
+    const isConverted = String(base.status || '').toLowerCase() === 'converted'
+      || !!(base.convertedToInvoiceId || base.data?.convertedToInvoiceId || base.data?.convertedLocked);
+    let nextStatus;
+    if (isConverted) nextStatus = 'converted';
+    else if (totalPaid + 0.01 >= billTotal && billTotal > 0) nextStatus = 'paid';
+    else if (totalPaid > 0) nextStatus = 'partial';
+    else nextStatus = (base.status === 'overdue' ? 'overdue' : 'unpaid');
 
-    // Keep every non-payment field exactly as stored on `base`
     const updatedBill = {
       ...base,
       payments,
@@ -768,6 +771,9 @@ export default function Dashboard({ onNew, onEdit, onDuplicate, onConvert, onOpe
         paymentMode: paymentEntry.mode,
         referenceNo: paymentEntry.note || '',
         againstInvoice: base.invoiceNumber || base.id || '',
+        invoiceNumber: base.invoiceNumber || '',
+        invoiceType: base.invoiceType || base.data?.invoiceType || '',
+        mode: paymentEntry.mode,
         note: paymentEntry.note || '',
         currency: base.currency || base.data?.invoiceOptions?.currency || 'INR',
         source,
