@@ -1,4 +1,4 @@
-# SD Dynamics - Windows installer.
+﻿# SD Dynamics - Windows installer.
 #
 # Invoked by the HTA launcher on first run. Idempotent - safe to
 # re-run any time. Installs Node.js if missing, runs npm install
@@ -6,7 +6,7 @@
 # HTA launcher so the user never has to open the extract folder
 # again.
 
-$ErrorActionPreference = 'Continue'
+$ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'SD Dynamics - Installer'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -39,6 +39,8 @@ $NodeDir = Join-Path $SystemDir 'node'
 $NodeExe = Join-Path $NodeDir 'node.exe'
 
 if (Test-Path $NodeExe) { $env:Path = "$NodeDir;$env:Path" }
+$npmLocal = Join-Path $NodeDir 'npm.cmd'
+if (Test-Path $npmLocal) { $env:Path = "$NodeDir;$env:Path" }
 $node = Get-Command node -ErrorAction SilentlyContinue
 
 if (-not $node) {
@@ -86,12 +88,13 @@ Write-Host ''
 Write-Host '  Installing app dependencies (npm install)...'
 Push-Location $SystemDir
 try {
-  npm install --no-audit --no-fund --loglevel=error
+  $npmCmd = if (Test-Path $npmLocal) { $npmLocal } else { (Get-Command npm -ErrorAction Stop).Source }
+  & $npmCmd install --no-audit --no-fund --loglevel=error
   if ($LASTEXITCODE -ne 0) { throw "npm install exited $LASTEXITCODE" }
   # SD Dynamics: ensure production UI exists
   if (-not (Test-Path (Join-Path $SystemDir 'dist\index.html'))) {
     Write-Host '  Building app (npm run build)...'
-    npm run build --loglevel=error
+    & $npmCmd run build --loglevel=error
     if ($LASTEXITCODE -ne 0) { throw "npm run build exited $LASTEXITCODE" }
   }
 } catch {

@@ -1,4 +1,4 @@
-# SD Dynamics - Windows updater.
+﻿# SD Dynamics - Windows updater.
 #
 # Pulls the latest release ZIP from GitHub, extracts _system/ over
 # the existing one, re-runs npm install. Data folder is preserved.
@@ -12,6 +12,7 @@
 #     during rmdir could corrupt state
 
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Host.UI.RawUI.WindowTitle = 'SD Dynamics - Update'
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -23,6 +24,14 @@ Write-Host '  ============================================================'
 Write-Host '   SD Dynamics Software - Update'
 Write-Host '  ============================================================'
 Write-Host ''
+
+# --- Safety: snapshot application files for rollback before applying anything ---
+$backupsHome = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'SDDynamics Backups'
+New-Item -ItemType Directory -Path $backupsHome -Force | Out-Null
+$stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
+$appSnapshot = Join-Path $backupsHome "pre-update-app-$stamp.zip"
+Write-Host "  Creating application rollback snapshot: $appSnapshot"
+Compress-Archive -Path (Join-Path $SystemDir '*') -DestinationPath $appSnapshot -Force
 
 # --- Step 1: Belt-and-braces backup of data folder BEFORE anything ---
 $dataDir = Join-Path $SystemDir 'data'
@@ -67,7 +76,8 @@ Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
 # The extract may contain either the pretty release structure
 # (root has SD Dynamics - WINDOWS.hta + _system/) or the source zipball
 # (root has IamRamgarhia-Free-GST-Billing-Software-HASH/).
-$extracted = Get-ChildItem -Path $tmp -Directory | Select-Object -First 1
+$extracted = Get-ChildItem -Path $tmp -Directory | Where-Object { $_.Name -ne 'node_modules' } | Select-Object -First 1
+if (-not $extracted) { throw 'Release archive has no extracted root folder.' }
 $candidateSystem = Join-Path $extracted.FullName '_system'
 if (Test-Path $candidateSystem) {
   $sourceRoot = $extracted.FullName
@@ -78,12 +88,19 @@ if (Test-Path $candidateSystem) {
   $newSystem  = $extracted.FullName
 }
 
+# Validate the release payload before touching the installed files.
+if (-not (Test-Path (Join-Path $newSystem 'package.json'))) { throw 'Release archive does not contain package.json; refusing to update.' }
+if (-not (Test-Path (Join-Path $newSystem 'server.js'))) { throw 'Release archive does not contain server.js; refusing to update.' }
+
 # --- Step 4: Copy everything EXCEPT data/ over the current _system/ ---
 Write-Host '  Applying update (your data folder is untouched)...'
 Get-ChildItem -Path $newSystem -Force | Where-Object { $_.Name -ne 'data' -and $_.Name -ne 'node_modules' } | ForEach-Object {
   $dest = Join-Path $SystemDir $_.Name
-  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue }
-  Copy-Item -Path $_.FullName -Destination $dest -Recurse -Force
+  $stageDest = Join-Path $SystemDir ('.update-stage-' + $_.Name)
+  if (Test-Path $stageDest) { Remove-Item $stageDest -Recurse -Force }
+  Copy-Item -Path $_.FullName -Destination $stageDest -Recurse -Force
+  if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+  Move-Item -Path $stageDest -Destination $dest -Force
 }
 # If the new release ships new launcher/HTA files at root, refresh those too
 Get-ChildItem -Path $sourceRoot -File | Where-Object { $_.Extension -match '\.(hta|command|sh)$' -or $_.Name -match '^SD Dynamics' } | ForEach-Object {
@@ -96,7 +113,9 @@ Push-Location $SystemDir
 # v1.10.69 - Node.js may live inside the app folder (see install-windows.ps1).
 $updNodeDir = Join-Path $SystemDir 'node'
 if (Test-Path (Join-Path $updNodeDir 'node.exe')) { $env:Path = "$updNodeDir;$env:Path" }
-npm install --omit=dev --no-audit --no-fund --loglevel=error
+$npmCmd = if (Test-Path (Join-Path $updNodeDir 'npm.cmd')) { Join-Path $updNodeDir 'npm.cmd' } else { (Get-Command npm -ErrorAction Stop).Source }
+& $npmCmd install --omit=dev --no-audit --no-fund --loglevel=error
+if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE. App snapshot: $appSnapshot" }
 Pop-Location
 
 # --- Cleanup ---
@@ -105,5 +124,6 @@ Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host '  [OK] Update complete!' -ForegroundColor Green
 Write-Host '  Restart the app (Stop Server -> Open App) to run the new version.'
+  Write-Host "  Rollback snapshot retained at: $appSnapshot"
 Write-Host ''
 Read-Host '  Press Enter to close'
