@@ -2370,34 +2370,81 @@ function EditIcon({ size }) {
 
 
 function EmailTemplatesPanel() {
-  const [tpl, setTpl] = useState({});
+  const DEFAULT_EMAIL_TEMPLATES = {
+    invoice: {
+      subject: 'Tax Invoice {{invoiceNumber}} from {{companyName}}',
+      body: 'Dear {{clientName}},\n\nPlease find attached the tax invoice {{invoiceNumber}} issued by {{companyName}}.\n\nInvoice Details:\n• Invoice Number: {{invoiceNumber}}\n• Amount Due: {{amount}}\n• Due Date: {{dueDate}}\n\nKindly review the invoice and arrange payment on or before the due date.\n\nBest regards,\nAccounts Team\n{{companyName}}',
+    },
+    reminder: {
+      subject: 'Payment Reminder – Invoice {{invoiceNumber}} | {{companyName}}',
+      body: 'Dear {{clientName}},\n\nThis is a courteous reminder regarding the outstanding payment for invoice {{invoiceNumber}}, issued by {{companyName}}.\n\nOutstanding Details:\n• Invoice Number: {{invoiceNumber}}\n• Outstanding Amount: {{amount}}\n• Payment Due Date: {{dueDate}}\n\nBest regards,\nAccounts Receivable Team\n{{companyName}}',
+    },
+    statement: {
+      subject: 'Account Statement – {{clientName}} | {{companyName}}',
+      body: 'Dear {{clientName}},\n\nPlease find attached your account statement from {{companyName}} for your review and reconciliation.\n\nBest regards,\nFinance & Accounts Team\n{{companyName}}',
+    },
+    po: {
+      subject: 'Purchase Order {{poNumber}} – {{companyName}}',
+      body: 'Dear Sir/Madam,\n\nPlease find attached Purchase Order {{poNumber}} issued by {{companyName}}.\n\nBest regards,\nProcurement Team\n{{companyName}}',
+    },
+    wo: {
+      subject: 'Work Order {{woNumber}} – {{companyName}}',
+      body: 'Dear {{clientName}},\n\nPlease find attached Work Order {{woNumber}} issued by {{companyName}}.\n\nThe work order outlines the scope of work, applicable specifications, deliverables, schedule, and agreed commercial terms.\n\nBest regards,\nProjects & Operations Team\n{{companyName}}',
+    },
+  };
+  const normalizeTpl = (raw) => {
+    const base = { ...DEFAULT_EMAIL_TEMPLATES };
+    if (!raw || typeof raw !== 'object') return base;
+    for (const k of Object.keys(DEFAULT_EMAIL_TEMPLATES)) {
+      if (raw[k] && typeof raw[k] === 'object') {
+        base[k] = {
+          subject: raw[k].subject != null ? String(raw[k].subject) : base[k].subject,
+          body: raw[k].body != null ? String(raw[k].body) : base[k].body,
+        };
+      }
+    }
+    return base;
+  };
+  const [tpl, setTpl] = useState(() => normalizeTpl(null));
   const [key, setKey] = useState('invoice');
+  const [loadState, setLoadState] = useState('loading');
   useEffect(() => {
-    fetch('/api/meta/email-templates', { credentials: 'same-origin' })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j && j.value && typeof j.value === 'object') setTpl(j.value);
-        else if (j && (j.invoice || j.wo || j.po)) setTpl(j);
-        else setTpl({});
-      })
-      .catch(() => {});
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/meta/email-templates', { credentials: 'same-origin' });
+        const j = await r.json().catch(() => ({}));
+        let raw = null;
+        if (j && j.value != null && typeof j.value === 'object' && !Array.isArray(j.value)) raw = j.value;
+        else if (j && (j.invoice || j.wo || j.po)) raw = j;
+        if (!cancelled) {
+          setTpl(normalizeTpl(raw));
+          setLoadState(raw ? 'loaded' : 'empty');
+        }
+      } catch {
+        if (!cancelled) {
+          setTpl(normalizeTpl(null));
+          setLoadState('error');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
   const cur = tpl[key] || { subject: '', body: '' };
   const save = async () => {
     try {
+      const payload = normalizeTpl(tpl);
       const r = await fetch('/api/meta/email-templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        // server POST /api/meta/:key expects { value: ... }
-        body: JSON.stringify({ value: tpl }),
+        body: JSON.stringify({ value: payload }),
       });
-      if (!r.ok) throw new Error('Save failed');
-      try {
-        const g = await fetch('/api/meta/email-templates', { credentials: 'same-origin' });
-        const gj = await g.json();
-        if (gj?.value && typeof gj.value === 'object') setTpl(gj.value);
-      } catch { /* keep local */ }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || 'Save failed');
+      const saved = j.value != null ? j.value : payload;
+      setTpl(normalizeTpl(saved));
+      setLoadState('loaded');
       toast('Email templates saved', 'success');
     } catch (e) { toast(e.message || 'Save failed', 'error'); }
   };
@@ -2406,6 +2453,8 @@ function EmailTemplatesPanel() {
       <h3 className="section-title" style={{ marginTop: 0 }}>Email templates</h3>
       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
         Placeholders: {'{{clientName}} {{invoiceNumber}} {{amount}} {{dueDate}} {{companyName}} {{woNumber}} {{poNumber}}'}. SMTP from Mail settings; otherwise mailto fallback.
+        {loadState === 'empty' && ' — No saved templates yet; defaults shown. Click Save templates to store them.'}
+        {loadState === 'error' && ' — Could not load saved templates; defaults shown.'}
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         {['invoice', 'reminder', 'statement', 'po', 'wo'].map((k) => (

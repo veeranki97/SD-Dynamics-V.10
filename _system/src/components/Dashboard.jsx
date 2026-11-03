@@ -15,7 +15,7 @@ import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/r
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
-import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate } from '../utils/openMail';
+import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate, promptForEmail } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
 import { createSesFollowUpFromBill } from '../utils/sesTasks';
 import { runWorkflowRules } from './WorkflowRulesView';
@@ -1551,9 +1551,35 @@ const openPaymentModal = (bill) => {
   };
 
     const shareEmail = async (bill) => {
-    const to = (bill.clientEmail || bill.data?.client?.email || bill.data?.client?.Email || '').trim();
+    // Resolve email: invoice snapshot → client master (by name/id) → prompt user
+    let to = (
+      bill.clientEmail
+      || bill.data?.client?.email
+      || bill.data?.client?.Email
+      || bill.data?.client?.mail
+      || ''
+    ).trim();
     if (!to) {
-      toast('No client email on file — add email on the client master.', 'warning');
+      const cName = (bill.clientName || bill.data?.client?.name || '').trim().toLowerCase();
+      const cId = bill.clientId || bill.data?.client?.id || bill.data?.clientId || '';
+      const list = Array.isArray(clients) ? clients : [];
+      const match = list.find(c =>
+        (cId && (c.id === cId || String(c.id) === String(cId)))
+        || (cName && String(c.name || '').trim().toLowerCase() === cName)
+        || (cName && String(c.businessName || '').trim().toLowerCase() === cName)
+      );
+      if (match) {
+        to = String(match.email || match.Email || match.mail || match.contactEmail || '').trim();
+      }
+    }
+    if (!to || !to.includes('@')) {
+      try {
+        to = await promptForEmail(to || '');
+      } catch { to = ''; }
+      to = String(to || '').trim();
+    }
+    if (!to || !to.includes('@')) {
+      toast('No client email — add email on Clients master, or enter it when prompted.', 'warning');
       return;
     }
     let companyName = bill.data?.profile?.businessName || '';
@@ -1647,8 +1673,17 @@ const openPaymentModal = (bill) => {
   const getClientPhone = (bill) => {
     if (bill.clientPhone) return bill.clientPhone;
     if (bill.data?.client?.phone) return bill.data.client.phone;
-    const savedClient = clients.find(c => c.name === bill.clientName);
+    const savedClient = clients.find(c => c.name === bill.clientName || (bill.clientName && c.name && c.name.toLowerCase() === String(bill.clientName).toLowerCase()));
     return savedClient?.phone || '';
+  };
+  const getClientEmail = (bill) => {
+    let e = (bill.clientEmail || bill.data?.client?.email || bill.data?.client?.Email || '').trim();
+    if (e) return e;
+    const cName = (bill.clientName || bill.data?.client?.name || '').trim().toLowerCase();
+    const match = (clients || []).find(c =>
+      cName && String(c.name || '').trim().toLowerCase() === cName
+    );
+    return String(match?.email || match?.Email || match?.mail || '').trim();
   };
 
   // v1.10.4 — audit M14. Both were rebuilt every render even though

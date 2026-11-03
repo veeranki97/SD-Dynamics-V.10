@@ -2192,15 +2192,41 @@ app.get('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
   const key = req.params.key;
   let value = meta[key] ?? null;
+  // email templates may be stored under either key
+  if ((value == null || value === '') && (key === 'email-templates' || key === 'emailTemplates')) {
+    value = meta['email-templates'] ?? meta.emailTemplates ?? null;
+  }
   value = scrubMetaValueForGet(key, value);
   res.json({ value });
 });
 
 app.post('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
-  meta[req.params.key] = req.body?.value;
+  const key = req.params.key;
+  const body = req.body;
+  // Accept { value: ... } (preferred) OR raw object (legacy Settings posts)
+  let next;
+  if (body && Object.prototype.hasOwnProperty.call(body, 'value')) {
+    next = body.value;
+  } else if (body && typeof body === 'object' && !Array.isArray(body)) {
+    next = body;
+  } else {
+    next = body?.value;
+  }
+  // email-templates: never wipe with null/undefined on bad client payload
+  if ((key === 'email-templates' || key === 'emailTemplates') && (next == null || next === '')) {
+    return res.status(400).json({ error: 'email-templates body missing', success: false });
+  }
+  meta[key] = next;
+  // alias camelCase for older readers
+  if (key === 'email-templates' && next && typeof next === 'object') {
+    meta.emailTemplates = next;
+  }
+  if (key === 'emailTemplates' && next && typeof next === 'object') {
+    meta['email-templates'] = next;
+  }
   writeJSON(META_PATH, meta);
-  res.json({ success: true });
+  res.json({ success: true, value: next });
 });
 
 // Atomic increment for invoice-number counters. Node's I/O is single-threaded
