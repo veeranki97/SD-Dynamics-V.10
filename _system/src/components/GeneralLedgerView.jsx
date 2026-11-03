@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
-import { getAllJournals, getProfile } from '../store';
+import { getAllJournals, getProfile, getAllClients } from '../store';
 import { formatCurrency } from '../utils';
 import { activeGlJournals } from '../utils/glPosting';
 import { toast } from './Toast';
+import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate, promptForEmail } from '../utils/openMail';
 
 /** Prefer human voucher (PUR/EXP/REC/SD) over internal ids. */
 function humanGlRef(j) {
@@ -109,7 +110,7 @@ export default function GeneralLedgerView() {
     profile?.businessName || profile?.name || 'SAI DURGA';
 
   /** Direct download PDF with forced filename (jsPDF) — no print dialog name issue. */
-  const downloadPdf = () => {
+  const buildLedgerPdf = () => {
     try {
       const stem = fileStem(party);
       const landscape = !party;
@@ -317,11 +318,85 @@ export default function GeneralLedgerView() {
       }
 
       const name = stem + '.pdf';
-      doc.save(name);
-      toast('Downloaded ' + name, 'success');
+      return { doc, name, stem };
     } catch (e) {
       console.error(e);
       toast('PDF download failed: ' + (e.message || 'error'), 'error');
+      return null;
+    }
+  };
+
+  const downloadPdf = () => {
+    const built = buildLedgerPdf();
+    if (!built) return;
+    built.doc.save(built.name);
+    toast('Downloaded ' + built.name, 'success');
+  };
+
+  const emailStatement = async () => {
+    if (!party || !String(party).trim()) {
+      toast('Enter a party / client name in the filter first', 'warning');
+      return;
+    }
+    let to = '';
+    try {
+      const list = await getAllClients().catch(() => []);
+      const p = String(party).trim().toLowerCase();
+      const match = (list || []).find((c) => {
+        const n = String(c.name || '').trim().toLowerCase();
+        const b = String(c.businessName || '').trim().toLowerCase();
+        return n === p || b === p || n.includes(p) || b.includes(p);
+      });
+      to = String(match?.email || match?.Email || match?.mail || '').trim();
+    } catch { /* */ }
+    if (!to || !to.includes('@')) {
+      to = String((await promptForEmail(to || '')) || '').trim();
+    }
+    if (!to || !to.includes('@')) {
+      toast('No email for this party — add on Clients or enter when prompted', 'warning');
+      return;
+    }
+    toast('Building statement PDF…', 'info', 2000);
+    const built = buildLedgerPdf();
+    if (!built) return;
+    const dataUri = built.doc.output('datauristring');
+    const b64 = dataUri.includes('base64,') ? dataUri.split('base64,')[1] : dataUri;
+    let companyName = profile?.businessName || profile?.name || '';
+    try {
+      if (!companyName) {
+        const pr = await getProfile();
+        companyName = pr?.businessName || pr?.name || '';
+      }
+    } catch { /* */ }
+    const templates = await loadEmailTemplates();
+    const vars = {
+      clientName: party,
+      companyName: companyName || 'Company',
+      invoiceNumber: '',
+      amount: partyTotals ? String(partyTotals.bal) : '',
+      dueDate: '',
+      woNumber: '',
+      poNumber: '',
+    };
+    const resolved = resolveEmailTemplate(templates, 'statement', vars, {
+      subject: 'Account Statement – ' + party + ' | ' + (companyName || 'Company'),
+      body: 'Dear ' + party + ',\n\nPlease find attached your account statement.\n\nBest regards,\n' + (companyName || ''),
+    });
+    // fix body newlines
+    const body = resolved.body.replace(/\\n/g, '\n');
+    toast('Sending statement…', 'info', 2000);
+    const result = await sendMailSmart({
+      to,
+      subject: resolved.subject,
+      body,
+      attachments: [{ filename: built.name, content: b64, contentType: 'application/pdf' }],
+      allowGmailFallback: true,
+      businessName: companyName,
+    });
+    if ((result.via === 'smtp' || result.method === 'smtp') && result.ok) {
+      toast('Statement emailed to ' + to, 'success');
+    } else {
+      toast((result.smtpError || result.error || 'SMTP not available') + '. Configure SMTP in Settings → Mail for PDF attachments.', 'warning', 9000);
     }
   };
 
@@ -421,6 +496,10 @@ export default function GeneralLedgerView() {
           </button>
           <button type="button" className="btn btn-primary btn-sm" onClick={downloadPdf}>
             {party ? 'Download Statement PDF' : 'Download PDF'}
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={emailStatement}
+            title="Email party statement PDF (set party filter; SMTP required for attachment)">
+            Email Statement
           </button>
         </div>
         {partyTotals && (

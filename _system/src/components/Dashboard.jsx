@@ -1550,6 +1550,45 @@ const openPaymentModal = (bill) => {
     openWhatsAppShare(bill.clientPhone, msg);
   };
 
+
+  const generateInvoicePdfBase64 = async (bill) => {
+    if (!bill) return null;
+    const data = bill.data || {};
+    const container = document.createElement('div');
+    container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch { /* */ }
+      }
+      await new Promise((resolve) => {
+        root.render(createElement(InvoicePreview, {
+          profile: data.profile, client: data.client, details: data.details, items: data.items,
+          totals: data.totals, invoiceType: data.invoiceType || bill.invoiceType, customTerms: data.customTerms,
+          customNotes: data.customNotes, extraSections: data.extraSections, options: data.invoiceOptions,
+        }));
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 120)));
+      });
+      const capScale = Math.min(3, Math.max(2, Math.round((window.devicePixelRatio || 1) * 1.1)));
+      const canvas = await html2canvas(container.firstElementChild || container, {
+        scale: capScale, backgroundColor: '#ffffff', useCORS: false, logging: false,
+      });
+      const img = canvas.toDataURL('image/png');
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+      const w = 210;
+      const h = (canvas.height * 210) / canvas.width;
+      doc.addImage(img, 'PNG', 0, 0, w, Math.min(h, 297), undefined, 'FAST');
+      const dataUri = doc.output('datauristring');
+      const b64 = dataUri.includes('base64,') ? dataUri.split('base64,')[1] : dataUri;
+      const inv = String(bill.invoiceNumber || data.details?.invoiceNumber || bill.id || 'invoice').replace(/[/\\?%*:|"<>]+/g, '-');
+      return { base64: b64, filename: inv + '.pdf' };
+    } finally {
+      try { root.unmount(); } catch { /* */ }
+      try { document.body.removeChild(container); } catch { /* */ }
+    }
+  };
+
     const shareEmail = async (bill) => {
     // Resolve email: invoice snapshot → client master (by name/id) → prompt user
     let to = (
@@ -1618,18 +1657,35 @@ const openPaymentModal = (bill) => {
     });
     const subject = resolved.subject;
     const body = resolved.body;
-    toast('Sending via SMTP…', 'info', 2000);
-    const result = await sendMailSmart({ to, subject, body, allowGmailFallback: true });
-    if (result.method === 'smtp' && result.ok) {
-      toast(`Email sent via SMTP to ${to}`, 'success');
+    toast('Preparing invoice PDF…', 'info', 2000);
+    let attachments = [];
+    try {
+      const pdf = await generateInvoicePdfBase64(bill);
+      if (pdf?.base64) {
+        attachments = [{ filename: pdf.filename, content: pdf.base64, contentType: 'application/pdf' }];
+      }
+    } catch (e) {
+      console.warn('invoice PDF for email', e);
+      toast('PDF build failed — sending text only', 'warning');
+    }
+    toast(attachments.length ? 'Sending email with PDF…' : 'Sending via SMTP…', 'info', 2000);
+    const result = await sendMailSmart({
+      to, subject, body, attachments, allowGmailFallback: true,
+      useInvoiceTemplate: true, businessName: companyName,
+    });
+    if ((result.method === 'smtp' || result.via === 'smtp') && result.ok) {
+      toast(attachments.length ? `Email + PDF sent to ${to}` : `Email sent via SMTP to ${to}`, 'success');
       return;
     }
-    // SMTP failed — Gmail opened in new tab only (app stays here)
-    const why = result.smtpError || 'SMTP not available';
+    const why = result.smtpError || result.error || 'SMTP not available';
+    if (attachments.length && !result.ok) {
+      toast(why + '. Configure SMTP in Settings → Mail to attach PDF. Gmail cannot auto-attach from the app.', 'warning', 9000);
+      return;
+    }
     if (result.popupBlocked) {
-      toast(`${why}. Gmail popup blocked — allow pop-ups, or paste clipboard into Gmail.`, 'warning', 8000);
+      toast(`${why}. Gmail popup blocked — allow pop-ups.`, 'warning', 8000);
     } else {
-      toast(`${why}. Opened Gmail in a new tab as fallback (app stayed open).`, 'info', 7000);
+      toast(`${why}. Opened Gmail compose (text only — no auto PDF attach).`, 'info', 7000);
     }
   };
 

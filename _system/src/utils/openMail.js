@@ -107,6 +107,8 @@ export async function sendMailPreferred({
   pdfUrl,
   addressLine,
   useInvoiceTemplate = false,
+  attachments = null,
+  allowGmailFallback = true,
 }) {
   let email = String(to || '').trim();
   if (!email.includes('@')) {
@@ -124,32 +126,56 @@ export async function sendMailPreferred({
     });
   }
 
+  const attList = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+
   try {
     const res = await postJson('/api/mail/send', {
       to: email,
       subject: subject || 'Message from SD Dynamics',
       text: body || subject || '',
       html: htmlBody || undefined,
+      attachments: attList.length ? attList : undefined,
     });
     if (res && (res.ok || res.messageId)) {
-      return { ok: true, via: 'smtp', to: email, ...res };
+      return { ok: true, via: 'smtp', method: 'smtp', to: email, attached: attList.length, ...res };
     }
-  } catch (_) {
-    /* SMTP unavailable — fall through */
+  } catch (e) {
+    if (attList.length) {
+      return {
+        ok: false,
+        via: 'smtp-failed',
+        method: 'smtp',
+        error: e?.message || 'SMTP send failed',
+        smtpError: e?.message || 'SMTP failed (required for PDF attachment)',
+      };
+    }
   }
 
+  if (!allowGmailFallback) {
+    return { ok: false, error: 'SMTP not available', method: 'none' };
+  }
+
+  const note = attList.length
+    ? '\n\n(Note: PDF could not be attached automatically — download PDF and attach in Gmail. Configure SMTP in Settings for auto-attach.)'
+    : '';
   const gmail =
     'https://mail.google.com/mail/?view=cm&fs=1&to=' +
     encodeURIComponent(email) +
     '&su=' +
     encodeURIComponent(subject || '') +
     '&body=' +
-    encodeURIComponent(body || '');
+    encodeURIComponent((body || '') + note);
   try {
     if (navigator.clipboard && body) await navigator.clipboard.writeText(body);
   } catch (_) {}
   window.open(gmail, '_blank', 'noopener,noreferrer');
-  return { ok: true, via: 'gmail-compose', to: email };
+  return {
+    ok: true,
+    via: 'gmail-compose',
+    method: 'gmail',
+    to: email,
+    smtpError: attList.length ? 'SMTP required for PDF attachment' : undefined,
+  };
 }
 
 export async function sendMonthlyReportNow() {

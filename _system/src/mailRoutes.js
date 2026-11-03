@@ -72,14 +72,29 @@ export function registerMailRoutes(app, ctx) {
         secure: s.secure !== false,
         auth: { user: s.user, pass: s.pass },
       });
+      const attachments = [];
+      const rawAtt = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+      for (const a of rawAtt) {
+        if (!a || !a.content) continue;
+        let b64 = String(a.content);
+        const marker = 'base64,';
+        const ix = b64.indexOf(marker);
+        if (ix >= 0) b64 = b64.slice(ix + marker.length);
+        attachments.push({
+          filename: String(a.filename || 'attachment.pdf'),
+          content: Buffer.from(b64, 'base64'),
+          contentType: a.contentType || a.content_type || 'application/pdf',
+        });
+      }
       const info = await transporter.sendMail({
         from: s.from || s.user,
         to,
         subject,
         text: text || subject,
         html,
+        attachments: attachments.length ? attachments : undefined,
       });
-      res.json({ ok: true, messageId: info.messageId });
+      res.json({ ok: true, messageId: info.messageId, attached: attachments.length });
     } catch (e) {
       res.status(500).json({ error: e.message || 'Send failed' });
     }
