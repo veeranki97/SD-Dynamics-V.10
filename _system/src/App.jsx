@@ -518,12 +518,18 @@ function App() {
     }
     const paid = Number(clone.paidAmount) || (clone.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) || 0;
     const total = Number(clone.totalAmount) || 0;
-    if (paid <= 0.009) clone.status = 'unpaid';
-    else if (paid + 0.009 >= total) clone.status = 'paid';
-    else clone.status = 'partial';
-    
-    if (Array.isArray(clone.payments) && clone.payments.length) {
-      // PI/DC cash already hit Bank as advance — do NOT treat as new bank receipts on Tax Invoice.
+    const isDc = toType === 'delivery-challan' || String(toType).includes('challan');
+
+    // DC is not a receivable invoice — never carry PI/tax payments
+    // (PI ₹55,460 with GST vs DC ₹47,000 without GST failed server ceiling).
+    if (isDc) {
+      clone.payments = [];
+      clone.paidAmount = 0;
+      clone.status = 'unpaid';
+      clone.advanceApplied = 0;
+      if (clone.data) clone.data = { ...clone.data, advanceApplied: 0 };
+    } else if (Array.isArray(clone.payments) && clone.payments.length) {
+      // PI cash already in Bank as advance — transfer as advance-apply (no second bank).
       clone.payments = clone.payments.map(p => ({
         ...p,
         mode: 'advance-apply',
@@ -534,6 +540,13 @@ function App() {
       }));
       clone.advanceApplied = paid;
       if (clone.data) clone.data.advanceApplied = paid;
+      if (paid <= 0.009) clone.status = 'unpaid';
+      else if (paid + 0.009 >= total) clone.status = 'paid';
+      else clone.status = 'partial';
+    } else {
+      if (paid <= 0.009) clone.status = 'unpaid';
+      else if (paid + 0.009 >= total) clone.status = 'paid';
+      else clone.status = 'partial';
     }
     setEditingBill(clone);
     setCurrentView('new');

@@ -534,19 +534,22 @@ function validateBillPayments(bill) {
   const payments = Array.isArray(bill.payments) ? bill.payments : [];
   let paid = 0;
   for (const p of payments) {
+    const mode = String(p?.mode || p?.paymentMode || '').toLowerCase();
+    if (p?.noBank || p?.settlement === 'advance-apply' || mode === 'advance-apply' || mode.includes('advance-apply')) {
+      continue;
+    }
     const amt = money2(p.amount);
     if (amt < 0) return { ok: false, error: 'Payment amount cannot be negative' };
     paid = money2(paid + amt);
   }
-  // CA: ₹1 tolerance for rounding; reject fat-finger overpayment
   if (paid > total + 1) {
-    const outstanding = Math.max(0, money2(total - paid + (payments.reduce((s, p) => s + money2(p.amount), 0) - paid)));
     return {
       ok: false,
       error: `Payment total ₹${paid.toFixed(2)} exceeds invoice grand total ₹${total.toFixed(2)} (tolerance ₹1).`,
     };
   }
-  bill.paidAmount = paid;
+  const clientPaid = money2(bill.paidAmount);
+  bill.paidAmount = Math.max(paid, clientPaid);
   return { ok: true };
 }
 
@@ -810,8 +813,16 @@ app.post('/api/bills', (req, res) => {
     else if (glRes && glRes.skipped) console.log('[gl] tax_invoice skip', glRes.reason, bill.invoiceNumber || bill.id);
     try { postGlForBillPayments(bill); } catch (pe) { console.warn('[gl] bill payments', pe.message); }
     // PI → TI advance: if client sent advanceApplied / convertedFromPi with amount
-    const adv = Number(bill.advanceApplied || bill.data?.advanceApplied || 0);
-    const fromPi = bill.convertedFrom || bill.data?.convertedFrom || bill.data?.details?.convertedFromPi;
+    let adv = Number(bill.advanceApplied || bill.data?.advanceApplied || bill.data?.details?.advanceApplied || 0);
+    const fromPi = bill.convertedFrom || bill.data?.convertedFrom || bill.data?.details?.convertedFrom
+      || bill.data?.details?.convertedFromPi || '';
+    if (adv <= 0 && fromPi) {
+      const paidAmt = Number(bill.paidAmount || 0);
+      const hasApply = Array.isArray(bill.payments) && bill.payments.some(p =>
+        p && (p.noBank || p.settlement === 'advance-apply' || String(p.mode || '').includes('advance'))
+      );
+      if (hasApply || paidAmt > 0) adv = paidAmt;
+    }
     if (adv > 0 && fromPi) {
       afterPiToTiAdvance(
         glCtx,

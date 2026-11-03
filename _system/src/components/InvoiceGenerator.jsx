@@ -1433,15 +1433,27 @@ const validateForSave = useCallback(() => {
         if (convertType) {
           setInvoiceType(convertType);
           const config = INVOICE_TYPES[convertType];
-          if (config) setInvoiceOptions(prev => ({ ...prev, showGST: true, showPlaceOfSupply: true }));
+          if (config) {
+            setInvoiceOptions(prev => ({
+              ...prev,
+              showGST: config.showGST !== false,
+              showPlaceOfSupply: config.showGST !== false,
+              showBankDetails: convertType === 'tax-invoice' || convertType === 'proforma' || convertType === 'proforma-invoice',
+            }));
+          }
         }
-        // v1.10.10 — read per-type prefix override from print settings.
         const _psForPrefix = getPrintSettings();
         const rawOverride = _psForPrefix.customPrefixes?.[type];
         const overridePrefix = rawOverride && rawOverride.trim();
         const prefix = overridePrefix || INVOICE_TYPES[type]?.prefix || 'INV';
-        getNextInvoiceNumber(prefix, { peek: true, explicitPrefix: !!overridePrefix }).then(num => {
-          setDetails({ ...d.details, invoiceNumber: num, invoiceDate: new Date().toISOString().split('T')[0] });
+        getNextInvoiceNumber(prefix, { peek: true, explicitPrefix: true }).then(num => {
+          setDetails({
+            ...d.details,
+            invoiceNumber: num,
+            invoiceDate: new Date().toISOString().split('T')[0],
+            convertedFrom: d.details?.convertedFrom || editingBill._sourceDocNumber || '',
+            convertedFromType: d.details?.convertedFromType || editingBill._sourceDocType || '',
+          });
           numberReserved.current = false;
         });
       } else {
