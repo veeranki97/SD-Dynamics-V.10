@@ -1,222 +1,128 @@
 <div align="center">
 
-# SD Dynamics V.10 — GST Billing & ERP Software
+# SD Dynamics V.10 — GST Billing & Business ERP
 
-### Comprehensive GST invoicing, ERP, and project billing software for modern operations.
+### Offline-first invoicing, project operations, accounting, and workforce tools.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg)](#install-in-60-seconds--one-launcher-per-platform)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.txt)
 [![Latest release](https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?label=Latest&color=orange)](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest)
-[![PWA](https://img.shields.io/badge/PWA-installable-purple.svg)](#install-in-60-seconds--one-launcher-per-platform)
 [![GitHub Stars](https://img.shields.io/github/stars/veeranki97/SD-Dynamics-V.10?style=social)](https://github.com/veeranki97/SD-Dynamics-V.10)
-[![GST](https://img.shields.io/badge/GST-Compliant-success.svg)](#gst-compliance--filing)
-[![SQLite](https://img.shields.io/badge/Database-SQLite-blue.svg)](#database-performance-new)
 
-**Create GST-compliant invoices, file GSTR-1 / GSTR-3B / GSTR-2B reconciliation, manage vendor ledgers, track TDS / TCS, and handle operations for civil, electrical, and service contracts.**
+**Create GST invoices, manage work and purchase orders, track ledgers and cash flow, and handle payroll and statutory registers from a local application.**
 
-Your data never leaves your computer. No cloud. No signup. No tracking. Open-source and offline-first.
+The app runs on your computer. There is no required hosted account or cloud database. Data stays local unless you choose to export it or enable an optional backup integration.
 
-<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge" alt="Latest Release" /></a>
-
-<sub>Always the newest version · about 16 MB · Windows, macOS and Linux in one ZIP · Last Updated: October 2026</sub>
-
-[⬇ Download ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) &nbsp;|&nbsp; [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) &nbsp;|&nbsp; [⭐ GitHub](https://github.com/veeranki97/SD-Dynamics-V.10)
+[⬇ Download the latest release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) · [📦 All releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases)
 
 </div>
 
 ---
 
-## What's new in v2.5.2
+## Latest release: v2.5.3
 
-This release focuses on production reliability, packaging stability, and smoother local installation for SD Dynamics V.10. It strengthens the installer and release pipeline, improves compatibility across desktop environments, and keeps the offline-first workflow intact for GST billing, vendor ledgers, TDS/TCS tracking, and service-project accounting.
+Recent updates include usability and workflow improvements across invoicing, cash book, and HRMS:
 
-- **Version bumped to 2.5.2** for the current production release line.
-- **Node.js 18+ required** for native modules, local runtime compatibility, and release tooling.
-- **Tesseract OCR asset bundling** is fully integrated into the install and build flow via `postinstall` and `prebuild`.
-- **Release verification and packaging flow** is hardened with `release:zip` and `verify:release` scripts.
-- **Windows installer and updater scripts** remain supported for local deployment, backup, and maintenance.
-- **SQLite + JSON hybrid storage** continues to support large-data workflows and safe migration.
-- **Launcher and packaging reliability** improved for ZIP-based downloads and local installs.
-- **Offline-first desktop app behavior** remains unchanged: no cloud dependency, no subscription, no external database required.
+- **HRMS leave requests** — record CL/SL/EL requests, approve or reject them, and update employee leave balances on approval.
+- **Overtime payroll** — record overtime hours in attendance and include overtime pay in payroll and wage-register calculations.
+- **Labour-register exports** — download Excel-compatible Form T, Form XVII, Form XXII, Form XX, Form XXI, Form XXIII, and Form XIII registers, with optional site filtering and statutory header details. Some registers are templates and may show nil entries where the app does not capture those records.
+- **Cash Book improvements** — summary cards, search, movement-type filters, and clearer Bank Ledger / Day Book views.
+- **Invoice workflow improvements** — reorder line items by dragging, display amount-in-words using the selected currency, and show an estimated gross margin when line-item cost data is available.
+- **Ariba SES follow-ups** — create and track follow-up tasks from an invoice action.
+- **Additional fixes** — HRMS layout and report refinements, product matching, and invoice/client state handling when converting work orders.
+
+See the [v2.5.3 release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.3) and [full changelog](CHANGELOG.md) for details.
 
 ---
 
-## Install in 60 Seconds — one launcher per platform
+## Install
 
-Requirements: **Node.js 18+** and npm. The download ZIP contains a **launcher for each system**, a plain-English **`READ ME FIRST.txt`**, and a `_system/` folder with everything else. Extract the ZIP, do the setup, and launch.
+### Windows: one-command installer
 
-```text
-SD-Dynamics-V.10/
-├── SD Dynamics - WINDOWS.hta    ← Windows: double-click this
-├── READ ME FIRST.txt            ← step-by-step, in plain English
-├── install.ps1                  ← one-command installer for PowerShell
-└── _system/                     ← the app package and runtime files
-```
+Requirements: **Windows** and an internet connection for the initial download/install. The installer installs the app under your local programs folder and creates a Desktop shortcut. No administrator rights are required.
 
-**Prefer one command?** Paste this into PowerShell — no admin rights needed:
+Open PowerShell and run:
+
 ```powershell
 irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
 ```
 
-It fetches the latest release, installs it to `%LOCALAPPDATA%\Programs\SD Dynamics`, installs Node.js if you do not have it, and creates the Desktop shortcut.
+Alternatively, download and extract the [latest release ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip), then follow the included `READ ME FIRST.txt` and launch the Windows HTA launcher.
+
+### Run from source / other desktop environments
+
+The app requires **Node.js 18 or newer** and npm. Download the source, then from the `_system/` directory install dependencies and start the server using the included package scripts. Refer to the release instructions and scripts for platform-specific setup; the packaged Windows launcher is the simplest installation path.
 
 ---
 
-## 📑 Table of Contents
+## Core features
 
-* [Install in 60 Seconds](#install-in-60-seconds--one-launcher-per-platform)
-* [What's new in v2.5.2](#whats-new-in-v252)
-* [Why Choose SD Dynamics V.10?](#why-choose-sd-dynamics-v10)
-* [Your First Invoice in 5 Minutes](#your-first-invoice-in-5-minutes)
-* [Key Features](#key-features)
-* [Database Performance — NEW](#database-performance--new)
-* [Invoicing & Billing](#invoicing--billing)
-* [GST Compliance & Filing](#gst-compliance--filing)
-* [Business Management](#business-management)
-* [Tech Stack](#tech-stack)
-* [Who Is This For?](#who-is-this-for)
-* [Data Privacy & Security](#data-privacy--security)
+### Invoices and GST
 
----
+- Tax invoices, proforma/estimate documents, bills of supply, credit notes, and delivery challans.
+- CGST/SGST or IGST calculations, mixed item tax rates, discounts, round-off, and multi-currency invoicing.
+- Invoice PDF generation, UPI QR support, configurable terms and branding, and amount-in-words output.
+- Offline GSTR-1 and GSTR-3B data exports, GSTR-2B reconciliation from portal JSON, and NIC-format e-way bill JSON export.
+- TDS/TCS tracking and vendor ledger workflows.
 
-## Your First Invoice in 5 Minutes
+> SD Dynamics provides calculations and export tools; review filings and statutory obligations with your tax professional before submission.
 
-A step-by-step guide for the *very first* invoice you create after installing.
+### Project and business operations
 
-### Step 1 — Install (1 minute)
+- Work Orders and Purchase Orders, including work-order-to-invoice workflows.
+- Client, vendor, product, purchase, expense, receipt, and payment records.
+- Chart of Accounts, journals, Trial Balance, Profit & Loss, Balance Sheet, Cash Book, and cost-centre tools.
+- Searchable tasks, command palette, and Ariba SES follow-up reminders.
 
-1. **[Download the ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip)** — always the latest version.
-2. Right-click the downloaded ZIP → **Extract All** → pick a folder you'll remember (e.g. `Documents\SDDynamics`)
-3. Open the **extracted** folder → double-click **`SD Dynamics - WINDOWS`**.
-4. Click **Install Node & App**. Takes 1–2 minutes the first time.
-5. Click **Open App** — the app opens in your browser at `http://localhost:47371`.
+### HRMS and payroll
 
-### Step 2 — Set up your business profile (1 minute)
+- Employee directory, attendance, payroll, PF/ESI calculations, and payslips.
+- Overtime-hour entry and payroll calculation.
+- Leave requests for CL, SL, and EL, with approval/rejection actions and employee balance updates.
+- EPFO ECR, ESIC, attendance and wage exports, plus Excel-compatible CLRA-style registers. Review generated statutory records before filing.
 
-The Welcome Wizard appears automatically on first launch. Fill in your business name, address, GSTIN, and bank/UPI details.
+### Storage, backup, and offline use
 
-### Step 3 — Create your first invoice (2 minutes)
-
-1. Click **+ New Invoice** in the sidebar.
-2. Pick the invoice type: **Tax Invoice**, **Bill of Supply**, **Proforma**, or **Delivery Challan**.
-3. Type the client's name in the **Bill To** field.
-4. Add line items in the table (Description, Qty, Unit, Rate, Tax %).
-5. Click **Download PDF** in the top-right to generate your perfectly formatted PDF.
+- SQLite storage with JSON migration/mirroring support.
+- Local backup and restore tools, including daily backups and a 30-day trash/recovery workflow.
+- PWA caching supports offline use after installation; internet may still be needed for initial setup, updates, or explicitly enabled integrations.
 
 ---
 
-## Why Choose SD Dynamics V.10?
-
-SD Dynamics V.10 is the open-source alternative that changes everything, especially tailored for detailed service contracts, construction tracking, and precise GST/TDS management.
-
-* **Completely free** — no subscription, no premium tier, no hidden charges.
-* **100% offline** — runs on localhost, works without internet after installation.
-* **Your data stays on YOUR computer** — invoices, GSTIN, vendor ledgers, and client records stored as local SQLite database + JSON backup.
-* **GST compliant** — auto-calculates CGST/SGST/IGST, generates GSTR-1 & GSTR-3B data, and supports complex GST tax splitting.
-* **Fast & responsive** — SQLite database with indexed queries and hybrid storage for large datasets.
-* **Custom formatting** — finely-tuned PDF print formatting, ready for corporate clients and rigorous tender documentation.
-* **Open-source (MIT licensed)** — built and maintained by Veeranki Bharath Kumar.
-
----
-
-## Key Features
-
-### Database Performance — NEW 🚀
-
-* **SQLite Store (v2.3.8+):** Primary indexed database with automatic JSON migration
-  - Automatic one-time import from JSON on first boot (no action needed)
-  - Full-text indexing: invoiceNumber, docDate, clientName, status, workOrderId
-  - WAL (Write-Ahead Logging) for safe concurrent access
-  - JSON mirror enabled by default for data safety and fallback
-  - **Settings page loads faster** on large datasets
-* **Hybrid Storage:** JSON files remain on disk as backup; SQLite is used for speed
-  - Disable JSON mirror if needed: `SD_JSON_MIRROR=0` (advanced users)
-  - Force re-import: `SD_SQLITE_REIMPORT=1` at startup
-* **System Health Panel:** Monitor SQLite status, record counts, and re-import
-* **Migration Tooling:** `scripts/migrate-to-sqlite.mjs` for manual re-import
-
-### Invoicing & Billing
-
-* **Full Invoice Types:** Tax Invoice, Proforma/Estimate, Bill of Supply, Credit Note, Delivery Challan.
-* **Auto GST Calculation:** CGST + SGST for intra-state, IGST for inter-state.
-* **Advanced Tax Splitting & TDS:** Section 194Q / 194C / 194J / 194I / 194H / 194O / 195 (TDS) and TCS computations, critical for accurate contractor and vendor ledger maintenance.
-* **Multi-Currency:** Bill in INR + 21 other currencies.
-* **Professional PDF Formatting:** Custom PDF styling perfect for executive corporate submissions and technical project billing. Multi-page Rule 48 compliance ensures rows are never cut across pages.
-
-### GST Compliance & Filing
-
-* **GSTR-1 & GSTR-3B Computation:** Output tax liability, Input Tax Credit, and net tax payable computed offline.
-* **GSTR-2B Reconciliation:** Import JSON downloaded from the GST portal to auto-match against your purchase records.
-* **E-Way Bill JSON:** Download NIC-format JSON for e-way bill portal upload.
-* **Income Tax (ITR) Computation:** Built-in module for tax tracking, advance-tax schedules, and surcharge calculations.
-
-### Business Management
-
-* **Vendor & Client Ledgers:** Save clients and subcontractors with GSTINs, track outstanding amounts, and maintain full vendor history.
-* **Multi-Business Profiles:** Run multiple business entities side-by-side, each with its own GSTIN and bank details.
-* **Automated Backup:** Daily automatic backups to `data/backups/YYYY-MM-DD/` with a 30-day retention trash bin.
-* **Command Palette:** `Ctrl+K` spotlight-style search across invoices, clients, products, and ledgers.
-
----
-
-## Tech Stack
+## Technology
 
 | Layer | Technology |
 | --- | --- |
-| **Frontend** | React 19, Vite 7 |
-| **Backend** | Express 5 (Node.js) |
-| **Database** | SQLite (better-sqlite3) with JSON fallback |
-| **PDF Generation** | jsPDF + html2canvas (Custom PDF Print Formatting) |
-| **Storage** | Hybrid: SQLite + JSON files — no external database needed |
-| **Offline** | PWA with service worker caching |
+| Frontend | React, Vite |
+| Backend | Node.js, Express |
+| Storage | SQLite (`better-sqlite3`) and JSON support |
+| PDF | jsPDF and html2canvas |
+| Offline app support | PWA service worker |
 
 ---
 
-## Who Is This For?
+## Data and security
 
-| Who | How They Use It |
-| --- | --- |
-| **Service & Civil Contractors** | Manage project billing for solar plant O&M, civil construction, electrical operations, and vegetation removal. Record TDS meticulously and maintain robust vendor and subcontractor ledgers. |
-| **Freelancers & Consultants** | Invoice clients for projects or hourly work. |
-| **Small Shops & Retail Stores** | Quick bill generation with UPI QR code and stock tracking. |
-| **Manufacturers & Traders** | GST tax invoices with HSN codes, delivery challans, e-way bill JSON. |
+Business records are stored locally in the application's data directory. Keep the app updated, use its backup/restore features, and do not manually edit or delete files in the data directory. Optional exports or enabled backup integrations can send data outside the computer; review their settings before use.
+
+For vulnerability reports, please follow [SECURITY.md](SECURITY.md) rather than opening a public issue.
 
 ---
 
-## Data Privacy & Security
+## Documentation and support
 
-**Where is my data stored?**
-In a `data/` folder on your computer as SQLite database + JSON files. No server, no cloud, no database.
-
-**Can anyone access my invoices?**
-No. The app runs on `localhost` — not accessible from the internet or other computers unless you specifically configure your LAN.
-
-**Do I need internet?**
-Only for the first install (`npm install`). After that, everything works completely offline.
-
-**Is my data backed up?**
-Yes. Daily automatic backups to `data/backups/YYYY-MM-DD/` with a 30-day retention trash bin. You can also restore from the trash UI.
-
----
+- [Changelog](CHANGELOG.md)
+- [User guide and documentation index]( _system/docs/README.md )
+- [Issues and feature requests](https://github.com/veeranki97/SD-Dynamics-V.10/issues)
+- [Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases)
 
 ## Contributing
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
----
+Fork the repository, create a feature branch, make and test your changes, then open a pull request. See the project scripts and documentation for development and release checks.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) — free to use, modify, and distribute.
-
-### Built for modern, hassle-free business operations.
-
-**[⬇ Download Now](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip)** · [⭐ Star on GitHub](https://github.com/veeranki97/SD-Dynamics-V.10) · [📦 Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases)
+This project is distributed under the [MIT License](LICENSE.txt).
 
 ---
 
-**SD Dynamics V.10** by Veeranki Bharath Kumar · MIT Licensed · October 2026
+**SD Dynamics V.10** · GST billing and business operations software · [Download the latest release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest)
