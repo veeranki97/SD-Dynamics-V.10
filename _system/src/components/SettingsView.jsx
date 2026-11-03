@@ -2375,7 +2375,11 @@ function EmailTemplatesPanel() {
   useEffect(() => {
     fetch('/api/meta/email-templates', { credentials: 'same-origin' })
       .then((r) => r.json())
-      .then(setTpl)
+      .then((j) => {
+        if (j && j.value && typeof j.value === 'object') setTpl(j.value);
+        else if (j && (j.invoice || j.wo || j.po)) setTpl(j);
+        else setTpl({});
+      })
       .catch(() => {});
   }, []);
   const cur = tpl[key] || { subject: '', body: '' };
@@ -2385,10 +2389,15 @@ function EmailTemplatesPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify(tpl),
+        // server POST /api/meta/:key expects { value: ... }
+        body: JSON.stringify({ value: tpl }),
       });
-      const j = await r.json();
-      if (j.emailTemplates) setTpl(j.emailTemplates);
+      if (!r.ok) throw new Error('Save failed');
+      try {
+        const g = await fetch('/api/meta/email-templates', { credentials: 'same-origin' });
+        const gj = await g.json();
+        if (gj?.value && typeof gj.value === 'object') setTpl(gj.value);
+      } catch { /* keep local */ }
       toast('Email templates saved', 'success');
     } catch (e) { toast(e.message || 'Save failed', 'error'); }
   };

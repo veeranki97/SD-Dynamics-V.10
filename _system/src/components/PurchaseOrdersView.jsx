@@ -15,7 +15,7 @@ import { emptyWOItem, calcItemAmount, resolveWoCostCenter, resolveWoSite } from 
 import { formatCurrency, getFYOptions } from '../utils';
 import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
-import { sendMailSmart } from '../utils/openMail';
+import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 import { getPrintSettings } from '../utils/printSettings';
 
@@ -1214,12 +1214,37 @@ useEffect(() => {
                       const v = (vendors || []).find(x => x.id === po.vendorId || x.name === po.vendorName) || {};
                       const to = (v.email || po.vendorEmail || '').trim();
                       if (!to) { toast('No vendor email — add email on vendor master', 'warning'); return; }
+                      const templates = await loadEmailTemplates();
+                      let companyName = '';
+                      try {
+                        const { getProfile } = await import('../store');
+                        const p = await getProfile();
+                        companyName = p?.businessName || p?.name || '';
+                      } catch { /* */ }
+                      const vars = {
+                        clientName: v.name || po.vendorName || 'Vendor',
+                        poNumber: po.poNumber || po.number || '',
+                        companyName: companyName || 'Company',
+                        invoiceNumber: '',
+                        amount: '',
+                        dueDate: '',
+                        woNumber: po.workOrderNo || po.woNumber || '',
+                      };
+                      const resolved = resolveEmailTemplate(templates, 'po', vars, {
+                        subject: `Purchase Order ${vars.poNumber} – ${vars.companyName}`,
+                        body: `Dear ${vars.clientName},
+
+Please find Purchase Order ${vars.poNumber} issued by ${vars.companyName}.
+
+Best regards,
+${vars.companyName}`,
+                      });
                       const r = await sendMailSmart({
                         to,
-                        subject: `Purchase Order ${po.poNumber || po.number || ''}`.trim(),
-                        body: `Dear ${v.name || po.vendorName || 'Vendor'},\n\nPlease find Purchase Order ${po.poNumber || po.number || ''}.\n\nRegards`,
+                        subject: resolved.subject,
+                        body: resolved.body,
                         allowGmailFallback: true,
-                      });
+                      })
                       if (r?.ok) toast(r.via === 'smtp' ? 'Email sent' : 'Mail client opened', 'success');
                       else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
                     } },

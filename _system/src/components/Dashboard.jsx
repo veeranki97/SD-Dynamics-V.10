@@ -15,7 +15,7 @@ import { isRevenueDocument, isCreditNote, revenueSignedAmount } from '../utils/r
 import { openWhatsAppShare } from '../utils/share';
 import PageHeader from './PageHeader';
 import { toast } from './Toast';
-import { sendMailSmart } from '../utils/openMail';
+import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate } from '../utils/openMail';
 import ActionMenu from './ActionMenu';
 import { createSesFollowUpFromBill } from '../utils/sesTasks';
 import { runWorkflowRules } from './WorkflowRulesView';
@@ -1551,19 +1551,47 @@ const openPaymentModal = (bill) => {
   };
 
     const shareEmail = async (bill) => {
-    const subject = `Invoice ${bill.invoiceNumber || ''} — ${formatCurrency(bill.totalAmount, bill.currency)}`;
     const to = (bill.clientEmail || bill.data?.client?.email || bill.data?.client?.Email || '').trim();
-    let body = `Dear ${bill.clientName || bill.data?.client?.name || 'Sir/Madam'},\n\n`;
-    try {
-      body += (buildShareMessage(bill) || '').replace(/\*/g, '');
-    } catch (_) {
-      body += `Please find invoice ${bill.invoiceNumber || ''} for ${formatCurrency(bill.totalAmount, bill.currency)}.`;
-    }
-    body += '\n\nRegards';
     if (!to) {
       toast('No client email on file — add email on the client master.', 'warning');
       return;
     }
+    let companyName = bill.data?.profile?.businessName || '';
+    try {
+      if (!companyName) {
+        const p = await getProfile();
+        companyName = p?.businessName || p?.name || '';
+      }
+    } catch { /* */ }
+    const clientName = bill.clientName || bill.data?.client?.name || 'Sir/Madam';
+    const amount = formatCurrency(
+      Math.max(0, (Number(bill.totalAmount) || 0) - (Number(bill.paidAmount) || 0)),
+      bill.currency
+    );
+    const dueDate = bill.data?.details?.dueDate || bill.dueDate || '';
+    const templates = await loadEmailTemplates();
+    const vars = {
+      clientName,
+      invoiceNumber: bill.invoiceNumber || '',
+      amount,
+      dueDate,
+      companyName: companyName || 'Company',
+      woNumber: bill.workOrderNo || bill.data?.details?.workOrderNo || '',
+      poNumber: '',
+    };
+    let fbBody = 'Dear ' + clientName + ',\n\n';
+    try {
+      fbBody += (buildShareMessage(bill) || '').replace(/\*/g, '');
+    } catch (_) {
+      fbBody += 'Please find invoice ' + (bill.invoiceNumber || '') + ' for ' + formatCurrency(bill.totalAmount, bill.currency) + '.';
+    }
+    fbBody += '\n\nRegards';
+    const resolved = resolveEmailTemplate(templates, 'invoice', vars, {
+      subject: `Invoice ${bill.invoiceNumber || ''} — ${formatCurrency(bill.totalAmount, bill.currency)}`,
+      body: fbBody,
+    });
+    const subject = resolved.subject;
+    const body = resolved.body;
     toast('Sending via SMTP…', 'info', 2000);
     const result = await sendMailSmart({ to, subject, body, allowGmailFallback: true });
     if (result.method === 'smtp' && result.ok) {

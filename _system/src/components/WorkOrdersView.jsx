@@ -10,7 +10,7 @@ import { toast } from './Toast';
 import { downloadCsv } from '../utils/exportData';
 import { confirmAction } from './ConfirmModal';
 import ActionMenu from './ActionMenu';
-import { sendMailSmart } from '../utils/openMail';
+import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
 
 /** Indian states/UTs for WO client state + GST same-state check (not free text). */
@@ -901,14 +901,36 @@ const updateItem = (idx, field, value) => {
                           toast('No client email — add on Client master or enter when prompted', 'warning');
                           return;
                         }
+                        let companyName = '';
+                        try {
+                          const { getProfile } = await import('../store');
+                          const p = await getProfile();
+                          companyName = p?.businessName || p?.name || '';
+                        } catch { /* */ }
+                        const templates = await loadEmailTemplates();
+                        const vars = {
+                          clientName: cli.name || row.clientName || 'Client',
+                          woNumber: row.woNumber || row.number || row.id || '',
+                          companyName: companyName || 'Company',
+                          invoiceNumber: '',
+                          amount: '',
+                          dueDate: '',
+                          poNumber: '',
+                        };
+                        const fb = {
+                          subject: `Work Order ${vars.woNumber} – ${vars.companyName}`,
+                          body: `Dear ${vars.clientName},
+
+Please find Work Order ${vars.woNumber} issued by ${vars.companyName}.
+
+Best regards,
+${vars.companyName}`,
+                        };
+                        const resolved = resolveEmailTemplate(templates, 'wo', vars, fb);
                         const r = await sendMailSmart({
                           to,
-                          subject: `Work Order ${row.woNumber || row.number || row.id || ''}`,
-                          body: `Dear ${cli.name || row.clientName || 'Client'},
-
-Regarding work order ${row.woNumber || row.number || ''}.
-
-Regards`,
+                          subject: resolved.subject,
+                          body: resolved.body,
                           allowGmailFallback: true,
                         });
                         if (r?.ok) toast(r.via === 'smtp' ? 'Email sent' : 'Mail client opened', 'success');

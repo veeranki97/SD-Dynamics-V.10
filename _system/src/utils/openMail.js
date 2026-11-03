@@ -14,8 +14,30 @@ export async function loadEmailTemplates() {
   try {
     const r = await fetch('/api/meta/email-templates', { credentials: 'same-origin' });
     if (!r.ok) return {};
-    return await r.json();
+    const j = await r.json();
+    // GET /api/meta/:key returns { value: stored }
+    if (j && j.value && typeof j.value === 'object') return j.value;
+    if (j && j.emailTemplates && typeof j.emailTemplates === 'object') return j.emailTemplates;
+    if (j && (j.invoice || j.wo || j.po || j.reminder || j.statement)) return j;
+    return {};
   } catch { return {}; }
+}
+
+/** Apply Settings template by key; use fallback if missing. */
+export function resolveEmailTemplate(templates, key, vars, fallback = {}) {
+  const bag = templates && typeof templates === 'object' ? templates : {};
+  const tpl = bag[key] || bag[String(key || '').toLowerCase()] || null;
+  if (tpl && (tpl.subject || tpl.body)) {
+    const applied = applyEmailTemplate(tpl, vars);
+    return {
+      subject: applied.subject || fallback.subject || '',
+      body: applied.body || fallback.body || '',
+    };
+  }
+  return {
+    subject: fallback.subject || '',
+    body: fallback.body || '',
+  };
 }
 
 /**
