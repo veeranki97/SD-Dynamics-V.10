@@ -1,415 +1,111 @@
 # Changelog — SD Dynamics V.10
 
-**Format:** [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) | **Versioning:** [Semantic Versioning](https://semver.org/)
+Notable changes to SD Dynamics are documented here. Versions follow [Semantic Versioning](https://semver.org/); the format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
----
-## [v2.4.0] — Current Version (2026-10-19)
-
-### Summary
-
-This release is a maintenance + platform update that brings developer tooling, asset bundling for OCR (Tesseract), and packaging improvements together with small runtime hardening found in the repository.
-
-What I verified in the code while preparing this entry:
-
-- package.json version is 2.4.0 (engines: Node >= 18) — confirms a deliberate version bump.
-- A postinstall / prebuild script bundles Tesseract assets: `scripts/bundle-tesseract-assets.mjs` (see `postinstall` and `prebuild` in package.json).
-- Build & release automation is present: `release:zip`, `verify:release`, and developer scripts/tests (unit and smoke) exist in `scripts/` and `tests/` references in package.json.
-- The app includes a large server.js (Express) and a full React frontend under `_system/src/` (App.jsx, main.jsx, store.js, utils.js), plus a Vite config and PWA assets — confirms the build/runtime shape.
-- Several Windows install/update/start/stop PowerShell and BAT scripts are present under `_system/` (install-windows.ps1, update-windows.ps1, start-windows.ps1, etc.).
-- Documents and user guide material are present: `_system/docs/` and `_system/src/userGuideContent.js`.
-- An Enterprise script file `EnterpriseCore.gs` is present (legacy/Google Apps Script snippet / enterprise helper).
-
-### Notable changes in this release
-
-- ✅ Bumped package to `v2.4.0` and clarified Node requirement (>=18).
-- ✅ Added/activated Tesseract asset bundling via `scripts/bundle-tesseract-assets.mjs` and `postinstall`/`prebuild` hooks to ensure OCR-related assets ship with releases.
-- ✅ Developer tooling: expanded test scripts, smoke tests, and release verification helpers (see `scripts/*` and `tests/*` references in package.json).
-- ✅ Packaging & release: `release:zip` pipeline and release verification scripts included to produce platform ZIPs that respect cross-platform path rules (Vite + server build).
-- ✅ Installer & maintenance scripts: multiple installers/updaters and admin scripts exist for Windows and developer workflows (`install-windows.ps1`, `update-windows.ps1`, `start-windows.ps1`, `backup-windows.ps1`, `Start FreeGSTBill.bat`, etc.).
-- ✅ Docs & UX: user guide content is maintained inside the app (`_system/src/userGuideContent.js`) and `_system/docs/` contains extended documentation.
-
-### Important notes / migration
-
-- Node >= 18 is required for better-sqlite3 and some native modules: ensure your environment satisfies this.
-- The `postinstall` script runs an asset bundler for Tesseract; if you publish or run in CI, ensure `node` and npm scripts run so assets are built before the app starts.
-- Existing v2.3.8 migrations (JSON → SQLite) remain in place — this release does not remove the migration paths.
-
-## [v2.3.8] — Current Version (2026-10-03)
-
-### Latest Fixes 🔧
-
-- Fixed slow loading on the Settings page.
-- Updated the invoice UI for better usability and layout consistency.
-- Improved the payment tracker flow and related calculations.
-- Fixed issues in the expenses tracker.
-- Resolved sidebar-related display issues.
-- Applied several minor UI and data stability fixes across the app.
-
-### Database Performance 🚀 — **NEW**
-
-- ✅ **SQLite Integration (better-sqlite3)** — Primary data store with JSON fallback
-  - Primary store: `data/sd-dynamics.sqlite` (indexed, WAL journaling)
-  - Automatic migration from JSON files on first boot (one-time import)
-  - JSON mirror enabled by default for safety (disable with `SD_JSON_MIRROR=0`)
-  - Optional re-import from JSON: `SD_SQLITE_REIMPORT=1` at startup
-  - Full-text indexing on collections: bills, clients, products, purchases, invoices, etc.
-  - Indexed columns: invoiceNumber, docDate, clientName, status, workOrderId
-  - Fast queries with indexed lookups (date ranges, client searches, status filters)
-  - Settings page now loads **~60% faster** on large datasets (10,000+ records)
-
-### Implemented / Done ✅
-
-This release includes the following work completed recently:
-
-- ✅ Settings page refreshed and optimized for faster loading (SQLite indexing).
-- ✅ Invoice page UI updated for improved user experience and cleaner layout.
-- ✅ Payment tracker enhancements completed.
-- ✅ Expenses tracker updated and corrected.
-- ✅ Sidebar issues fixed.
-- ✅ **SQLite database store with JSON mirror** — primary performance boost.
-- ✅ **System Health panel** — SQLite status, record counts, re-import button.
-- ✅ **Migration script** — `scripts/migrate-to-sqlite.mjs` for manual re-import.
-- ✅ Minor functional and visual fixes across the application.
-- ✅ Existing stable accounting, GST, payroll, and reporting features retained.
-
-### Pending / To Do ⏳
-
-The following items are still pending or need additional work:
-
-- ⏳ Fix Site PNL calculation issue.
-- ⏳ Fix Work Order PNL calculation issue.
-- ⏳ Profile isolation for separate business ledgers.
-- ⏳ Payment reminder automation.
-- ⏳ E-invoicing / IRN integration.
-- ⏳ Bank CSV import matching.
-- ⏳ Audit report generation (PDF).
-- ⏳ GST 2B auto-download integration.
-- ⏳ Mobile app wrapper and API integration roadmap items.
-
-### Current Features ✅
-
-This version includes all stable features developed to date:
-
-#### **Core Invoicing**
-- ✅ Tax Invoice, Bill of Supply, Proforma, Delivery Challan, Credit Note
-- ✅ Auto GST calculation (CGST/SGST/IGST, UTGST, Cess)
-- ✅ Per-line tax rates (mixed 5%/12%/18%/28% in one invoice)
-- ✅ Tax-inclusive / tax-exclusive modes
-- ✅ Invoice-level discount (flat/percent/with-tax)
-- ✅ Multiple discount modes (unit discount, percent discount, net discount)
-- ✅ Round-off calculation (auto-adjusted for paise accuracy)
-- ✅ Multi-currency billing (INR + 21 others)
-- ✅ Professional PDF generation (jsPDF + html2canvas)
-- ✅ Rule 48 compliance (no row cut across pages)
-- ✅ UPI QR code in PDF (via qrcode.js)
-
-#### **GST Compliance & Reporting**
-- ✅ GSTR-1 JSON export (B2B, B2C, HSN, CDNR/CDNUR sections)
-- ✅ GSTR-3B JSON export (Sections 3.1, 3.2, 4)
-- ✅ GSTR-2B reconciliation (import JSON from portal)
-- ✅ E-Way Bill JSON (NIC format)
-- ✅ HSN/SAC validation (4/6/8-digit, turnover-based minimum)
-- ✅ GSTIN checksum validation + state map (all 36 codes)
-- ✅ Place of supply (state + code)
-- ✅ Inter-state / intra-state detection
-- ✅ Export invoice handling (SEZ, LUT)
-- ✅ Reverse Charge (RCM) flag
-
-#### **TDS / TCS & Vendor Management**
-- ✅ TDS computations (Sections 194C, 194H, 194I, 194J, 194O, 195, 206C)
-- ✅ TCS / GST-TCS
-- ✅ Form 26Q data
-- ✅ Vendor ledgers with GSTIN, phone, email, bank details
-- ✅ Vendor history tracking
-- ✅ Payment-on-account mode (credit-applied)
-
-#### **Financial Management**
-- ✅ Chart of Accounts (tree structure, account types, parent-child)
-- ✅ Double-entry ledger journals (unbalanced check, append-only)
-- ✅ Trial Balance (date-range, balanced flag, paise precision)
-- ✅ P&L Statement (Revenue - Direct Costs = GP; + Other Income - Indirect = NP)
-- ✅ Balance Sheet (A = L + E, reconciliation flag)
-- ✅ Cash Flow (indirect method, buckets, daily balance)
-- ✅ Cost Centres (hierarchy, allocation)
-- ✅ Opening balances (OPENING voucher)
-- ✅ Period locks (lock invoices by date range)
-- ✅ Fiscal year management
-- ✅ Closing entries (FY_CLOSE voucher type)
-
-#### **Purchase & Inventory**
-- ✅ Purchase bill entry (with ITC eligibility tracking)
-- ✅ Purchase Order (PO) management
-- ✅ Work Orders (multi-line, linked to invoices)
-- ✅ Stock tracking (manual entry)
-- ✅ Product master (name, HSN, rate, tax %)
-
-#### **Transactions & Payments**
-- ✅ Payment receipt entry
-- ✅ Multiple payment modes (Cash, Check, Bank, NEFT, UPI, Credit)
-- ✅ Bulk payment import
-- ✅ Payment reversals/voids
-- ✅ Overpayment block (validates against invoice total)
-- ✅ Client credit application (pay with a previous credit note)
-
-#### **Backup & Recovery**
-- ✅ Automatic daily backup (1st run after 5s, then daily)
-- ✅ 30-day backup retention
-- ✅ Soft-delete invoice trash (30-day recovery window)
-- ✅ Transactional restore (pre-restore snapshot, rollback on fail)
-- ✅ Permanent delete option
-- ✅ Manual backup trigger (with 5s throttle)
-- ✅ Trash bin UI (restore/purge forever)
-
-#### **Security & Access Control**
-- ✅ Immutable audit log (hash-chained, user/timestamp/before/after)
-- ✅ CORS lockdown (localhost only, no wildcard)
-- ✅ Path traversal protection (all file operations safe)
-- ✅ Body size limit (5 MB) & validation
-- ✅ XSS hardening (DOMPurify, no innerHTML interpolation)
-- ✅ Soft-delete flag (is_deleted, not hard-wipe)
-
-#### **Recurring Invoicing**
-- ✅ Recurring templates (daily/weekly/monthly/quarterly/yearly)
-- ✅ Auto-fire on boot + daily check
-- ✅ End modes (onDate, afterN occurrences)
-- ✅ Shared tax computation (same as one-off invoices)
-- ✅ Sequential numbering for auto-generated bills
-- ✅ Missed-cycle recovery (fire on next app start)
-
-#### **HR/Payroll Module**
-- ✅ Employee master (name, code, UAN, ESIC, PF/ESI applicability)
-- ✅ Attendance tracking (daily marks: P/W/PL/H/A)
-- ✅ Payroll processing (Basic + HRA + DA + Allowances)
-- ✅ PF calculation (EE/ER/EPS/EDLI)
-- ✅ ESI calculation (EE/ER, wage cap)
-- ✅ Payroll lock (prevent edits after approval)
-- ✅ ECR export (EPFO electronic challan-cum-return)
-- ✅ ESIC register (CSV with monthly wages, zero-days reasons)
-- ✅ Form-T (Muster roll attendance register)
-- ✅ Form XVII (Wages register, 15+ columns)
-- ✅ Wages register (searchable, payable days, deductions)
-- ✅ Minimum wages master (state-wise)
-- ✅ Multi-site support (HR locations)
-- ✅ PF cap & ESI cap configuration
-
-#### **Data Management**
-- ✅ Export all data (JSON) with overwrite gating
-- ✅ Import with merge / overwrite modes
-- ✅ Invoice revision history (last 30 per invoice)
-- ✅ Activity logs (entity type, action, timestamp, diff)
-- ✅ Master data (HSN, Units, Expense Categories)
-- ✅ Counter reconciliation (post-import, avoid collisions)
-
-#### **Multi-Business & Profiles**
-- ✅ Multiple business profiles (GSTIN, bank, UPI per business)
-- ✅ Profile switching (client not isolated yet — see TODO)
-- ✅ Each profile has separate settings
-
-#### **Terms & Customization**
-- ✅ Terms template library (rich text)
-- ✅ Invoice-level custom terms & notes
-- ✅ Extra sections (certificates, declarations)
-- ✅ PDF styling (logo, signature, custom fonts)
-- ✅ Client/vendor names in invoice (auto-saved)
-
-#### **UI/UX**
-- ✅ Dark mode (CSS variables)
-- ✅ Command palette (Ctrl+K search)
-- ✅ Real-time validation (on form change)
-- ✅ PDF preview (before save/download)
-- ✅ Responsive design (desktop + tablet)
-- ✅ Mobile menu (hamburger on small screens)
-- ✅ Notifications (toast / banner alerts)
-- ✅ Date pickers (browser native)
-- ✅ Inline editing (grid cells, inline saves)
-
-#### **Platform Support**
-- ✅ Windows (HTA launcher, PowerShell install)
-- ✅ Offline operation (PWA service worker)
-- ✅ Localhost-only binding (data never leaves machine)
-
-#### **Admin & Monitoring**
-- ✅ Version check (GitHub releases API)
-- ✅ Health endpoint (`/api/health`, uptime, error tail)
-- ✅ Control panel (backup, open folders, update scripts)
-- ✅ Error log rotation (200KB cap)
-- ✅ System diagnostics
-- ✅ **SQLite status panel** — record counts, mirror mode, re-import button
+[⬇ Download the latest release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest) · [📦 All releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) · [📖 User guide]( _system/docs/USER_GUIDE.md )
 
 ---
 
-## Versioning & Update Path
+## [v2.5.3] — 2026-11-02
 
-### How to Update
+Latest published release. Includes workflow and usability improvements across HRMS, cash book, and invoicing.
 
-1. **Check current version:** Settings → About → v2.3.8
-2. **Download latest:** https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest
-3. **Extract to same folder** (replaces `_system/` code, keeps `data/` intact)
-4. **Restart app** (stop launcher, restart it)
+### Added
 
-### What's Safe to Change
+- HRMS leave requests for CL, SL, and EL, with approval/rejection actions and employee leave-balance updates on approval.
+- Overtime-hour entry in attendance and overtime pay in payroll and wage-register calculations.
+- Excel-compatible labour-register exports for Forms T, XVII, XXII, XX, XXI, XXIII, and XIII, with optional site filtering and statutory header details.
+- Ariba SES follow-up task creation and tracking from an invoice action.
 
-- ✅ Add clients, vendors, invoices → **backed up daily**
-- ✅ Run manual backup (`Control Panel → Backup Now`)
-- ✅ Restore from 30-day trash → **soft delete, not hard wipe**
-- ✅ Edit DRAFT invoices → **history preserved in revisions/**
-- ✅ Change business profile settings → **per profile**
-- ✅ Re-import data to SQLite → `Settings → System → Re-import from JSON`
+### Improved
 
-### What's NOT Safe
+- Cash Book summary cards, search, movement-type filters, and clearer Bank Ledger and Day Book views.
+- Invoice line-item reordering by drag and drop, amount-in-words output in the selected currency, and estimated gross margin display when item cost data is available.
+- HRMS layout and report refinements, product matching, and invoice/client state handling when converting work orders.
 
-- ❌ **Never** delete `data/` folder manually (use trash bin instead)
-- ❌ **Never** edit JSON files directly in `data/` (use the UI)
-- ❌ **Never** mix different app versions accessing same data folder
-- ❌ **Never** force-kill the app mid-save (use Stop button)
-- ❌ **Never** use `SD_JSON_MIRROR=0` in production without backup — disables JSON fallback
+See the [v2.5.3 release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.3).
 
----
+## [v2.5.2] — 2026-10-28
 
-## Planned Features (v2.5.0+)
+### Security and maintenance
 
-### Short-term (Next 2-3 months)
+- Updated dependency copies in the release tree, including `body-parser`, `fast-uri`, and `serialize-javascript`, to incorporate upstream fixes and maintenance updates.
+- Updated `body-parser` to 2.4.0 and `fast-uri` to 3.1.9; these upstream releases include security fixes. Updated `serialize-javascript` to 7.1.4.
 
-- [ ] **Profile Isolation** — Each business gets its own ledger (currently all share)
-- [ ] **E-invoicing Integration** — IRN via GSP partner (needs IP whitelisting)
-- [ ] **GST 2B Auto-Download** — Fetch from portal (GSTN API)
+See the [v2.5.2 release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.2) and the [merged dependency updates](https://github.com/veeranki97/SD-Dynamics-V.10/pulls?q=is%3Apr+is%3Amerged+22+23).
 
-### Medium-term (3-6 months)
+## [v2.5.1] — 2026-10-24
 
-- [ ] **Mobile App** — React Native wrapper (share backend)
-- [ ] **API for 3rd-party** — Let Tally/Zoho read/write SD Dynamics data
-- [ ] **Budget vs Actual** — Track spending against budget heads
-- [ ] **Multi-currency Ledger** — Store all in INR but display in foreign currency
-- [ ] **E-way Bill Auto-Generate** — Pre-fill from invoice data
+### Improved
 
-### Long-term (6-12 months)
+- Polished Dashboard cards and surfaces, with responsive KPI layout and improved spacing and visual hierarchy.
+- Improved sidebar navigation styling, active states, and keyboard focus visibility.
+- Respected reduced-motion preferences in the updated dashboard styling.
 
-- [ ] **CRM Module** — Lead → Opportunity → Invoice → Repeat
-- [ ] **Field Sales App** — Offline invoice creation on mobile
-- [ ] **GST 2A Matching** — Cross-check purchase lines against seller's GSTR-1
-- [ ] **Advance-tax Computation** — Q1/Q2/Q3/Q4 installments with surcharge
-- [ ] **Trade Receivables Aging** — Group invoices by age (0-30, 30-60, etc.)
+See the [v2.5.1 release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.1) and [PR #18](https://github.com/veeranki97/SD-Dynamics-V.10/pull/18).
 
----
+## [v2.5.0] — 2026-10-23
 
-## Known Limitations (v2.3.8)
+### Maintenance
 
-| Limitation | Workaround | Target Fix |
-|---|---|---|
-| All businesses share same Chart of Accounts | Export COA JSON before profile switch | v2.4.0 (Profile Isolation) |
-| Fixed asset depreciation manual | Spreadsheet tracking | v2.6.0 (Asset register) |
-| E-invoicing requires manual IRN upload | Use GSP portal for IRN | v2.4.0 (GSP integration) |
-| No PO-to-invoice auto-match | Manual bill entry | v2.4.0 (PO matching) |
-| SMS reminders (no native support) | Use IFTTT webhook | v2.5.0 (Notification API) |
-| CSV/PDF data not OCR-scanned | Manual entry or upload image | v2.5.0 (Tesseract + OCR) |
+- Published the v2.5.0 release. The release notes describe a set of fixes but do not enumerate them; see the [release page](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.0) for its original notes.
 
----
+## [v2.4.9] — 2026-10-19
 
-## Breaking Changes (v2.3.8 vs v2.0.0)
+- Published the v2.4.9 release. See the [release page](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.4.9).
 
-- **v2.0.0 → v2.1.0**: `invoiceNumber` field mandatory (was optional, auto-generated)
-- **v2.1.0 → v2.2.0**: Ledger entries now require `costHeadId` (can be null for non-tracked)
-- **v2.2.0 → v2.3.0**: Purchase `gstEligible` flag split into `itcEligible` + `blockedCredit`
-- **v2.3.x (stable)**: No breaking changes (new fields optional, backwards-compat)
+## [v2.4.0] — 2026-10-19
+
+### Added and improved
+
+- Added Tesseract asset bundling through the install/build hooks for OCR-related assets.
+- Expanded developer test scripts, smoke checks, and release verification tooling.
+- Improved release ZIP packaging and cross-platform path validation.
+- Clarified the Node.js requirement: version 18 or newer.
+- Retained JSON-to-SQLite migration and JSON mirroring support introduced in earlier releases.
+
+## [v2.3.8] — 2026-10-03
+
+### Added and improved
+
+- Added SQLite storage with `better-sqlite3`, automatic JSON migration, and JSON mirroring support.
+- Added indexed lookups for common records and a System Health view for SQLite status and record counts.
+- Improved Settings loading for large datasets and refreshed invoice, payment tracker, expenses, and sidebar workflows.
+- Fixed multiple UI, payment, expense, and data-stability issues.
+
+This entry summarizes the previous changelog's v2.3.8 baseline; the legacy details below are historical and may not describe the current release.
 
 ---
 
-## Migration Guides
+## Earlier product history
 
-### From Tally Prime / Zoho Books
+| Version | Historical milestone |
+| --- | --- |
+| v2.3.0 | Profile-related groundwork and TDS/TCS improvements. |
+| v2.2.0 | HRMS/payroll and cost-centre work. |
+| v2.1.0 | Recurring invoicing and audit-log work. |
+| v2.0.0 | SD Dynamics ERP release, adding work orders, purchase orders, vendors, cost centres, accounting books, and project-focused invoice styles. |
+| v1.x | Upstream Free GST Billing Software history; see the [upstream changelog](https://github.com/IamRamgarhia/Free-GST-Billing-Software/blob/main/CHANGELOG.md). |
 
-1. **Export as CSV** from old app (bills, purchases, clients)
-2. **Prepare CSV template** (rename columns to match SD Dynamics)
-3. **Bulk import** via `Data Manager → Import CSV`
-4. **Verify** GL totals match old app
-5. **Run import reconciliation** (meta counter sync)
+## Current feature areas
 
-### From Free GST Billing Software (v1.x)
+The application continues to include GST invoicing and exports, work and purchase orders, accounting books, cash and bank ledgers, HRMS/payroll, local backups, and offline support. For current usage details, see the [README](README.md) and [User Guide]( _system/docs/USER_GUIDE.md ).
 
-1. **Backup your `data/` folder** (both apps)
-2. **Export from v1.x:** `Reports → Export All Data` → `export.json`
-3. **Rename to old-data.json**, drop in `_system/data/import/`
-4. **In v2.x:** `Data Manager → Import → Select old-data.json → Merge`
-5. **Check differences:** Counters, account codes, client GSTINs
+### GST and statutory data
 
-### Migrating to SQLite-Only (Advanced)
+The application provides GST calculations and data exports, including GSTR-1, GSTR-3B, GSTR-2B reconciliation, and NIC-format e-way bill JSON. HRMS provides the payroll and register exports described in the current release notes. Review all calculations and generated statutory records before filing or submission; this software does not submit filings on your behalf.
 
-After ensuring backups are in place:
+### Data storage and migrations
 
-1. **App automatically imports JSON to SQLite on v2.3.8+ first run**
-2. **Disable JSON mirror (optional):** Start app with `SD_JSON_MIRROR=0`
-3. **Force re-import from JSON:** Start app with `SD_SQLITE_REIMPORT=1`
-4. **Check status:** Settings → System → SQLite store panel
+SQLite and JSON migration/mirroring support were introduced in v2.3.8. Keep backups before updates, restores, migrations, or manual data operations. Do not edit or delete files in the application data directory directly.
 
----
+## Release and version notes
 
-## Support & Troubleshooting
-
-### Common Issues
-
-**Q: Invoices won't save / "Duplicate invoice number" error**
-- **Cause:** Counter reset or manual JSON edit
-- **Fix:** `Settings → System → Reset Counters`, then increment
-
-**Q: GSTR-3B JSON won't download**
-- **Cause:** Missing journals for credit notes
-- **Fix:** Recreate as debit notes; ensure invoices have journal entries
-
-**Q: Backup takes >5 seconds**
-- **Cause:** 10,000+ invoices or slow disk
-- **Fix:** Archive old data (export to external drive), keep last 2 years
-
-**Q: "Payment exceeds invoice total" with ₹0.01 difference**
-- **Cause:** Float rounding (common in browser)
-- **Fix:** This is expected; 1 paise tolerance built-in
-
-**Q: PDF has blank rows**
-- **Cause:** Item name missing or HTML parse error
-- **Fix:** Add item name in invoice; try different PDF viewer
-
-**Q: SQLite database not being used, still loading from JSON**
-- **Cause:** `better-sqlite3` not installed or incompatible Node version
-- **Fix:** Run `npm install better-sqlite3` (requires Node ≥18); restart app
-
-**Q: Re-import from JSON button disabled or greyed out**
-- **Cause:** SQLite not initialized
-- **Fix:** Check app logs; ensure `npm install` completed; restart server
-
-### Getting Help
-
-- **Bug reports:** https://github.com/veeranki97/SD-Dynamics-V.10/issues
-- **Feature requests:** Same (label: `enhancement`)
-- **Security issues:** Email veeranki97@gmail.com (do NOT open issue)
+- The latest published version is **v2.5.3**. Check [GitHub Releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) for newer releases before relying on this document for version-specific guidance.
+- See [README installation instructions](README.md#download-and-install) for installing and updating the app.
+- Earlier notes and planned-feature lists from the former v2.3.8-era changelog have been condensed because their roadmap status may have changed. Check the current [issues](https://github.com/veeranki97/SD-Dynamics-V.10/issues) and release notes for work in progress.
+- Security issues should be reported using [SECURITY.md](SECURITY.md), not as public issues.
 
 ---
 
-## License & Attribution
-
-**MIT License** — free to use, modify, distribute.
-
-**Built on:** [Free GST Billing Software](https://github.com/IamRamgarhia/Free-GST-Billing-Software) (DiceCodes, MIT) with enhancements for:
-- Multi-business profiles
-- HRM/Payroll module
-- Advanced financial statements
-- Work orders + cost centers
-- **SQLite database store** (v2.3.8+)
-
-**Contributors:** Bharath Kumar, community testers, CA advisors
-
----
-
-## Version History (Compact)
-
-| Version | Date | Major Feature |
-|---|---|---|
-| v1.0.0 | 2024-01 | GST invoicing, GSTR-1/3B |
-| v1.10.0 | 2024-06 | Server-side tax, path-traversal fixes |
-| v2.0.0 | 2025-01 | Chart of Accounts, journals, statements |
-| v2.1.0 | 2025-03 | Recurring invoicing, audit log |
-| v2.2.0 | 2025-06 | HRM/Payroll, cost centers |
-| v2.3.0 | 2026-07 | Profile isolation prep, TDS/TCS |
-| **v2.3.8** | **2026-10** | **SQLite database, Settings optimization (stable)** |
-
----
-
-**Last Updated:** October 3, 2026 | **Next Release:** Planned for early 2027
+**Last updated:** 2026-11-04 · **Latest documented release:** v2.5.3
