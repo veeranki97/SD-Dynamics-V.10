@@ -2744,20 +2744,64 @@ app.post('/api/mail/settings', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/mail/send', async (req, res) => {
+  // Attachments: client sends { filename, content (base64), contentType }.
+  // NOTE: An older text-only handler was registered here first; mailRoutes.js
+  // also defines /api/mail/send later — Express uses THIS handler first, so
+  // it must support PDF or attachments never leave the server.
   try {
     const meta = readJSON(META_PATH, {}) || {};
     const s = meta.smtp || {};
     if (!s.user || !s.pass) {
-      return res.status(400).json({ error: 'Configure SMTP in Settings (Gmail app password). Not encryption — credentials in meta locally.' });
+      return res.status(400).json({
+        error: 'Configure SMTP in Settings (Gmail App Password).',
+        code: 'no-smtp',
+      });
     }
     const to = String(req.body?.to || '').trim();
     const subject = String(req.body?.subject || '').trim();
     const text = String(req.body?.text || req.body?.body || '').trim();
-    if (!to || !subject) return res.status(400).json({ error: 'to and subject required' });
-    let nodemailer;
-    try { nodemailer = (await import('nodemailer')).default; } catch {
-      return res.status(503).json({ error: 'Install nodemailer: npm install nodemailer', code: 'no-nodemailer' });
+    const html = req.body?.html ? String(req.body.html) : undefined;
+    if (!to.includes('@')) {
+      return res.status(400).json({ error: 'Valid recipient email required' });
     }
+    if (!subject) return res.status(400).json({ error: 'subject required' });
+
+    let nodemailer;
+    try {
+      nodemailer = (await import('nodemailer')).default;
+    } catch {
+      return res.status(503).json({
+        error: 'Install nodemailer: npm install nodemailer',
+        code: 'no-nodemailer',
+      });
+    }
+
+    const rawAtt = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+    const attachments = [];
+    for (const a of rawAtt) {
+      if (!a) continue;
+      let b64 = String(a.content || a.base64 || a.data || '');
+      const marker = 'base64,';
+      const ix = b64.indexOf(marker);
+      if (ix >= 0) b64 = b64.slice(ix + marker.length);
+      b64 = b64.replace(/\s/g, '');
+      if (b64.length < 50) {
+        console.warn('[mail] attachment skipped — too short', a.filename, b64.length);
+        continue;
+      }
+      let filename = String(a.filename || 'attachment.pdf').replace(/[/\\]+/g, '-');
+      if (!/\.[a-z0-9]{2,5}$/i.test(filename)) filename += '.pdf';
+      attachments.push({
+        filename,
+        content: b64,
+        encoding: 'base64',
+        contentType: a.contentType || a.content_type || 'application/pdf',
+        contentDisposition: 'attachment',
+      });
+    }
+
+    console.log('[mail] send to=', to, 'attachments=', attachments.length);
+
     const transporter = nodemailer.createTransport({
       host: s.host || 'smtp.gmail.com',
       port: Number(s.port) || 465,
@@ -2768,10 +2812,18 @@ app.post('/api/mail/send', async (req, res) => {
       from: s.from || s.user,
       to,
       subject,
-      text,
+      text: text || subject,
+      html,
+      attachments: attachments.length ? attachments : undefined,
     });
-    res.json({ ok: true, messageId: info.messageId });
+    res.json({
+      ok: true,
+      messageId: info.messageId,
+      attached: attachments.length,
+      attachedNames: attachments.map((x) => x.filename),
+    });
   } catch (e) {
+    console.warn('[mail] send failed', e.message);
     res.status(500).json({ error: e.message || 'Send failed' });
   }
 });
