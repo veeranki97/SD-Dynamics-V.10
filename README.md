@@ -2,239 +2,209 @@
 
 # SD Dynamics V.10 — GST Billing & Business ERP
 
-### Offline-first invoicing, project operations, accounting, and workforce tools.
+### Offline-first invoicing · work orders · ledgers · HRMS — on your computer
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.txt)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-blue.svg)](#install)
 [![Latest release](https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?label=Latest&color=orange)](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest)
 [![GitHub Stars](https://img.shields.io/github/stars/veeranki97/SD-Dynamics-V.10?style=social)](https://github.com/veeranki97/SD-Dynamics-V.10)
 
-**Create GST invoices, manage work and purchase orders, track ledgers and cash flow, and handle payroll and statutory registers—all from an application that runs on your computer.**
+**Create GST-compliant invoices, run projects with Work Orders & Purchase Orders, keep books (GL, Cash Book, Trial Balance), and manage payroll & labour registers — without a mandatory cloud account.**
 
-No hosted account or cloud database is required. Business records are stored locally; you decide whether to export them or enable an optional integration.
+**Runs on your PC. Data stays local. MIT open source.**
 
-[⬇ Download latest release ZIP](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip) · [📦 Browse all releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases) · [📖 User guide]( _system/docs/USER_GUIDE.md )
+<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip"><img src="https://img.shields.io/github/v/release/veeranki97/SD-Dynamics-V.10?style=for-the-badge&label=%E2%AC%87%EF%B8%8F%20Download&color=16a34a&labelColor=15803d" alt="Download the latest version" height="44"></a>
+&nbsp;
+<a href="https://github.com/veeranki97/SD-Dynamics-V.10/releases"><img src="https://img.shields.io/badge/📦%20All%20releases-1e293b?style=for-the-badge" alt="All releases" height="44"></a>
+
+<sub>Windows · extract ZIP · open **SD Dynamics - WINDOWS.hta** · or one-line PowerShell install below</sub>
 
 </div>
 
 ---
 
-## Contents
+## Latest release — v2.5.3
 
-- [Download and install](#download-and-install)
-- [Start the app and use the desktop shortcut](#start-the-app-and-use-the-desktop-shortcut)
-- [Update, back up, restore, or move your data](#update-back-up-restore-or-move-your-data)
-- [First-time setup and first invoice](#first-time-setup-and-first-invoice)
-- [Features](#features)
-- [Data, privacy, and security](#data-privacy-and-security)
-- [Technology](#technology)
-- [Documentation and support](#documentation-and-support)
-- [Contributing and license](#contributing-and-license)
+| Area | What shipped |
+|------|----------------|
+| **HRMS** | Leave requests (CL / SL / EL) with approve / reject and balance updates |
+| **Payroll** | Overtime hours on attendance → OT pay in payroll & wage register |
+| **Registers** | Excel-compatible Form T, XVII, XXII, XX, XXI, XXIII, XIII (site filter + statutory headers; some sheets nil until data is captured) |
+| **Cash Book** | Summary cards, search, in/out filters, clearer Bank Ledger & Day Book |
+| **Invoices** | Drag-to-reorder lines, amount-in-words by currency, estimated gross margin when cost is set |
+| **Ops** | Ariba SES follow-up tasks from invoice actions |
+| **Fixes** | HRMS layout/reports, product matching, WO → invoice client/state handling |
 
-## Download and install
+Full notes: [v2.5.3 release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/tag/v2.5.3) · [CHANGELOG.md](CHANGELOG.md)
 
-### Option 1 — Windows one-command installer
+---
 
-This is the quickest option for Windows. It downloads the latest published release, installs it under your local programs folder, and runs the setup. The first install needs an internet connection.
+## Why SD Dynamics?
 
-1. Open **PowerShell**. You can find it from the Windows Start menu.
-2. Paste this command and press **Enter**:
+Most GST apps stop at invoices. Contracting, O&M, and site work need **job cost, advances, ledgers, and labour compliance** in one local tool.
 
-   ```powershell
-   irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
-   ```
+| | SD Dynamics | Typical billing-only apps |
+|--|-------------|---------------------------|
+| GST invoices + GSTR exports | ✅ | ✅ |
+| Work Orders + budget / PI → Tax Invoice | ✅ | ❌ / limited |
+| Purchase Orders & subcontract tracking | ✅ | ❌ / limited |
+| Chart of Accounts + GL posting spine | ✅ | Basic or none |
+| Cash Book from bank/cash journals | ✅ | Varies |
+| HRMS · attendance · PF/ESI · payslips · ECR/ESIC · labour registers | ✅ | ❌ |
+| Offline-first, no forced cloud | ✅ | Often cloud-only |
+| Price | **Free (MIT)** | Subscription / license |
 
-3. Wait for the installer to download and configure the app. It may also download Node.js into the app folder if needed.
-4. When setup completes, the app starts and opens in your browser. A **SD Dynamics** shortcut is created on the Windows Desktop and in the Start menu.
-5. For future launches, use that shortcut; you do not need to run the installer command again.
+Built for **service & project businesses** (solar O&M, civil, facilities, multi-site contractors) who still need clean GST documents for clients and CAs.
 
-The installer is for Windows. For other systems, use the release ZIP instructions below.
+---
 
-### Option 2 — Download the release ZIP and use its launcher
+## Install
 
-Use this method if you prefer to download and extract the release yourself, or are installing on macOS/Linux.
+### Windows — one command (recommended)
 
-1. Open the [latest releases page](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest).
-2. Download the **`SD-Dynamics-V.10.zip`** release asset. You can also [download that ZIP directly](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip).
-   - Do **not** use the green **Code → Download ZIP** button on the repository page. That button downloads source code, not the ready-to-run release package.
-3. Extract the downloaded ZIP to a normal folder. On Windows, right-click the ZIP and choose **Extract All**. Choose a location you can find again, such as a folder under Documents.
-4. Open the extracted folder. Choose the included launcher for your operating system; keep the `_system` folder next to it.
-5. On Windows, double-click **`SD Dynamics - WINDOWS.hta`**, then select **Install**. The first setup installs dependencies and may take a few minutes. The launcher reports when the app is ready.
-6. On macOS or Linux, install **Node.js 18 or newer** if it is not already installed, then run the matching launcher included in the release ZIP. If your system blocks a shell launcher, open Terminal in the extracted folder and follow the launcher's on-screen instructions.
-
-> **Important:** Extract the ZIP before opening a launcher. If you run the Windows launcher while browsing inside the ZIP, Windows may open only a temporary copy of that one file; the launcher will not find the neighboring `_system` folder.
-
-The app runs locally and opens in your browser at an address similar to `http://localhost:47371`. The port can vary if that port is already in use.
-
-### Option 3 — Run from source (developers)
-
-Requirements: **Node.js 18 or newer** and npm. From the repository directory:
-
-```bash
-cd _system
-npm install
-npm run dev
+```powershell
+irm https://raw.githubusercontent.com/veeranki97/SD-Dynamics-V.10/main/install.ps1 | iex
 ```
 
-For a production-style local start, use `npm start`. Available scripts and checks are listed in [`_system/package.json`]( _system/package.json ).
+No admin rights required. Installs under your local programs folder and creates a Desktop shortcut.
 
-## Start the app and use the desktop shortcut
+### Windows — ZIP + launcher
 
-### Windows
+1. Download [**SD-Dynamics-V.10.zip**](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest/download/SD-Dynamics-V.10.zip)
+2. **Right-click → Extract All** (do not run from inside the ZIP)
+3. Open the extracted folder → double-click **`SD Dynamics - WINDOWS.hta`**
+4. Follow **Install** / **Open App** (see `READ ME FIRST.txt` if present)
 
-After installation, launch **SD Dynamics** from the Desktop shortcut or the Windows Start menu. The shortcut opens the launcher, which starts the local server and opens the app in your browser. If the app is already running, opening it again reuses the running server rather than starting another copy.
+Default app URL: **http://localhost:47371** (port may change if busy; see `data/port.txt`).
 
-The launcher displays the current state and offers the appropriate main action:
+### From source
 
-- **Install** — shown when the app has not yet been set up.
-- **Open App** — starts the app and opens the browser after installation.
-- **More options** — offers update, backup, restore, move-to-another-PC, stop-server, and rebuild actions.
+Requires **Node.js 18+**. From `_system/`:
 
-The installed app folder also uses the SD Dynamics icon where Windows supports it. If you move or rename the folder after installation, the shortcut may no longer point to the right location; run the launcher from its new folder or recreate the shortcut by installing again.
+```bash
+npm install
+npm start
+```
 
-### macOS and Linux
+Use the project’s package scripts for production build when packaging a release.
 
-Use the included platform launcher from the extracted release folder to start the local server and open the app in your browser. Keep the release folder in place while using the app because it contains the application files and local data. The Windows Desktop shortcut instructions do not apply to these platforms.
+---
 
-### Close or stop the app
+## Core features
 
-Closing the browser tab does not necessarily stop the local server. On Windows, open the launcher and choose **More options → Stop the app** when you want to stop it. On macOS/Linux, use the stop action if provided by the release tools, or follow the platform-specific instructions in the [User Guide]( _system/docs/USER_GUIDE.md ).
+### Invoices & GST
 
-## Update, back up, restore, or move your data
+- **Types:** Tax Invoice, Proforma / Estimate, Bill of Supply, Credit Note, Delivery Challan  
+- **Tax:** CGST+SGST or IGST, mixed rates, discounts, round-off, multi-currency  
+- **PDF:** Configurable templates (including Tally-style / boxed layouts where enabled), UPI QR, branding, amount in words  
+- **Returns:** GSTR-1 / GSTR-3B style exports, GSTR-2B import & match helpers, e-way bill JSON (NIC-oriented)  
+- **TDS / TCS** fields and reporting hooks  
 
-On Windows, open the launcher and choose **More options**:
+> SD Dynamics prepares calculations and files. **You** (or your CA) review and file on the GST portal.
 
-| Action | What it does |
-| --- | --- |
-| **Update to the latest version** | Downloads the latest published release and updates application files. The updater creates a pre-update data backup and preserves the existing `data/` folder. Restart the app after the update. |
-| **Back up my data** | Creates a timestamped ZIP of the local data folder in `Documents\SDDynamics Backups\` and opens that folder. |
-| **Restore a backup** | Lets you select a backup ZIP. The current data is snapshotted before restore, then the selected backup replaces the current data. Choose carefully and keep a separate copy of important backups. |
-| **Move to another PC** | Exports the data folder as a timestamped ZIP on the Desktop. Install SD Dynamics on the new computer, transfer the ZIP, and use **Restore a backup** there. |
-| **Stop the app** | Stops the local server. Start it again with **Open App**. |
-| **Rebuild app** | Runs the rebuild/recovery action if the local app installation needs repair. |
+### Projects & operations
 
-You can also use the app's own backup and restore features. Keep at least one backup somewhere separate from the computer that runs SD Dynamics. Do not manually edit or delete files inside the application data directory.
+- **Work Orders** — link invoices, track budget, convert PI → Tax Invoice with advance handling  
+- **Purchase Orders** — vendor POs, print/PDF, link to jobs  
+- **Clients, vendors, products, purchases, expenses, receipts & payments**  
+- **Sites / cost centres** on documents where configured  
+- **Tasks / SES follow-ups** for operational chasing  
 
-## First-time setup and first invoice
+### Books & cash
 
-### Set up your business
+- **Chart of Accounts** (Indian SME-oriented seed)  
+- **General Ledger** with document posting path (tax invoice, receipt, expense, etc.)  
+- **Trial Balance, P&L, Balance Sheet** style views  
+- **Cash Book / Day Book** from bank & cash journal lines  
+- **Period lock** and backup discipline for month-end  
 
-On first launch, complete the welcome/setup flow, or open **Settings**:
+### HRMS & statutory
 
-1. Enter your business name, address, state, and GSTIN where applicable.
-2. Add bank and UPI details if you want them shown on invoices.
-3. Choose invoice numbering, document preferences, and print/PDF branding.
-4. Add clients and vendors. Add products, services, HSN/SAC codes, units, and cost centres as needed.
-5. Set up and test a backup before entering important records.
+- Employees, **attendance** grid, **payroll**, PF / ESI, **payslips**  
+- **Overtime** on attendance → payroll  
+- **Leave** (CL / SL / EL) request & approval  
+- **EPFO ECR**, **ESIC**, attendance & wage exports  
+- **Labour registers** (Form T, XVII, XXII, XX, XXI, XXIII, XIII) — Excel-compatible; review before filing  
 
-### Create and manage an invoice
+### Storage, backup, offline
 
-1. Choose **New Invoice** and select the document type: Tax Invoice, Proforma/Estimate, Bill of Supply, Credit Note, or Delivery Challan.
-2. Select an existing client or add a new one.
-3. Add line items with descriptions, quantity, unit, rate, and tax rate. Add discounts or round-off where applicable.
-4. Confirm the business/client details, tax split, totals, and invoice preview.
-5. Save the invoice and generate or print its PDF. Record receipts and payments from the relevant invoice or payment workflow.
+- **SQLite** primary store with JSON mirror / migration support  
+- Local **backup / restore**, trash recovery window  
+- **PWA** shell for offline use after install  
+- Optional integrations (e.g. Drive) only when you enable them  
 
-### Explore the daily workflow
+---
 
-- Create a **Work Order**, track its site/cost centre and budget, then link invoices and purchasing where appropriate.
-- Create **Purchase Orders** and purchase bills, and record vendor payments and business expenses.
-- Review **Cash Book**, Bank Ledger, Day Book, general ledger, and financial reports.
-- Use **Ctrl+K** to open the command palette for supported search and navigation tasks.
-- In HRMS, manage employees, attendance, payroll, overtime, leave requests, and available exports.
+## Data & security
 
-For detailed screen-by-screen instructions, see the [User Guide]( _system/docs/USER_GUIDE.md ).
+| Topic | Practice |
+|-------|----------|
+| **Where data lives** | Application data directory (SQLite + mirrored files under `_system/data` as configured) |
+| **Cloud** | Not required. Exports and optional backups are under your control |
+| **PIN / app lock** | Screen lock only — **not** full disk encryption of books |
+| **Network** | Server is intended for local use; do not expose to the public internet without auth |
+| **Updates** | Prefer release ZIPs / installer; keep backups before major upgrades |
 
-## Features
+Vulnerability reports: see [SECURITY.md](SECURITY.md) (prefer private disclosure over public issues).
 
-### GST invoicing and PDFs
+---
 
-- Tax invoices, proforma/estimate documents, bills of supply, credit notes, and delivery challans.
-- CGST/SGST or IGST calculations, mixed item tax rates, discounts, round-off, and multi-currency invoicing.
-- PDF generation with configurable branding and terms, UPI QR support, and amount-in-words output.
-- TDS/TCS tracking and vendor-ledger workflows.
-- Invoice and client workflows that can be linked with Work Orders.
+## Documentation
 
-### GST returns and compliance exports
+| Doc | Path |
+|-----|------|
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| In-app User Guide | Sidebar → **User Guide** (content: `_system/src/userGuideContent.js`) |
+| Docs index | [`_system/docs/`](_system/docs/) |
+| Issues / ideas | [GitHub Issues](https://github.com/veeranki97/SD-Dynamics-V.10/issues) |
 
-- Offline GSTR-1 and GSTR-3B data exports.
-- GSTR-2B reconciliation using JSON downloaded from the GST portal.
-- NIC-format e-way bill JSON export.
-- Review exports and statutory calculations before using them in a filing.
+---
 
-> SD Dynamics provides calculations and export tools; it does not file returns on your behalf. Verify generated data and statutory obligations with a qualified tax professional before submission.
+## Tech stack
 
-### Projects, purchasing, and accounting
+| Layer | Stack |
+|-------|--------|
+| UI | React, Vite |
+| API | Node.js, Express |
+| DB | better-sqlite3 (+ JSON dual-write paths) |
+| PDF | jsPDF, html2canvas (and print pipelines) |
+| Offline | PWA service worker |
 
-- Work Orders and Purchase Orders, including work-order-to-invoice and linked purchasing workflows.
-- Client, vendor, product, purchase, expense, receipt, and payment records.
-- Chart of Accounts, journals, general ledger, Trial Balance, Profit & Loss, and Balance Sheet.
-- Cash Book, Bank Ledger, Day Book, and cost-centre tools.
-- Searchable tasks, command palette, and Ariba SES follow-up reminders.
+---
 
-### HRMS and payroll
+## Roadmap (product direction)
 
-- Employee directory, attendance, payroll calculations, and payslips.
-- Overtime-hour entry and overtime pay in payroll and wage-register calculations.
-- CL/SL/EL leave requests, approval/rejection actions, and employee leave-balance updates.
-- EPFO ECR, ESIC, attendance and wage exports, and Excel-compatible labour registers, including available site filters.
+Not a promise of dates — priority themes:
 
-Review generated statutory records with the relevant professional before filing or submission.
+1. **Books reliability** — one clean GL post per payment/invoice; Cash Book always matches Bank  
+2. **GST accuracy** — Table 6 / ITC set-off, 2B match, export JSON quality  
+3. **Job cost** — WO dossier (billed vs PO vs cost vs margin)  
+4. **HRMS depth** — registers filled from real attendance/payroll, not placeholders  
+5. **Privacy UX** — clearer offline / “what uses the network” controls (inspired by modern local-first billing apps)  
 
-### Local data, backup, and offline use
+---
 
-- Local SQLite storage with JSON migration/mirroring support.
-- Local backup and restore tools, daily backups, and a 30-day trash/recovery workflow.
-- PWA caching supports offline use after installation. Internet may still be needed for initial setup, updates, or integrations you explicitly enable.
+## Contributing
 
-## Data, privacy, and security
+1. Fork → feature branch  
+2. Keep changes **surgical** (do not strip WO / GL / HRMS)  
+3. Test invoice save, payment → cash book, and `npm run build` where applicable  
+4. Open a PR with a short test checklist  
 
-Business records are stored locally in the application's `_system/data/` directory. The application does not require a hosted account or cloud database. Optional integrations or exports may send data to services you choose to configure; review those settings before enabling them.
+---
 
-The app's PIN lock is a screen lock, **not database encryption**. Anyone with access to your computer account and application data folder may be able to access those files. Use your operating system's disk encryption and keep separate backups.
+## License
 
-Keep the app updated, use its backup/restore features, and do not manually edit or delete files in the data directory. For vulnerability reports, follow [SECURITY.md](SECURITY.md) rather than opening a public issue. Do not include real invoice data, client details, or GSTINs in reports.
-
-## Technology
-
-| Layer | Technology |
-| --- | --- |
-| Frontend | React, Vite |
-| Backend | Node.js, Express |
-| Storage | SQLite (`better-sqlite3`) with JSON support |
-| PDF | jsPDF and html2canvas |
-| Offline app support | PWA service worker |
-
-## Troubleshooting
-
-| Problem | Try this |
-| --- | --- |
-| Launcher says `_system` is missing | Extract the whole release ZIP first. Do not launch the HTA from inside the ZIP or from a folder containing only the launcher. |
-| Windows says the app is installing or starting | Let the installer finish. First setup downloads dependencies and the first start can take longer. Keep the installer window open until it completes. |
-| Browser cannot connect / page is blank | Start the app again using the SD Dynamics shortcut and wait for the local server. If the configured port is busy, the app may use another local port. |
-| Update completed but the old screen still appears | Stop and reopen the app; refresh the browser if needed. |
-| Need to move to a new computer | Use **More options → Move to another PC**, transfer the ZIP, install the app on the new computer, then restore the backup. |
-| Need help with a module or workflow | See the [User Guide]( _system/docs/USER_GUIDE.md ) and [open an issue](https://github.com/veeranki97/SD-Dynamics-V.10/issues) with a description and steps to reproduce. Use sample data and hide sensitive details. |
-
-## Documentation and support
-
-- [User guide]( _system/docs/USER_GUIDE.md ) — setup, modules, daily workflows, backups, and troubleshooting
-- [Documentation index]( _system/docs/README.md )
-- [Changelog](CHANGELOG.md)
-- [Issues and feature requests](https://github.com/veeranki97/SD-Dynamics-V.10/issues)
-- [Latest release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest)
-- [All releases](https://github.com/veeranki97/SD-Dynamics-V.10/releases)
-- [Security policy](SECURITY.md)
-
-## Contributing and license
-
-Contributions are welcome. Fork the repository, create a feature branch, make and test your changes, then open a pull request. Consult the project scripts and documentation for development and release checks.
-
-This project is distributed under the [MIT License](LICENSE.txt).
+[MIT License](LICENSE.txt) — use, modify, and distribute freely.
 
 ---
 
 <div align="center">
 
-**SD Dynamics V.10** · GST billing and business operations software · [⬇ Download the latest release](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest)
+### Ready to run projects and books on one local app?
+
+[**⬇ Download latest release**](https://github.com/veeranki97/SD-Dynamics-V.10/releases/latest) · [**⭐ Star on GitHub**](https://github.com/veeranki97/SD-Dynamics-V.10) · [**Report an issue**](https://github.com/veeranki97/SD-Dynamics-V.10/issues)
+
+**SD Dynamics V.10** · GST + Work Orders + Ledgers + HRMS · Made for Indian SMEs
 
 </div>
