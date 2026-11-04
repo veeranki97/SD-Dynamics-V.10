@@ -72,6 +72,12 @@ export default function GeneralLedgerView() {
       .catch(() => toast('Failed to load journals', 'error'));
   }, []);
 
+  // Suggestions are sourced from names present in the loaded ledger, not the Clients master.
+  const ledgerPartyOptions = useMemo(() => {
+    const names = rows.map((row) => String(row.party || '').trim()).filter(Boolean);
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [rows]);
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (woFilter) {
@@ -212,7 +218,6 @@ export default function GeneralLedgerView() {
       const footerReserve = 22;
 
       const drawPageTotals = () => {
-        if (party) return; // party statement uses running balance per row
         y += 1;
         doc.setDrawColor(148, 163, 184);
         doc.setLineWidth(0.3);
@@ -220,9 +225,18 @@ export default function GeneralLedgerView() {
         y += 4;
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7);
-        doc.text('Page totals', pageW - margin - 70, y, { align: 'right' });
-        doc.text(fmt(pageDr), pageW - margin - 35, y, { align: 'right' });
-        doc.text(fmt(pageCr), pageW - margin, y, { align: 'right' });
+        if (party) {
+          doc.text('Page subtotal', pageW - margin - 70, y, { align: 'right' });
+          doc.text(fmt(pageDr), pageW - margin - 55, y, { align: 'right' });
+          doc.text(fmt(pageCr), pageW - margin - 28, y, { align: 'right' });
+          y += 4;
+          doc.setFontSize(7);
+          doc.text('Balance carried forward: ' + fmt(Math.abs(run)) + (run > 0 ? ' Dr' : run < 0 ? ' Cr' : ''), pageW - margin, y, { align: 'right' });
+        } else {
+          doc.text('Page totals', pageW - margin - 70, y, { align: 'right' });
+          doc.text(fmt(pageDr), pageW - margin - 35, y, { align: 'right' });
+          doc.text(fmt(pageCr), pageW - margin, y, { align: 'right' });
+        }
         pageDr = 0;
         pageCr = 0;
       };
@@ -240,17 +254,19 @@ export default function GeneralLedgerView() {
         const dr = Number(r.debit) || 0;
         const cr = Number(r.credit) || 0;
         if (party) {
-          ensureSpace();
-          pageDr += dr;
-          pageCr += cr;
-          run += dr - cr;
-          // On-screen table trims; PDF keeps fuller particulars (wrap up to 2 lines)
+          // Determine wrapped row height first so the row and subtotal never split across pages.
           const narrFull = String(r.narration || r.account || '');
           const narrLines = doc.splitTextToSize(narrFull, narrMaxW).slice(0, 2);
           const rowH = Math.max(5, narrLines.length * 3.6);
-          if (y + rowH > pageH - footerReserve) {
-            ensureSpace();
+          if (y + rowH + 10 > pageH - footerReserve) {
+            drawPageTotals();
+            doc.addPage();
+            y = margin;
+            drawHeader();
           }
+          pageDr += dr;
+          pageCr += cr;
+          run += dr - cr;
           doc.setFontSize(8);
           doc.text(String(r.date || ''), colX[0], y);
           narrLines.forEach((ln, i) => doc.text(ln, colX[1], y + i * 3.6));
@@ -283,9 +299,37 @@ export default function GeneralLedgerView() {
         }
       });
 
-      // Final page: page totals + grand totals
+      // Close the final statement page with page subtotal and carried/closing balance.
+      if (party) {
+        if (y + 12 > pageH - footerReserve) {
+          doc.addPage();
+          y = margin;
+          drawHeader();
+        }
+        drawPageTotals();
+        y += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text(
+          'Closing balance: ' + fmt(Math.abs(run)) + (run > 0 ? ' Dr' : run < 0 ? ' Cr' : ' Nil'),
+          pageW - margin,
+          y,
+          { align: 'right' },
+        );
+      }
+
+      // Final page: page totals + grand totals. Start a fresh page if the summary band
+      // would collide with the footer or with the final page's remaining rows.
       if (!party) {
-        if (pageDr || pageCr) drawPageTotals();
+        const grandTotalsReserve = 18;
+        if (y + grandTotalsReserve > pageH - footerReserve) {
+          if (pageDr || pageCr) drawPageTotals();
+          doc.addPage();
+          y = margin;
+          drawHeader();
+        } else if (pageDr || pageCr) {
+          drawPageTotals();
+        }
         y += 2;
         doc.setDrawColor(30, 58, 95);
         doc.setLineWidth(0.5);
@@ -417,38 +461,60 @@ export default function GeneralLedgerView() {
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
 
+  const viewDebit = filtered.reduce((sum, row) => sum + (Number(row.debit) || 0), 0);
+  const viewCredit = filtered.reduce((sum, row) => sum + (Number(row.credit) || 0), 0);
+  const viewNet = viewDebit - viewCredit;
+  const controlStyle = {
+    minWidth: 0,
+    height: 34,
+    padding: '0 11px',
+    border: '1px solid var(--border, #dbe2ea)',
+    borderRadius: 9,
+    background: 'var(--bg-panel, #fff)',
+    color: 'var(--text-primary, inherit)',
+    fontSize: 13,
+    boxSizing: 'border-box',
+  };
+  const panelStyle = {
+    border: '1px solid var(--border, #e2e8f0)',
+    borderRadius: 13,
+    background: 'var(--bg-panel, #fff)',
+    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.035)',
+  };
+
   return (
     <div
       className="page gl-page"
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: 'calc(100vh - 52px)',
+        height: 'calc(100vh - 44px)',
         minHeight: 320,
-        maxHeight: 'calc(100vh - 52px)',
-        paddingBottom: 4,
+        maxHeight: 'calc(100vh - 44px)',
+        padding: '2px 2px 4px',
         boxSizing: 'border-box',
         overflow: 'hidden',
+        gap: 7,
       }}
     >
       {woFilter && (
         <div
           style={{
-            margin: '0 0 6px',
-            padding: '6px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--border)',
-            background: 'var(--bg-muted, #f8fafc)',
+            ...panelStyle,
+            flexShrink: 0,
+            padding: '9px 13px',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: 8,
-            fontSize: '0.85rem',
-            flexShrink: 0,
+            gap: 7,
+            fontSize: 13,
+            background: 'var(--bg-muted, #f8fafc)',
           }}
         >
           <span>
-            Filtered by Work Order: <strong>{woFilter.woNumber || woFilter.workOrderId}</strong>
+            <span style={{ color: 'var(--text-secondary, #64748b)' }}>Work Order filter</span>
+            {' · '}
+            <strong>{woFilter.woNumber || woFilter.workOrderId}</strong>
           </span>
           <button
             type="button"
@@ -460,56 +526,177 @@ export default function GeneralLedgerView() {
               } catch {}
             }}
           >
-            Clear
+            Clear filter
           </button>
         </div>
       )}
 
-      <div style={{ flexShrink: 0 }}>
-        <h2 style={{ margin: '0 0 2px', fontSize: 18 }}>General Ledger</h2>
-        <p className="page-subtitle" style={{ margin: '0 0 8px', fontSize: 12 }}>
-          Filter by account or party · Download PDF uses a fixed file name (no blank Save-as)
-        </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
+      <header
+        style={{
+          ...panelStyle,
+          flexShrink: 0,
+          padding: '9px 13px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 14,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <div
+            aria-hidden="true"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 11,
+              display: 'grid',
+              placeItems: 'center',
+              color: '#fff',
+              background: 'linear-gradient(145deg, #2563eb, #173a85)',
+              boxShadow: '0 5px 12px rgba(37, 99, 235, .2)',
+              fontSize: 17,
+              fontWeight: 800,
+              flexShrink: 0,
+            }}
+          >
+            GL
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ margin: '0 0 3px', fontSize: 18, lineHeight: 1.2 }}>General Ledger</h2>
+            <p className="page-subtitle" style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary, #64748b)' }}>
+              Review journal postings, account activity, and party balances.
+            </p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>Export CSV</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={downloadPdf}>
+            {party ? 'Download Statement PDF' : 'Download Ledger PDF'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={emailStatement}
+            title="Email party statement PDF (set party filter; SMTP required for attachment)"
+          >
+            Email Statement
+          </button>
+        </div>
+      </header>
+
+      <section
+        aria-label="Ledger summary"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+          gap: 7,
+          flexShrink: 0,
+        }}
+      >
+        {[
+          { label: 'Filtered entries', value: filtered.length.toLocaleString('en-IN'), note: 'Journal lines in view' },
+          { label: 'Total debit', value: formatCurrency(viewDebit), note: 'Debit movement' },
+          { label: 'Total credit', value: formatCurrency(viewCredit), note: 'Credit movement' },
+          {
+            label: 'Net movement',
+            value: formatCurrency(Math.abs(viewNet)),
+            note: viewNet > 0 ? 'Debit balance movement' : viewNet < 0 ? 'Credit balance movement' : 'Debits and credits match',
+          },
+        ].map((item) => (
+          <div key={item.label} style={{ ...panelStyle, padding: '8px 12px', minWidth: 0 }}>
+            <div style={{ color: 'var(--text-secondary, #64748b)', fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase' }}>
+              {item.label}
+            </div>
+            <div style={{ marginTop: 3, fontSize: 16, lineHeight: 1.3, fontWeight: 750, overflowWrap: 'anywhere', fontVariantNumeric: 'tabular-nums' }}>
+              {item.value}
+            </div>
+            <div style={{ marginTop: 3, color: 'var(--text-secondary, #94a3b8)', fontSize: 11 }}>{item.note}</div>
+          </div>
+        ))}
+      </section>
+
+      <section style={{ ...panelStyle, flexShrink: 0, padding: '8px 11px' }} aria-label="Ledger filters">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 750 }}>Filters</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary, #64748b)', marginTop: 2 }}>
+              Narrow entries by account, party, or posting date.
+            </div>
+          </div>
+          {(account || party || mode !== 'all' || dateFrom || dateTo) && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setAccount('');
+                setParty('');
+                setMode('all');
+                setDateFrom('');
+                setDateTo('');
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+        <div className="gl-filter-row" style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1.05fr) minmax(150px, 1.05fr) minmax(125px, .9fr) minmax(145px, 1fr) minmax(145px, 1fr)', gap: 7, alignItems: 'end' }}>
           <input
             className="form-input"
-            style={{ maxWidth: 180 }}
-            placeholder="Filter account"
+            style={controlStyle}
+            aria-label="Filter account"
+            placeholder="Search account…"
             value={account}
             onChange={(e) => setAccount(e.target.value)}
           />
           <input
             className="form-input"
-            style={{ maxWidth: 180 }}
-            placeholder="Party / client ledger"
+            style={controlStyle}
+            aria-label="Filter party or client ledger"
+            placeholder="Party / client…"
             value={party}
+            list="gl-ledger-party-options"
+            autoComplete="off"
             onChange={(e) => setParty(e.target.value)}
           />
-          <select className="form-input" style={{ maxWidth: 140 }} value={mode} onChange={(e) => setMode(e.target.value)}>
+          <datalist id="gl-ledger-party-options">
+            {ledgerPartyOptions.map((name) => <option key={name} value={name} />)}
+          </datalist>
+          <select className="form-input" style={controlStyle} aria-label="Entry view" value={mode} onChange={(e) => setMode(e.target.value)}>
             <option value="all">All lines</option>
             <option value="party">Only party-tagged</option>
           </select>
-          <input type="date" className="form-input" style={{ maxWidth: 130 }} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-          <input type="date" className="form-input" style={{ maxWidth: 130 }} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
-          <button type="button" className="btn btn-secondary btn-sm" onClick={exportCsv}>
-            Export CSV
-          </button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={downloadPdf}>
-            {party ? 'Download Statement PDF' : 'Download PDF'}
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={emailStatement}
-            title="Email party statement PDF (set party filter; SMTP required for attachment)">
-            Email Statement
-          </button>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, fontSize: 9, fontWeight: 700, color: 'var(--text-secondary, #64748b)' }}>
+            FROM DATE
+            <input type="date" className="form-input" style={controlStyle} value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, fontSize: 9, fontWeight: 700, color: 'var(--text-secondary, #64748b)' }}>
+            TO DATE
+            <input type="date" className="form-input" style={controlStyle} value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </label>
         </div>
         {partyTotals && (
-          <div className="glass-panel" style={{ maxWidth: 520, fontSize: 13, padding: '8px 12px', marginBottom: 6 }}>
-            Party <strong>{party}</strong> — Dr {formatCurrency(partyTotals.dr)} · Cr {formatCurrency(partyTotals.cr)} ·
-            Closing <strong>{formatCurrency(Math.abs(partyTotals.bal))}</strong>{' '}
-            ({partyTotals.bal > 0 ? 'Due' : partyTotals.bal < 0 ? 'Credit' : 'Paid'})
+          <div
+            style={{
+              marginTop: 10,
+              padding: '10px 12px',
+              borderRadius: 9,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '6px 18px',
+              alignItems: 'center',
+              background: 'var(--bg-muted, #f4f7fb)',
+              border: '1px solid var(--border, #e2e8f0)',
+              fontSize: 12,
+            }}
+          >
+            <span style={{ color: 'var(--text-secondary, #64748b)' }}>Party statement · <strong style={{ color: 'var(--text-primary, inherit)' }}>{party}</strong></span>
+            <span>Dr <strong>{formatCurrency(partyTotals.dr)}</strong></span>
+            <span>Cr <strong>{formatCurrency(partyTotals.cr)}</strong></span>
+            <span>Closing <strong>{formatCurrency(Math.abs(partyTotals.bal))}</strong> ({partyTotals.bal > 0 ? 'Due' : partyTotals.bal < 0 ? 'Credit' : 'Paid'})</span>
           </div>
         )}
-      </div>
+      </section>
 
       <div
         className="table-responsive gl-ledger-scroll"
@@ -518,11 +705,12 @@ export default function GeneralLedgerView() {
           minHeight: 0,
           overflow: 'auto',
           border: '1px solid var(--border, #e2e8f0)',
-          borderRadius: 8,
+          borderRadius: 12,
           background: 'var(--bg-panel, #fff)',
+          boxShadow: '0 2px 8px rgba(15, 23, 42, 0.035)',
         }}
       >
-        <table className="data-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+        <table className="data-table" style={{ width: '100%', minWidth: 850, margin: 0, borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead
             style={{
               position: 'sticky',
@@ -533,45 +721,46 @@ export default function GeneralLedgerView() {
             }}
           >
             <tr>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Party</th>
-              <th>Narration</th>
-              <th>Ref</th>
-              <th style={{ textAlign: 'right' }}>Debit</th>
-              <th style={{ textAlign: 'right' }}>Credit</th>
+              <th style={{ whiteSpace: 'nowrap', padding: '8px 10px' }}>Date</th>
+              <th style={{ padding: '8px 10px' }}>Account</th>
+              <th style={{ padding: '8px 10px' }}>Party</th>
+              <th style={{ padding: '8px 10px', minWidth: 220 }}>Narration</th>
+              <th style={{ padding: '8px 10px' }}>Reference</th>
+              <th style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '8px 10px' }}>Debit (₹)</th>
+              <th style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '8px 10px' }}>Credit (₹)</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>
-                  No journal lines
+                <td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-secondary, #94a3b8)', padding: '42px 20px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 5 }}>No journal lines found</div>
+                  <div style={{ fontSize: 12 }}>Try adjusting the account, party, or date filters.</div>
                 </td>
               </tr>
             )}
             {filtered.map((r, i) => (
               <tr key={i}>
-                <td style={{ whiteSpace: 'nowrap' }}>{r.date || '—'}</td>
-                <td>{r.account || '—'}</td>
-                <td>{r.party || '—'}</td>
+                <td style={{ whiteSpace: 'nowrap', padding: '7px 10px', fontVariantNumeric: 'tabular-nums' }}>{r.date || '—'}</td>
+                <td style={{ padding: '7px 10px', minWidth: 150 }}>{r.account || '—'}</td>
+                <td style={{ padding: '7px 10px', minWidth: 130 }}>{r.party || '—'}</td>
                 <td
                   title={r.narration || ''}
-                  style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  style={{ padding: '7px 10px', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 >
                   {r.narration || '—'}
                 </td>
-                <td style={{ whiteSpace: 'nowrap' }}>{r.refId || '—'}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.debit ? formatCurrency(r.debit) : ''}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{r.credit ? formatCurrency(r.credit) : ''}</td>
+                <td style={{ whiteSpace: 'nowrap', padding: '7px 10px' }}>{r.refId || '—'}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '7px 10px', fontVariantNumeric: 'tabular-nums' }}>{r.debit ? formatCurrency(r.debit) : '—'}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap', padding: '7px 10px', fontVariantNumeric: 'tabular-nums' }}>{r.credit ? formatCurrency(r.credit) : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div style={{ flexShrink: 0, fontSize: 11, color: '#94a3b8', marginTop: 4, lineHeight: 1.3 }}>
-        {filtered.length} line{filtered.length === 1 ? '' : 's'}
-        {party ? ' · party: ' + party : ''} · PDF downloads as {fileStem(party)}.pdf
+      <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary, #94a3b8)', padding: '0 2px' }}>
+        <span>{filtered.length.toLocaleString('en-IN')} ledger line{filtered.length === 1 ? '' : 's'}{party ? ` · Party: ${party}` : ''}</span>
+        <span>PDF filename: {fileStem(party)}.pdf</span>
       </div>
     </div>
   );

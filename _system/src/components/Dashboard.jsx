@@ -1555,7 +1555,7 @@ const openPaymentModal = (bill) => {
     if (!bill) return null;
     const data = bill.data || {};
     const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
+    container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;z-index:-1;';
     document.body.appendChild(container);
     const root = createRoot(container);
     try {
@@ -1564,25 +1564,44 @@ const openPaymentModal = (bill) => {
       }
       await new Promise((resolve) => {
         root.render(createElement(InvoicePreview, {
-          profile: data.profile, client: data.client, details: data.details, items: data.items,
-          totals: data.totals, invoiceType: data.invoiceType || bill.invoiceType, customTerms: data.customTerms,
-          customNotes: data.customNotes, extraSections: data.extraSections, options: data.invoiceOptions,
+          profile: data.profile || {},
+          client: data.client || { name: bill.clientName },
+          details: data.details || { invoiceNumber: bill.invoiceNumber },
+          items: data.items || [],
+          totals: data.totals || { grandTotal: bill.totalAmount },
+          invoiceType: data.invoiceType || bill.invoiceType || 'tax-invoice',
+          customTerms: data.customTerms,
+          customNotes: data.customNotes,
+          extraSections: data.extraSections,
+          options: data.invoiceOptions || {},
         }));
-        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 120)));
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 450)));
       });
-      const capScale = Math.min(3, Math.max(2, Math.round((window.devicePixelRatio || 1) * 1.1)));
-      const canvas = await html2canvas(container.firstElementChild || container, {
-        scale: capScale, backgroundColor: '#ffffff', useCORS: false, logging: false,
+      const el = container.firstElementChild || container;
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+        windowWidth: 794,
       });
-      const img = canvas.toDataURL('image/png');
+      if (!canvas || canvas.width < 10) throw new Error('PDF canvas empty');
+      const img = canvas.toDataURL('image/jpeg', 0.82);
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
       const w = 210;
       const h = (canvas.height * 210) / canvas.width;
-      doc.addImage(img, 'PNG', 0, 0, w, Math.min(h, 297), undefined, 'FAST');
-      const dataUri = doc.output('datauristring');
-      const b64 = dataUri.includes('base64,') ? dataUri.split('base64,')[1] : dataUri;
-      const inv = String(bill.invoiceNumber || data.details?.invoiceNumber || bill.id || 'invoice').replace(/[/\\?%*:|"<>]+/g, '-');
-      return { base64: b64, filename: inv + '.pdf' };
+      doc.addImage(img, 'JPEG', 0, 0, w, Math.min(h, 297), undefined, 'MEDIUM');
+      const ab = doc.output('arraybuffer');
+      const bytes = new Uint8Array(ab);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      const b64 = btoa(binary);
+      if (!b64 || b64.length < 200) throw new Error('PDF base64 too small (' + (b64 || '').length + ')');
+      const inv = String(bill.invoiceNumber || data.details?.invoiceNumber || bill.id || 'invoice').replace(/[\/\\?%*:|"<>]+/g, '-');
+      return { base64: b64, filename: inv + '.pdf', bytes: bytes.length };
     } finally {
       try { root.unmount(); } catch { /* */ }
       try { document.body.removeChild(container); } catch { /* */ }
@@ -1674,7 +1693,10 @@ const openPaymentModal = (bill) => {
       useInvoiceTemplate: true, businessName: companyName,
     });
     if ((result.method === 'smtp' || result.via === 'smtp') && result.ok) {
-      toast(attachments.length ? `Email + PDF sent to ${to}` : `Email sent via SMTP to ${to}`, 'success');
+      const n = Number(result.attached != null ? result.attached : attachments.length) || 0;
+      if (n > 0) toast(`Email sent to ${to} with PDF attachment`, 'success');
+      else if (attachments.length) toast(`Email sent to ${to}, but server reported 0 attachments — check server console [mail]`, 'warning', 9000);
+      else toast(`Email sent via SMTP to ${to} (no PDF built)`, 'info');
       return;
     }
     const why = result.smtpError || result.error || 'SMTP not available';

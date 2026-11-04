@@ -75,17 +75,32 @@ export function registerMailRoutes(app, ctx) {
       const attachments = [];
       const rawAtt = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
       for (const a of rawAtt) {
-        if (!a || !a.content) continue;
-        let b64 = String(a.content);
+        if (!a) continue;
+        let b64 = a.content != null ? String(a.content) : '';
+        if (!b64 && a.base64) b64 = String(a.base64);
+        if (!b64) {
+          console.warn('[mail] attachment skipped — no content', a.filename);
+          continue;
+        }
         const marker = 'base64,';
         const ix = b64.indexOf(marker);
         if (ix >= 0) b64 = b64.slice(ix + marker.length);
+        b64 = b64.replace(/\s/g, '');
+        if (b64.length < 50) {
+          console.warn('[mail] attachment skipped — too short', a.filename, b64.length);
+          continue;
+        }
+        let filename = String(a.filename || 'attachment.pdf').replace(/[/\\]+/g, '-');
+        if (!filename.toLowerCase().endsWith('.pdf')) filename += '.pdf';
         attachments.push({
-          filename: String(a.filename || 'attachment.pdf'),
-          content: Buffer.from(b64, 'base64'),
+          filename,
+          content: b64,
+          encoding: 'base64',
           contentType: a.contentType || a.content_type || 'application/pdf',
+          contentDisposition: 'attachment',
         });
       }
+      console.log('[mail] send to=', to, 'attachments=', attachments.length);
       const info = await transporter.sendMail({
         from: s.from || s.user,
         to,
@@ -94,7 +109,12 @@ export function registerMailRoutes(app, ctx) {
         html,
         attachments: attachments.length ? attachments : undefined,
       });
-      res.json({ ok: true, messageId: info.messageId, attached: attachments.length });
+      res.json({
+        ok: true,
+        messageId: info.messageId,
+        attached: attachments.length,
+        attachedNames: attachments.map((x) => x.filename),
+      });
     } catch (e) {
       res.status(500).json({ error: e.message || 'Send failed' });
     }

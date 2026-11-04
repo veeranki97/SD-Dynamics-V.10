@@ -164,7 +164,7 @@ app.use((req, res, next) => {
 // are single-digit kilobytes; a full import archive with 5000 bills fits
 // comfortably in 2-3mb. 50mb + wildcard CORS previously meant any site
 // could OOM the Node process with a nested-JSON payload.
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // Ensure data directory and sub-directories exist
 const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases', 'workorders', 'journals', 'purchaseorders', 'costcenters', 'accounts', 'budgets'];

@@ -137,7 +137,20 @@ export async function sendMailPreferred({
       attachments: attList.length ? attList : undefined,
     });
     if (res && (res.ok || res.messageId)) {
-      return { ok: true, via: 'smtp', method: 'smtp', to: email, attached: attList.length, ...res };
+      const n = Number(res.attached != null ? res.attached : attList.length) || 0;
+      return {
+        ok: true,
+        via: 'smtp',
+        method: 'smtp',
+        to: email,
+        attached: n,
+        attachedNames: res.attachedNames || attList.map((a) => a.filename),
+        messageId: res.messageId,
+        ...res,
+      };
+    }
+    if (res && res.error) {
+      return { ok: false, via: 'smtp-failed', method: 'smtp', error: res.error, smtpError: res.error };
     }
   } catch (e) {
     if (attList.length) {
