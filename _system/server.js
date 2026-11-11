@@ -166,6 +166,43 @@ app.use((req, res, next) => {
 // could OOM the Node process with a nested-JSON payload.
 app.use(express.json({ limit: '25mb' }));
 
+// --- Security P0: Host allow-list (DNS-rebinding defense) ---
+// Accept localhost / loopback Host headers only unless SD_BIND opens LAN
+// (then still prefer loopback Host from browser; Tailscale hostnames can be
+// added via SD_HOST_ALLOW=comma,separated,names).
+app.use((req, res, next) => {
+  try {
+    const raw = String(req.headers.host || '').split(',')[0].trim().toLowerCase();
+    const hostOnly = raw.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+    const extra = String(process.env.SD_HOST_ALLOW || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const ok =
+      !hostOnly ||
+      hostOnly === 'localhost' ||
+      hostOnly === '127.0.0.1' ||
+      hostOnly === '::1' ||
+      hostOnly.endsWith('.localhost') ||
+      extra.includes(hostOnly);
+    if (!ok) {
+      return res.status(403).json({ error: 'Host not allowed', code: 'bad-host' });
+    }
+  } catch { /* fail open only on parse bugs — still hit CORS */ }
+  next();
+});
+
+// --- Security P0: App-lock runs for ALL /api routes (registration order fix) ---
+// Handlers below are registered later; Express only protects routes if this
+// middleware is registered BEFORE them. Implementation is assigned after
+// session helpers load (same module, before listen).
+app.use((req, res, next) => {
+  const fn = globalThis.__sdEnforceAppLock;
+  if (typeof fn === 'function') return fn(req, res, next);
+  return next();
+});
+
+
 // Ensure data directory and sub-directories exist
 const DIRS = ['bills', 'clients', 'templates', 'products', 'expenses', 'recurring', 'receipts', 'profiles', 'purchases', 'workorders', 'journals', 'purchaseorders', 'costcenters', 'accounts', 'budgets'];
 for (const dir of DIRS) {
@@ -1919,6 +1956,8 @@ function scrubAppLockForExport(meta) {
     const { pass, password, ...srest } = out.smtp;
     out.smtp = { ...srest, configured: !!(pass || password || srest.user) };
   }
+  // Never export session signing secret (forged cookies if leaked)
+  delete out.sessionSecret;
   return out;
 }
 
@@ -2167,10 +2206,19 @@ const APP_LOCK_PUBLIC = new Set([
   '/api/sqlite-status',
 ]);
 
-app.use((req, res, next) => {
+// Bound early (after express.json) via globalThis.__sdEnforceAppLock
+globalThis.__sdEnforceAppLock = function sdEnforceAppLock(req, res, next) {
   if (!req.path.startsWith('/api')) return next();
-  if (APP_LOCK_PUBLIC.has(req.path)) return next();
-  // set/disable/prefs require session when lock is active (prevents PIN overwrite without unlock)
+  // Normalize path without query
+  const p = String(req.path || '').split('?')[0];
+  if (APP_LOCK_PUBLIC.has(p)) return next();
+  // Prefix allow for nested public health checks
+  if (p === '/api/health' || p.startsWith('/api/app-lock/')) {
+    // status/verify/logout public; set/disable still need session when lock active
+    if (p === '/api/app-lock/status' || p === '/api/app-lock/verify' || p === '/api/app-lock/logout') {
+      return next();
+    }
+  }
   if (!isAppLockActive()) return next();
   const token = readSessionToken(req);
   if (token && touchSession(token)) return next();
@@ -2179,7 +2227,8 @@ app.use((req, res, next) => {
     code: 'app-locked',
     note: 'PIN is a screen lock only. Data files are not encrypted. Enter PIN again after server restart.',
   });
-});
+};
+
 
 app.post('/api/app-lock/logout', (req, res) => {
   const token = readSessionToken(req);
@@ -2203,6 +2252,23 @@ app.get('/api/meta/:key', (req, res) => {
 app.post('/api/meta/:key', (req, res) => {
   const meta = readJSON(META_PATH, {});
   const key = req.params.key;
+  // Block secret / lock material via generic meta writer (use /api/app-lock/* and mail settings)
+  const META_WRITE_DENY = new Set(['sessionSecret', 'appLock', 'smtp']);
+  if (META_WRITE_DENY.has(key)) {
+    return res.status(403).json({
+      error: 'Use dedicated settings routes for this key',
+      code: 'meta-key-denied',
+      key,
+    });
+  }
+  // Sensitive operational switches: require unlocked session when lock is enabled
+  const META_SENSITIVE = new Set(['lockedMonths', 'freezeDays', 'useGlEngine', 'glEngine', 'periodLocks']);
+  if (META_SENSITIVE.has(key) && isAppLockActive()) {
+    const token = readSessionToken(req);
+    if (!(token && touchSession(token))) {
+      return res.status(401).json({ error: 'Unlock required to change ' + key, code: 'app-locked' });
+    }
+  }
   const body = req.body;
   // Accept { value: ... } (preferred) OR raw object (legacy Settings posts)
   let next;
@@ -2247,6 +2313,7 @@ app.post('/api/meta/:key/increment', (req, res) => {
 // EXPORT / IMPORT
 // ========================
 app.get('/api/export', (req, res) => {
+  // Full module set (folder backup still preferred for binary sqlite)
   const data = {
     bills: readAllFromDir('bills'),
     profile: readJSON(PROFILE_PATH, DEFAULT_PROFILE),
@@ -2258,6 +2325,12 @@ app.get('/api/export', (req, res) => {
     receipts: readAllFromDir('receipts'),
     profiles: readAllFromDir('profiles'),
     purchases: readAllFromDir('purchases'),
+    workorders: readAllFromDir('workorders'),
+    journals: readAllFromDir('journals'),
+    purchaseorders: readAllFromDir('purchaseorders'),
+    costcenters: readAllFromDir('costcenters'),
+    accounts: readAllFromDir('accounts'),
+    budgets: readAllFromDir('budgets'),
     meta: scrubAppLockForExport(readJSON(META_PATH, {}) || {}),
     exportedAt: new Date().toISOString(),
   };
@@ -3116,7 +3189,46 @@ app.post('/api/backups/:date/restore', (req, res) => {
     // remove because the backup itself is still on disk as a rollback
     // option). Failures below prevent removal.
     fs.rmSync(snapshotDir, { recursive: true, force: true });
-    res.json({ success: true, restored: date });
+    // Reopen SQLite against restored files so UI does not keep stale memory DB
+    let sqliteReopen = null;
+    try {
+      process.env.SD_SQLITE_REIMPORT = '1';
+      sqliteReopen = initSqliteStore(DATA_DIR);
+    } catch (e) {
+      sqliteReopen = { ready: false, error: e.message };
+      console.warn('[restore] sqlite reopen failed:', e.message);
+    }
+    // Reconcile invoice counters from restored bills (same idea as import)
+    try {
+      const metaLive = readJSON(META_PATH, {}) || {};
+      const bills = readAllFromDir('bills') || [];
+      const prefixMax = {};
+      for (const b of bills) {
+        if (!b || b.isDeleted || b.deleted) continue;
+        const num = String(b.invoiceNumber || b.number || '');
+        const m = num.match(/^(.*?)(\d+)$/);
+        if (!m) continue;
+        const pref = m[1];
+        const n = parseInt(m[2], 10);
+        if (!Number.isFinite(n)) continue;
+        if (prefixMax[pref] == null || n > prefixMax[pref]) prefixMax[pref] = n;
+      }
+      for (const [pref, maxN] of Object.entries(prefixMax)) {
+        const key = 'invCounter:' + pref;
+        const cur = Number(metaLive[key] || 0);
+        if (maxN > cur) metaLive[key] = maxN;
+      }
+      // generic counter fields if present
+      writeJSON(META_PATH, metaLive);
+    } catch (e) {
+      console.warn('[restore] counter reconcile:', e.message);
+    }
+    res.json({
+      success: true,
+      restored: date,
+      sqlite: sqliteReopen && (sqliteReopen.ready || sqliteReopen.ok) ? 'reopened' : 'reopen-failed',
+      note: 'If lists look empty, restart the server once.',
+    });
   } catch (err) {
     // Rollback: put the snapshot back over whatever the restore
     // half-did. This preserves user data at the cost of losing the
