@@ -2199,14 +2199,30 @@ const openPaymentModal = (bill) => {
             <option value="all">All Types</option>
             {Object.entries(INVOICE_TYPES).map(([key, val]) => <option key={key} value={key}>{val.label}</option>)}
           </select>
-          <select className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setSelectedIds(new Set()); }}>
-            <option value="all">All Status</option>
-            <option value="unpaid">Unpaid</option>
-            <option value="partial">Partial</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+          <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }} role="group" aria-label="Status filter">
+            {[
+              { id: 'all', label: 'All', color: '#64748b' },
+              { id: 'unpaid', label: 'Unpaid', color: '#f59e0b' },
+              { id: 'partial', label: 'Partial', color: '#8b5cf6' },
+              { id: 'paid', label: 'Paid', color: '#059669' },
+              { id: 'overdue', label: 'Overdue', color: '#dc2626' },
+              { id: 'cancelled', label: 'Cancelled', color: '#94a3b8' },
+            ].map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => { setStatusFilter(c.id); setSelectedIds(new Set()); }}
+                style={{
+                  fontSize: '0.75rem', padding: '0.28rem 0.65rem', borderRadius: 999, height: 30,
+                  borderColor: statusFilter === c.id ? c.color : undefined,
+                  background: statusFilter === c.id ? (c.color + '22') : undefined,
+                  color: statusFilter === c.id ? c.color : undefined,
+                  fontWeight: statusFilter === c.id ? 700 : 500,
+                }}
+              >{c.label}</button>
+            ))}
+          </div>
           <input type="date" className="filter-date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From" />
           <input type="date" className="filter-date" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To" />
           {hasFilters && <button className="icon-btn icon-btn-red" onClick={clearFilters} title="Clear" aria-label="Clear filters"><X size={15} /></button>}
@@ -2450,7 +2466,21 @@ const openPaymentModal = (bill) => {
                         )}
                       </td>}
                       {visibleColumns.actions && <td>
-                        <ActionMenu items={[
+                        
+                        <div className="inv-action-strip" style={{ display: 'inline-flex', gap: 4, alignItems: 'center', marginRight: 6, flexWrap: 'wrap' }}>
+                          <button type="button" className="icon-btn" title="Email" aria-label="Email"
+                            onClick={(e) => { e.stopPropagation(); shareEmail(bill); }}
+                            style={{ width: 30, height: 30, padding: 0 }}><Mail size={14} /></button>
+                          <button type="button" className="icon-btn" title="WhatsApp" aria-label="WhatsApp"
+                            onClick={(e) => { e.stopPropagation(); shareWhatsApp(bill); }}
+                            style={{ width: 30, height: 30, padding: 0, color: '#047857' }}><MessageCircle size={14} /></button>
+                          {canRecordPayment(bill) && (status === 'unpaid' || status === 'partial' || status === 'overdue') && (
+                            <button type="button" className="icon-btn" title="Record payment" aria-label="Record payment"
+                              onClick={(e) => { e.stopPropagation(); openPaymentModal(bill); }}
+                              style={{ width: 30, height: 30, padding: 0, color: '#1d4ed8' }}><IndianRupee size={14} /></button>
+                          )}
+                        </div>
+<ActionMenu items={[
                           { label: 'Edit', onClick: () => handleView(bill) },
                           { label: 'Download PDF', onClick: () => bulkExportPDF([bill]) },
                           { label: 'Revisions', onClick: () => openRevisions(bill) },

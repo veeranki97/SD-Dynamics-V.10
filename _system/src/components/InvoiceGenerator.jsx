@@ -3,7 +3,7 @@ import { ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronU
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { saveBill, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, saveProduct, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllBills, getAllWorkOrders, saveJournal, getAllCostCenters } from '../store';
-import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, htmlHasText, numberToWords, invoiceAmountDue } from '../utils';
+import { INVOICE_TYPES, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, calculateRoundOff, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, htmlHasText, numberToWords, invoiceAmountDue, isValidGstDocumentNumber } from '../utils';
 // isValidIndianGSTIN used in save validation
 import { isValidIndianGSTIN as _isValidGSTIN } from '../utils';
 import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
@@ -1430,12 +1430,15 @@ const validateForSave = useCallback(() => {
       if (editingBill._isDuplicate) {
         const convertType = editingBill._convertToType;
         const type = convertType || d.invoiceType || 'tax-invoice';
+        const srcCur = editingBill.currency || d.invoiceOptions?.currency || 'INR';
+        setInvoiceOptions(prev => ({ ...prev, currency: srcCur }));
         if (convertType) {
           setInvoiceType(convertType);
           const config = INVOICE_TYPES[convertType];
           if (config) {
             setInvoiceOptions(prev => ({
               ...prev,
+              currency: srcCur,
               showGST: config.showGST !== false,
               showPlaceOfSupply: config.showGST !== false,
               showBankDetails: convertType === 'tax-invoice' || convertType === 'proforma' || convertType === 'proforma-invoice',
@@ -2161,6 +2164,15 @@ const validateForSave = useCallback(() => {
     const seedStatus = (computedStatus === 'unpaid' && editingBill?.status === 'overdue')
       ? 'overdue'
       : computedStatus;
+
+    // Batch A: GST portal document number (tax invoice / credit note) — max 16, [A-Za-z0-9-/]
+    if (['tax-invoice', 'credit-note'].includes(String(invoiceType || '')) && String(profile?.gstin || '').trim()) {
+      const nv = isValidGstDocumentNumber(finalInvoiceNumber);
+      if (!nv.valid) {
+        toast(nv.message + ' Shorten the number or Settings → invoice number format.', 'error', 9000);
+        return;
+      }
+    }
 
     const bill = {
       id: finalInvoiceNumber,
@@ -4959,7 +4971,7 @@ const validateForSave = useCallback(() => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div className="form-group">
                 <label className="form-label">Invoice Number</label>
-                <input
+                <input maxLength={16} title="GST allows max 16 characters for tax invoice / credit note"
                   type="text"
                   className="form-input"
                   value={details.invoiceNumber}

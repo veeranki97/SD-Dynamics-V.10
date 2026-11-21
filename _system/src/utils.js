@@ -1,5 +1,20 @@
 
 /** India GSTIN: exactly 15 chars + basic format + state code map */
+/** GSTR-1 / Rule 46: tax invoice & credit note numbers — max 16 chars, A–Z 0–9 - / only */
+export const GST_DOC_NUMBER = /^[A-Za-z0-9\-/]{1,16}$/;
+
+export function isValidGstDocumentNumber(no) {
+  const s = String(no || '').trim();
+  if (!s) return { valid: false, message: 'Document number required' };
+  if (s.length > 16) {
+    return { valid: false, message: 'Document number is ' + s.length + ' characters; GST portal allows max 16 (GSTR-1).' };
+  }
+  if (!GST_DOC_NUMBER.test(s)) {
+    return { valid: false, message: 'Only letters, digits, hyphen and slash are allowed in GST document numbers.' };
+  }
+  return { valid: true };
+}
+
 export function isValidIndianGSTIN(gstin) {
   if (!gstin || typeof gstin !== 'string') return { valid: false, message: 'GSTIN required' };
   const g = gstin.toUpperCase().trim();

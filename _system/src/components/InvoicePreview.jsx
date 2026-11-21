@@ -670,14 +670,14 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
                 const hsnBit = showHSN && item.hsn && !isVeryNarrow ? '  |  HSN ' + item.hsn : '';
                 return (
                   <div key={idx} style={{ marginBottom: 5, fontSize: '0.95em' }}>
-                    <div style={{ fontWeight: strongWeight, wordBreak: 'break-word' }}>
+                    <div style={{ fontWeight: strongWeight, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                       {(idx + 1) + '. ' + cap(item.name || item.description || 'Item')}
                     </div>
                     <div style={{
                       display: 'grid', gridTemplateColumns: gridCols, gap: '4px',
                       fontSize: '0.92em', paddingLeft: thermalCompact ? 0 : 8, fontWeight: baseWeight,
                     }}>
-                      <span style={{ wordBreak: 'break-word' }}>
+                      <span style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                         {cap(showRate
                           ? `${qty}${item.unit ? ' ' + item.unit : ''} × ${currencySymbol}${rate.toFixed(2)}${tax}${hsnBit}`
                           : `${qty}${item.unit ? ' ' + item.unit : ''}${hsnBit}`)}

@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { FileText, Download, Upload, ExternalLink, CheckCircle, ChevronDown, ChevronRight, AlertTriangle, BookOpen, BarChart3 } from 'lucide-react';
 import { getAllBills, getAllExpenses, getAllPurchases, getProfile } from '../store';
 import { parseGstr2bCsv, csvRowsTo2bData } from '../utils/gstr2bCsv';
-import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, formatDateGST, getFilingPeriod, getUnitUQC, getFYOptions, belongsToProfile, toCsvLine, splitIntraStateTax } from '../utils';
+import { formatCurrency, INVOICE_TYPES, calculateLineItemTax, getStateCode, formatDateGST, getFilingPeriod, getUnitUQC, getFYOptions, belongsToProfile, toCsvLine, splitIntraStateTax, isValidGstDocumentNumber, GST_DOC_NUMBER } from '../utils';
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
 import PageHeader from './PageHeader';
@@ -1034,6 +1034,18 @@ export default function GSTReturns() {
   if (!profile.gstin) {
     warnings.push({ type: 'error', msg: 'Your business GSTIN is not set. Go to Settings → Company Details to add it.' });
   }
+
+  // Batch A: portal rejects inum >16 or illegal chars (tax invoice / credit note)
+  filteredBills.forEach((bill) => {
+    const t = String(bill.invoiceType || bill.data?.invoiceType || 'tax-invoice');
+    if (t !== 'tax-invoice' && t !== 'credit-note') return;
+    const no = String(bill.invoiceNumber || '').trim();
+    if (!no) return;
+    const nv = isValidGstDocumentNumber(no);
+    if (!nv.valid) {
+      warnings.push({ type: 'error', msg: `Invoice ${no}: ${nv.message}` });
+    }
+  });
   // v1.10.66 (#61) — exports are left out of the GSTR-1 file (see isExportBill).
   // Put first, so the three-message limit on the banner can never hide it.
   if (exportBills.length > 0) {

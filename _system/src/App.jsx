@@ -442,7 +442,10 @@ function App() {
     clone._isDuplicate = true;
     delete clone.id;
     clone.invoiceNumber = '';
-    clone.docstatus = 0; 
+    clone.docstatus = 0;
+    // Keep source currency (upstream ERR-088 / v1.10.86) — do not fall back to INR on open
+    const srcCur = bill.currency || bill.data?.invoiceOptions?.currency || 'INR';
+    clone.currency = srcCur;
     if (clone.data) {
       clone.data = { ...clone.data };
       if (clone.data.details) {
@@ -452,6 +455,8 @@ function App() {
           invoiceDate: new Date().toISOString().split('T')[0],
         };
       }
+      const opts = { ...(clone.data.invoiceOptions || {}), currency: srcCur };
+      clone.data.invoiceOptions = opts;
     }
     clone.status = 'unpaid';
     clone.paidAmount = 0;

@@ -46,7 +46,7 @@ const cell = { border: B, padding: '4px 6px', verticalAlign: 'top' };
 const th = { ...cell, fontWeight: 700, textAlign: 'center', background: '#f3f4f6' };
 const right = { textAlign: 'right', whiteSpace: 'nowrap' };
 const center = { textAlign: 'center' };
-const small = { fontSize: '0.92em', color: '#374151' };
+const small = { overflowWrap: 'anywhere', wordBreak: 'break-word', fontSize: '0.92em', color: '#374151' };
 const label = { fontWeight: 700 };
 const blockProps = { 'data-pdf-page-boundary': '' };
 // Tally item-table cell: column lines on both sides, none between rows.
