@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
+import { buildUpiPayUrl } from '../utils/paymentShare';
 import DOMPurify from 'dompurify';
 import { numberToWords, formatCurrency, INVOICE_TYPES, getCountryConfig, CURRENCY_NAMES, formatExchangeRateLine, getAccountById, getPaperSize, resolveLineDiscount, htmlHasText, splitNumberedTerms, calculateLineItemTax } from '../utils';
 import { getPrintSettings, getLabel } from '../utils/printSettings';
@@ -193,16 +194,32 @@ const InvoicePreview = React.forwardRef(({ profile, client, details, items, tota
   // (so switching account swaps both bank block + QR), with fallback to the
   // legacy flat profile.upiId for invoices that pre-date multi-account support.
   const upiId = account?.upiId || profile?.upiId || '';
+  // Outstanding for QR: grand total minus already paid (partial receipts)
+  const paidForQr = Number(options?.paidAmount ?? options?.billPaidAmount ?? 0) || 0;
+  const totalForQr = Number(totals?.total ?? totals?.grandTotal ?? 0) || 0;
+  const upiAmount = Math.max(0, Math.round((totalForQr - paidForQr) * 100) / 100);
   useEffect(() => {
-    if (hideMoneyOnDc || !showUPI || !upiId || !totals.total || currencySymbol !== 'INR') {
+    if (hideMoneyOnDc || !showUPI || !upiId || currencySymbol !== 'INR') {
       setQrDataUrl('');
       return;
     }
-    const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(profile?.businessName || '')}&am=${totals.total.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Payment for ${details?.invoiceNumber || 'Invoice'}`)}`;
+    if (upiAmount < 0.01 && totalForQr < 0.01) {
+      setQrDataUrl('');
+      return;
+    }
+    const payAmt = upiAmount >= 0.01 ? upiAmount : totalForQr;
+    const upiUrl = buildUpiPayUrl({
+      upiId,
+      payeeName: profile?.businessName || '',
+      amount: payAmt,
+      currency: 'INR',
+      note: 'Payment for ' + (details?.invoiceNumber || 'Invoice'),
+    });
+    if (!upiUrl) { setQrDataUrl(''); return; }
     QRCode.toDataURL(upiUrl, { width: 120, margin: 1, errorCorrectionLevel: 'M' })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
-  }, [showUPI, upiId, profile?.businessName, totals.total, details?.invoiceNumber, currencySymbol]);
+  }, [showUPI, upiId, profile?.businessName, upiAmount, totalForQr, details?.invoiceNumber, currencySymbol, hideMoneyOnDc]);
 
   const accentColors = {
     'tax-invoice': '#1e40af',

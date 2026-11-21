@@ -10,7 +10,7 @@ import {
   getAllClients, saveClient, deleteClient, 
   getAllPurchases, getAllExpenses, getProfile 
 } from '../store';
-import { formatCurrency } from '../utils';
+import { formatCurrency, isValidIndianGSTIN } from '../utils';
 import { getPrintSettings } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction } from './ConfirmModal';
@@ -610,7 +610,10 @@ export default function VendorsView() {
   const handleSaveVendor = async (e) => {
     e.preventDefault();
     if (!formVendor.name.trim()) { toast('Vendor Name is required', 'warning'); return; }
-    if (formVendor.gstin && formVendor.gstin.length !== 15) { toast('GSTIN must be 15 characters', 'warning'); return; }
+    if (formVendor.gstin && String(formVendor.gstin).trim()) {
+      const gv = isValidIndianGSTIN(formVendor.gstin);
+      if (!gv.valid) { toast(gv.message || 'Invalid GSTIN', 'warning'); return; }
+    }
 
     try {
       const payload = { ...formVendor, isVendor: true, type: 'vendor', partyType: 'vendor' };

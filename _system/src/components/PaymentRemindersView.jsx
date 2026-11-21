@@ -5,6 +5,7 @@ import { Bell, RefreshCw, Mail, MessageCircle } from 'lucide-react';
 import { getAllBills } from '../store';
 import { formatCurrency } from '../utils';
 import { isReceivableDocument, isCancelled, isConverted, normalizeInvoiceType } from '../utils/revenueFilter';
+import { buildWhatsAppDueReminderText, buildWhatsAppDueUrl } from '../utils/paymentShare';
 
 function daysOverdue(dueOrInv) {
   if (!dueOrInv) return 0;
@@ -113,11 +114,23 @@ export default function PaymentRemindersView() {
   };
 
   const openWhatsApp = (b) => {
-    const phone = String(b.data?.client?.phone || b.clientPhone || '').replace(/\D/g, '');
-    const text = encodeURIComponent(
-      `Payment reminder: Invoice ${b.invoiceNumber || ''} — outstanding ${formatCurrency(b._rem)} (due ${b.dueDate || b.invoiceDate || '—'}).`
-    );
-    window.open(`https://wa.me/${phone}?text=${text}`, '_blank', 'noopener,noreferrer');
+    const phone = b.data?.client?.phone || b.clientPhone || '';
+    const companyName = b.data?.profile?.businessName || '';
+    const upiId = b.data?.profile?.upiId || '';
+    const text = buildWhatsAppDueReminderText({
+      clientName: b.clientName || 'Customer',
+      invoiceNumber: b.invoiceNumber || '',
+      amountText: formatCurrency(b._rem),
+      dueDate: b.dueDate || b.invoiceDate || '—',
+      companyName,
+      upiId,
+    });
+    const url = buildWhatsAppDueUrl(phone, text);
+    if (!url) {
+      toast('Add client mobile number (10 digits) to send WhatsApp reminder', 'warning');
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   return (

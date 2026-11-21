@@ -1369,7 +1369,7 @@ const openPaymentModal = (bill) => {
           root.render(createElement(InvoicePreviewMod.default, {
             profile: data.profile, client: data.client, details: data.details, items: data.items,
             totals: data.totals, invoiceType: data.invoiceType, customTerms: data.customTerms,
-            customNotes: data.customNotes, extraSections: data.extraSections, options: data.invoiceOptions,
+            customNotes: data.customNotes, extraSections: data.extraSections, options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
           }));
           requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
         });
@@ -1450,7 +1450,7 @@ const openPaymentModal = (bill) => {
         root.render(createElement(InvoicePreviewMod.default, {
           profile: data.profile, client: data.client, details: data.details, items: data.items,
           totals: data.totals, invoiceType: data.invoiceType, customTerms: data.customTerms,
-          customNotes: data.customNotes, extraSections: data.extraSections, options: data.invoiceOptions,
+          customNotes: data.customNotes, extraSections: data.extraSections, options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
         }));
         requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
       });
@@ -1573,7 +1573,7 @@ const openPaymentModal = (bill) => {
           customTerms: data.customTerms,
           customNotes: data.customNotes,
           extraSections: data.extraSections,
-          options: data.invoiceOptions || {},
+          options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
         }));
         requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 450)));
       });
