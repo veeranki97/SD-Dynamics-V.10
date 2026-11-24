@@ -2,7 +2,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import App from './App.jsx'
+import { applyAppAccentTheme } from './components/ChartSettingsPanel';
+import { getChartPrefs } from './utils/chartPrefs';
 
+applyAppAccentTheme((getChartPrefs() || {}).theme || 'blue');
 function AppErrorBoundary({ children }) {
   // Minimal class-free boundary via state in a small wrapper is hard without class —
   // use window error for blank-page recovery tip

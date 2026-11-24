@@ -5151,3 +5151,27 @@ html:not([data-theme="dark"]) .mobile-topbar-btn,
 .master-services-embed .list-module-toolbar .search-input {
   width: 100% !important;
 }
+/* ===== App-wide dynamic accent sync (preserves all existing rules & dark/print modes) ===== */
+html:not([data-theme="dark"]) .nav-btn:hover,
+[data-theme="light"] .nav-btn:hover {
+  background: rgba(var(--primary-rgb), 0.08) !important;
+  color: var(--primary) !important;
+}
+html:not([data-theme="dark"]) .nav-btn.nav-btn-active,
+[data-theme="light"] .nav-btn.nav-btn-active {
+  background: rgba(var(--primary-rgb), 0.12) !important;
+  color: var(--primary) !important;
+  box-shadow: inset 3px 0 0 var(--primary) !important;
+}
+html:not([data-theme="dark"]) .nav-group-header:hover,
+[data-theme="light"] .nav-group-header:hover {
+  background: rgba(var(--primary-rgb), 0.06) !important;
+}
+.btn-primary {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}

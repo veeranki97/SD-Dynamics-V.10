@@ -5,6 +5,7 @@ import html2canvas from 'html2canvas';
 import InvoicePreview from './InvoicePreview';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
+import DashboardHomeLayout from './DashboardHomeLayout';
 import TopCreateMenu from './TopCreateMenu';
 import { FileText, Trash2, Plus, IndianRupee, Receipt, Edit3, TrendingUp, Search, Copy, X, CheckCircle, Clock, AlertTriangle, MessageCircle, Mail, StickyNote, Send, Package, Download, Printer, Bell, Moon, Sun, LogOut, Calendar, ShoppingCart } from 'lucide-react';
 import HelpButton from './HelpButton';
@@ -1881,25 +1882,114 @@ const openPaymentModal = (bill) => {
       </PageHeader>
       )}
 
-      {overdueBills.length > 0 && (
-        <div className="overdue-banner" onClick={() => { setStatusFilter('overdue'); }}
-          style={{ background: 'var(--danger-light)', border: '1px solid var(--danger-light)', borderRadius: 10, padding: '0.85rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <AlertTriangle size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <span style={{ fontWeight: 700, color: '#dc2626' }}>
-              {overdueBills.length} overdue invoice{overdueBills.length > 1 ? 's' : ''}
-            </span>
-            <span style={{ color: '#991b1b', marginLeft: 8, fontSize: '0.85rem' }}>
-              — {overdueStr} outstanding
-            </span>
+            {overdueBills.length > 0 && (() => {
+        const goToOverdueInvoices = () => {
+          if (listMode) {
+            setStatusFilter('overdue');
+            return;
+          }
+          try {
+            sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'overdue' }));
+            sessionStorage.setItem('gst_currentView', 'invoices');
+            window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
+          } catch (_) { /* */ }
+          setStatusFilter('overdue');
+        };
+
+        return (
+          <div
+            className="overdue-banner"
+            onClick={goToOverdueInvoices}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToOverdueInvoices(); } }}
+            style={{
+              background: 'var(--card, #ffffff)',
+              border: '1px solid rgba(225, 29, 72, 0.25)',
+              borderLeft: '4px solid #e11d48',
+              borderRadius: 12,
+              padding: '0.65rem 1rem',
+              marginBottom: '1rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.85rem',
+              boxShadow: '0 2px 8px rgba(225, 29, 72, 0.06)',
+              transition: 'box-shadow 0.15s ease, transform 0.15s ease',
+            }}
+          >
+            <div style={{
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              background: 'rgba(225, 29, 72, 0.1)',
+              color: '#e11d48',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <AlertTriangle size={17} />
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{
+                fontSize: '0.7rem',
+                fontWeight: 800,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'rgba(225, 29, 72, 0.1)',
+                color: '#be123c',
+              }}>
+                Action Required
+              </span>
+              <span style={{ fontWeight: 700, color: 'var(--text, #0f172a)', fontSize: '0.86rem' }}>
+                {overdueBills.length} Overdue Invoice{overdueBills.length > 1 ? 's' : ''}
+              </span>
+              <span style={{
+                color: '#e11d48',
+                fontWeight: 700,
+                fontSize: '0.86rem',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {overdueStr} outstanding
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{
+                  fontSize: '0.76rem',
+                  fontWeight: 600,
+                  padding: '0.32rem 0.75rem',
+                  whiteSpace: 'nowrap',
+                  borderRadius: 8,
+                  height: 30,
+                  lineHeight: 1,
+                }}
+                onClick={(e) => { e.stopPropagation(); setShowRemindAll(true); }}
+              >
+                <Send size={12} /> Remind All
+              </button>
+              <span style={{
+                fontSize: '0.78rem',
+                color: '#e11d48',
+                fontWeight: 700,
+                padding: '0.32rem 0.65rem',
+                borderRadius: 8,
+                background: 'rgba(225, 29, 72, 0.08)',
+                whiteSpace: 'nowrap',
+              }}>
+                View →
+              </span>
+            </div>
           </div>
-          <button className="btn btn-secondary" style={{ fontSize: '0.75rem', padding: '0.3rem 0.75rem', whiteSpace: 'nowrap' }}
-            onClick={(e) => { e.stopPropagation(); setShowRemindAll(true); }}>
-            <Send size={13} /> Remind All
-          </button>
-          <span style={{ fontSize: '0.78rem', color: '#dc2626', fontWeight: 500 }}>View all &rarr;</span>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Remind All Modal */}
       {showRemindAll && (
@@ -1952,136 +2042,27 @@ const openPaymentModal = (bill) => {
           </div>
         </div>
       )}
-
-      {listMode ? null : (
-      <div className="dashboard-kpi-block">
-<div className="stats-grid stats-grid-kpi-4 dashboard-kpi-primary">
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-blue"><IndianRupee size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Billed <span style={{fontWeight:400,fontSize:'0.75em',opacity:0.8}}>(tax inv · incl. GST)</span></p>
-            {Object.entries(stats.byCurrency).map(([cur, v]) => (
-              <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
-                {formatCurrency(v.total, cur)}
-              </div>
-            ))}
-            {Object.keys(stats.byCurrency).length === 0 && <h2 className="stat-value">—</h2>}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-green"><TrendingUp size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Tax Collected</p>
-            {Object.entries(stats.byCurrency).map(([cur, v]) => (
-              <div key={cur} className="stat-value stat-value-green" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
-                {formatCurrency(v.tax, cur)}
-              </div>
-            ))}
-            {Object.keys(stats.byCurrency).length === 0 && <h2 className="stat-value stat-value-green">—</h2>}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-green"><TrendingUp size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Total Received</p>
-            {Object.entries(stats.byCurrency).map(([cur, v]) => (
-              <div key={cur} className="stat-value" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined, color: '#059669' }}>
-                {formatCurrency(v.received || 0, cur)}
-              </div>
-            ))}
-            {Object.keys(stats.byCurrency).length === 0 && <h2 className="stat-value" style={{ color: '#059669' }}>—</h2>}
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon stat-icon-amber"><Clock size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Outstanding</p>
-            {Object.entries(stats.byCurrency).map(([cur, v]) => (
-              <div key={cur} className="stat-value stat-value-amber" style={{ fontSize: Object.keys(stats.byCurrency).length > 1 ? '1.1rem' : undefined }}>
-                {formatCurrency(v.unpaid, cur)}
-              </div>
-            ))}
-            {Object.keys(stats.byCurrency).length === 0 && <h2 className="stat-value stat-value-amber">—</h2>}
-          </div>
-        </div>
-      </div>
-
-      {/* A) Second KPI row — this month + drafts + open */}
-      <div className="stats-grid stats-grid-kpi-4 dashboard-kpi-secondary">
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices this calendar month (excl. QUO/PI/DC/cancelled; CN subtracted)"
-          onClick={() => {
-            const [y, mth] = secondaryKpis.currentYm.split('-');
-            const last = new Date(Number(y), Number(mth), 0).getDate();
-            const dateFrom = `${secondaryKpis.currentYm}-01`;
-            const dateTo = `${secondaryKpis.currentYm}-${String(last).padStart(2, '0')}`;
+      {/* Home: premium KPIs + trend/donut, then other charts */}
+      {!listMode && (
+        <DashboardHomeLayout
+          bills={bills}
+          purchases={purchasesList || []}
+          stats={stats}
+          onFilterInvoices={(f) => {
             try {
-              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({
-                typeFilter: 'tax-invoice', statusFilter: 'all', dateFrom, dateTo, fyFilter: 'all',
-              }));
+              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify(f || {}));
               sessionStorage.setItem('gst_currentView', 'invoices');
               window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
             } catch (_) {}
-            setTypeFilter('tax-invoice');
-            setStatusFilter('all');
-            setDateFrom(dateFrom);
-            setDateTo(dateTo);
+            if (f?.typeFilter) setTypeFilter(f.typeFilter);
+            if (f?.statusFilter) setStatusFilter(f.statusFilter);
           }}
-          style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-blue"><Calendar size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">This month sales</p>
-            <div className="stat-value">{formatCurrency(secondaryKpis.monthSales)}</div>
-          </div>
-        </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Purchase bills dated this month"
-          onClick={() => { try { sessionStorage.setItem('gst_currentView', 'purchases'); window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'purchases' })); } catch (_) {} }}
-          style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-purple"><ShoppingCart size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">This month purchases</p>
-            <div className="stat-value">{formatCurrency(secondaryKpis.monthPurchases)}</div>
-          </div>
-        </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Draft documents"
-          onClick={() => {
-            try {
-              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ statusFilter: 'draft' }));
-              sessionStorage.setItem('gst_currentView', 'invoices');
-              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
-            } catch (_) {}
-            setStatusFilter('draft');
-          }}
-          style={{ cursor: 'pointer' }}>
-          <div className="stat-icon"><FileText size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Drafts</p>
-            <div className="stat-value">{secondaryKpis.drafts}</div>
-          </div>
-        </div>
-        <div className="stat-card" role="button" tabIndex={0} title="Tax invoices with balance &gt; ₹1"
-          onClick={() => {
-            try {
-              sessionStorage.setItem('sd_invoice_list_filters', JSON.stringify({ typeFilter: 'tax-invoice', statusFilter: 'unpaid' }));
-              sessionStorage.setItem('gst_currentView', 'invoices');
-              window.dispatchEvent(new CustomEvent('sd-navigate', { detail: 'invoices' }));
-            } catch (_) {}
-            setTypeFilter('tax-invoice'); setStatusFilter('unpaid');
-          }}
-          style={{ cursor: 'pointer' }}>
-          <div className="stat-icon stat-icon-amber"><Clock size={22} /></div>
-          <div style={{ flex: 1 }}>
-            <p className="stat-label">Open invoices</p>
-            <div className="stat-value">{secondaryKpis.openInv}</div>
-          </div>
-        </div>
-      </div>
-      </div>
+        />
       )}
 
-      {/* KPI charts (home only) */}
       {!listMode && (
         <div className="dashboard-charts-wrap">
-        <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} />
+        <DashboardCharts stats={{ ...stats, byMonthPurchases: secondaryKpis.byMonthPurchases }} hideAll />
         </div>
       )}
 

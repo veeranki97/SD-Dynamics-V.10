@@ -595,3 +595,591 @@ export async function hydratePrintSettingsFromServer() {
     return null;
   }
 }
+// ============================================================================
+// Native Vector PDF Builder (Sai Durga / Tally / Boxed GST Invoice)
+// Produces crisp vector lines, selectable text, full wrapped T&C, and UPI QR
+// without html2canvas rasterization.
+// ============================================================================
+export async function buildVectorInvoicePdf({
+  profile = {},
+  client = {},
+  details = {},
+  items = [],
+  totals = {},
+  invoiceType = 'tax-invoice',
+  customTerms = '',
+  customNotes = '',
+  extraSections = [],
+  invoiceOptions = {},
+  printSettings = null,
+}) {
+  const { jsPDF } = await import('jspdf');
+  let QRCodeMod = null;
+  try { QRCodeMod = (await import('qrcode')).default; } catch { /* optional */ }
+
+  const ps = printSettings || getPrintSettings();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
+  const pageW = 210;
+  const pageH = 297;
+  const marginX = Math.max(8, Number(ps.marginLeft) || 10);
+  const marginTop = Math.max(8, Number(ps.marginTop) || 10);
+  const marginBottom = Math.max(8, Number(ps.marginBottom) || 10);
+  const boxW = pageW - marginX * 2;
+  const fontFam = ['helvetica', 'times', 'courier'].includes(ps.pdfFontFamily) ? ps.pdfFontFamily : 'helvetica';
+
+  const STATE_CODES = {
+    'jammu and kashmir': '01', 'himachal pradesh': '02', 'punjab': '03', 'chandigarh': '04',
+    'uttarakhand': '05', 'haryana': '06', 'delhi': '07', 'rajasthan': '08', 'uttar pradesh': '09',
+    'bihar': '10', 'sikkim': '11', 'arunachal pradesh': '12', 'nagaland': '13', 'manipur': '14',
+    'mizoram': '15', 'tripura': '16', 'meghalaya': '17', 'assam': '18', 'west bengal': '19',
+    'jharkhand': '20', 'odisha': '21', 'chhattisgarh': '22', 'madhya pradesh': '23', 'gujarat': '24',
+    'maharashtra': '27', 'karnataka': '29', 'goa': '30', 'kerala': '32', 'tamil nadu': '33',
+    'puducherry': '34', 'telangana': '36', 'andhra pradesh': '37', 'ladakh': '38',
+  };
+  const stateCodeOf = (st, gstin) => {
+    const g = String(gstin || '').trim();
+    if (/^\d{2}/.test(g)) return g.slice(0, 2);
+    return STATE_CODES[String(st || '').trim().toLowerCase()] || '';
+  };
+
+  const stripHtml = (html) => {
+    if (!html) return '';
+    return String(html)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '• ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+
+  const fmtAmt = (n) => formatNumber(Number(n) || 0, { ...ps, decimalPlaces: ps.decimalPlaces ?? 2 });
+
+  const wordsOf = (num) => {
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+      'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const under1000 = (v) => {
+      const out = [];
+      if (v >= 100) { out.push(ones[Math.floor(v / 100)], 'Hundred'); v %= 100; }
+      if (v >= 10 && v < 20) out.push(ones[v]);
+      else {
+        if (v >= 20) out.push(tens[Math.floor(v / 10)]);
+        if (v % 10) out.push(ones[v % 10]);
+      }
+      return out.filter(Boolean).join(' ');
+    };
+    const abs = Math.abs(Number(num) || 0);
+    let major = Math.floor(abs + 0.0001);
+    const minor = Math.round((abs - major) * 100) % 100;
+    if (!major && !minor) return 'Zero Rupees Only';
+    const parts = [];
+    [['Crore', 10000000], ['Lakh', 100000], ['Thousand', 1000]].forEach(([label, sz]) => {
+      if (major >= sz) {
+        parts.push(`${under1000(Math.floor(major / sz))} ${label}`);
+        major %= sz;
+      }
+    });
+    if (major) parts.push(under1000(major));
+    const curName = (invoiceOptions.currency || 'INR') === 'INR' ? 'Rupees' : (invoiceOptions.currency || 'INR');
+    const paiseName = (invoiceOptions.currency || 'INR') === 'INR' ? 'Paise' : 'Cents';
+    return `${parts.join(' ')} ${curName}${minor ? ` and ${under1000(minor)} ${paiseName}` : ''} Only`;
+  };
+
+  const titleMap = {
+    'tax-invoice': 'TAX INVOICE',
+    'proforma': 'PROFORMA INVOICE',
+    'quotation': 'QUOTATION',
+    'bill-of-supply': 'BILL OF SUPPLY',
+    'credit-note': 'CREDIT NOTE',
+    'debit-note': 'DEBIT NOTE',
+    'delivery-challan': 'DELIVERY CHALLAN',
+  };
+  const docTitle = (invoiceOptions.customTitle || titleMap[invoiceType] || 'TAX INVOICE').toUpperCase();
+
+  // Resolve payment account snapshot or active account
+  const acct = invoiceOptions.paymentAccountSnapshot
+    || (Array.isArray(profile.paymentAccounts)
+      ? (profile.paymentAccounts.find(a => a.id === invoiceOptions.selectedAccountId) || profile.paymentAccounts.find(a => a.isDefault) || profile.paymentAccounts[0])
+      : null)
+    || {};
+
+  const setStroke = () => {
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.28);
+  };
+
+  let y = marginTop;
+
+  // Title banner
+  doc.setFont(fontFam, 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  doc.text(docTitle, pageW / 2, y + 4, { align: 'center' });
+  y += 6.5;
+
+  const topStart = y;
+  const leftW = boxW * 0.52;
+  const rightW = boxW - leftW;
+  const midX = marginX + leftW;
+
+  // ---- TOP LEFT: Seller + Buyer ----
+  let ly = y + 4.5;
+  const lx = marginX + 2.5;
+  const lMaxW = leftW - 5;
+
+  // Optional logo
+  let logoOffset = 0;
+  if (invoiceOptions.showLogo !== false && ps.showLogo !== false && profile.logo && String(profile.logo).startsWith('data:image/')) {
+    try {
+      const fmt = String(profile.logo).includes('png') ? 'PNG' : 'JPEG';
+      doc.addImage(profile.logo, fmt, lx, ly - 2, 16, 12);
+      logoOffset = 18;
+    } catch { /* skip invalid logo */ }
+  }
+
+  doc.setFont(fontFam, 'bold');
+  doc.setFontSize(10.5);
+  doc.text(String(profile.businessName || 'Business Name'), lx + logoOffset, ly + 1.5);
+  ly += 5;
+
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(8);
+  const sellerAddr = [profile.address, [profile.city, profile.pin].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
+  if (sellerAddr) {
+    const lines = doc.splitTextToSize(sellerAddr, lMaxW - logoOffset);
+    doc.text(lines, lx + logoOffset, ly);
+    ly += lines.length * 3.6;
+  }
+  const sellerState = profile.state || '';
+  const sellerCode = stateCodeOf(sellerState, profile.gstin);
+  if (profile.gstin) {
+    doc.setFont(fontFam, 'bold');
+    doc.text(`GSTIN/UIN: ${profile.gstin}`, lx, ly);
+    ly += 3.6;
+    doc.setFont(fontFam, 'normal');
+  }
+  if (sellerState) {
+    doc.text(`State Name: ${sellerState}${sellerCode ? `, Code: ${sellerCode}` : ''}`, lx, ly);
+    ly += 3.6;
+  }
+  const contactLine = [
+    profile.phone ? `Mobile: ${profile.phone}` : '',
+    profile.pan ? `PAN: ${profile.pan}` : '',
+  ].filter(Boolean).join(' | ');
+  if (contactLine) { doc.text(contactLine, lx, ly); ly += 3.6; }
+  if (profile.email) { doc.text(`E-Mail: ${profile.email}`, lx, ly); ly += 3.6; }
+
+  ly += 1.5;
+  const buyerDividerY = ly;
+  ly += 4;
+
+  // Buyer (Bill To)
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(getLabel(ps, 'billTo') || 'Buyer (Bill to)', lx, ly);
+  ly += 3.8;
+
+  doc.setFont(fontFam, 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(String(client.name || ''), lx, ly);
+  ly += 4;
+
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(8);
+  const buyerAddr = [client.address, [client.city, client.pin].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
+  if (buyerAddr) {
+    const bLines = doc.splitTextToSize(buyerAddr, lMaxW);
+    doc.text(bLines, lx, ly);
+    ly += bLines.length * 3.6;
+  }
+  const buyerState = client.state || details.placeOfSupply || '';
+  const buyerCode = stateCodeOf(buyerState, client.gstin);
+  if (client.gstin) {
+    doc.setFont(fontFam, 'bold');
+    doc.text(`GSTIN/UIN: ${client.gstin}`, lx, ly);
+    ly += 3.6;
+    doc.setFont(fontFam, 'normal');
+  }
+  if (buyerState) {
+    doc.text(`State Name: ${buyerState}${buyerCode ? `, Code: ${buyerCode}` : ''}`, lx, ly);
+    ly += 3.6;
+  }
+  if (details.workDetails) {
+    const wdLines = doc.splitTextToSize(`Work Details: ${details.workDetails}`, lMaxW);
+    doc.text(wdLines, lx, ly);
+    ly += wdLines.length * 3.6;
+  }
+
+  // ---- TOP RIGHT: Tally 2-column Metadata Grid ----
+  const rColW = rightW / 2;
+  const rMidX = midX + rColW;
+  const posVal = details.placeOfSupply || buyerState || '';
+  const posCode = stateCodeOf(posVal, client.gstin);
+  const periodStr = (details.periodStart || details.periodEnd)
+    ? `${details.periodStart || '—'} to ${details.periodEnd || '—'}`
+    : '';
+
+  const metaRows = [
+    [
+      { label: 'Invoice No.', val: details.invoiceNumber || '', bold: true },
+      { label: 'Dated', val: formatDate(details.invoiceDate, ps), bold: true },
+    ],
+    [
+      { label: 'Delivery Note', val: details.deliveryNote || '' },
+      { label: 'Mode/Terms of Payment', val: details.paymentTerms || '' },
+    ],
+    [
+      { label: 'Reference No. & Date', val: details.workOrderNo || details.referenceNo || '' },
+      { label: 'Service Period', val: periodStr },
+    ],
+    [
+      { label: "Buyer's Order No.", val: details.buyerOrderNo || '' },
+      { label: 'Due Date', val: details.dueDate ? formatDate(details.dueDate, ps) : '' },
+    ],
+    [
+      { label: 'Reverse Charge', val: invoiceOptions.reverseCharge ? 'Yes' : 'No' },
+      { label: 'Place of Supply', val: posVal ? `${posVal}${posCode ? `, Code: ${posCode}` : ''}` : '' },
+    ],
+  ];
+
+  const metaRowH = 9.2;
+  const rightTotalH = metaRows.length * metaRowH;
+  const topBoxH = Math.max(ly - topStart + 2, rightTotalH);
+
+  // Draw outer top box + vertical split + horizontal dividers
+  setStroke();
+  doc.rect(marginX, topStart, boxW, topBoxH);
+  doc.line(midX, topStart, midX, topStart + topBoxH);
+  doc.line(marginX, buyerDividerY, midX, buyerDividerY);
+  doc.line(rMidX, topStart, rMidX, topStart + rightTotalH);
+
+  metaRows.forEach((pair, idx) => {
+    const ry = topStart + idx * metaRowH;
+    if (idx > 0) doc.line(midX, ry, marginX + boxW, ry);
+    pair.forEach((cell, cIdx) => {
+      const cx = (cIdx === 0 ? midX : rMidX) + 2;
+      doc.setFont(fontFam, 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text(cell.label, cx, ry + 3.2);
+      doc.setFont(fontFam, cell.bold ? 'bold' : 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      const valLines = doc.splitTextToSize(String(cell.val || ''), rColW - 4);
+      doc.text(valLines[0] || '', cx, ry + 7.2);
+    });
+  });
+  if (rightTotalH < topBoxH) {
+    doc.line(midX, topStart + rightTotalH, marginX + boxW, topStart + rightTotalH);
+  }
+
+  y = topStart + topBoxH;
+
+  // ---- LINE ITEMS TABLE ----
+  const showGst = invoiceOptions.showGST !== false && INVOICE_TYPES[invoiceType]?.showGST !== false;
+  const cols = [
+    { key: 'sno', label: 'SI No.', w: 11, align: 'center' },
+    { key: 'desc', label: 'Description of Services / Goods', w: showGst ? 79 : 93, align: 'left' },
+    { key: 'hsn', label: 'HSN/SAC', w: 20, align: 'center' },
+    { key: 'qty', label: 'Quantity', w: 22, align: 'right' },
+    { key: 'rate', label: 'Rate', w: 24, align: 'right' },
+    { key: 'per', label: 'per', w: 12, align: 'center' },
+    { key: 'amt', label: 'Amount', w: 22, align: 'right' },
+  ];
+  const rawColSum = cols.reduce((s, c) => s + c.w, 0);
+  cols.forEach(c => { c.w = (c.w / rawColSum) * boxW; });
+
+  const drawTableHeader = (startY) => {
+    const hH = 7.5;
+    setStroke();
+    doc.setFillColor(248, 250, 252);
+    doc.rect(marginX, startY, boxW, hH, 'FD');
+    let cx = marginX;
+    doc.setFont(fontFam, 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(15, 23, 42);
+    cols.forEach((c, idx) => {
+      if (idx > 0) doc.line(cx, startY, cx, startY + hH);
+      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
+      doc.text(c.label, tx, startY + 4.8, { align: c.align });
+      cx += c.w;
+    });
+    return startY + hH;
+  };
+
+  y = drawTableHeader(y);
+  let tableStartY = y;
+
+  const drawColVerts = (fromY, toY) => {
+    setStroke();
+    doc.rect(marginX, fromY, boxW, toY - fromY);
+    let cx = marginX;
+    cols.forEach((c, idx) => {
+      if (idx > 0) doc.line(cx, fromY, cx, toY);
+      cx += c.w;
+    });
+  };
+
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(8);
+
+  const validItems = (items || []).filter(it => (it.name || '').trim() || (Number(it.quantity) || 0) * (Number(it.rate) || 0) > 0);
+  validItems.forEach((it, idx) => {
+    const qty = Number(it.quantity) || 0;
+    const rate = Number(it.rate) || 0;
+    const unit = it.unit || 'Nos';
+    const lineAmt = qty * rate;
+    const descCol = cols[1];
+    const descLines = doc.splitTextToSize(String(it.name || ''), descCol.w - 3);
+    const rowH = Math.max(6.5, descLines.length * 3.8 + 2.5);
+
+    if (y + rowH > pageH - marginBottom - 65) {
+      drawColVerts(tableStartY, y);
+      doc.addPage();
+      y = marginTop;
+      y = drawTableHeader(y);
+      tableStartY = y;
+    }
+
+    const rowVals = [
+      String(idx + 1),
+      descLines,
+      String(it.hsn || ''),
+      `${qty} ${unit}`,
+      fmtAmt(rate),
+      unit,
+      fmtAmt(lineAmt),
+    ];
+
+    let cx = marginX;
+    cols.forEach((c, cIdx) => {
+      const val = rowVals[cIdx];
+      doc.setFont(fontFam, cIdx === 1 || cIdx === 6 ? 'bold' : 'normal');
+      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
+      doc.text(val, tx, y + 4.2, { align: c.align });
+      cx += c.w;
+    });
+    y += rowH;
+  });
+
+  // Tax & Totals rows inside item table (Tally style)
+  const subTotal = Number(totals.subtotal ?? totals.subTotal) || 0;
+  const cgst = Number(totals.cgst) || 0;
+  const sgst = Number(totals.sgst) || 0;
+  const igst = Number(totals.igst) || 0;
+  const cess = Number(totals.cess) || 0;
+  const roundOff = Number(totals.roundOff) || 0;
+  const grandTotal = Number(totals.total) || 0;
+
+  const summaryRows = [
+    { label: 'Subtotal', val: fmtAmt(subTotal), bold: false },
+  ];
+  if (showGst) {
+    if (igst > 0) summaryRows.push({ label: 'Output IGST', val: fmtAmt(igst), bold: true });
+    if (cgst > 0) summaryRows.push({ label: 'Output CGST', val: fmtAmt(cgst), bold: true });
+    if (sgst > 0) summaryRows.push({ label: 'Output SGST', val: fmtAmt(sgst), bold: true });
+    if (cess > 0) summaryRows.push({ label: 'GST Cess', val: fmtAmt(cess), bold: false });
+  }
+  if (Math.abs(roundOff) >= 0.005) {
+    summaryRows.push({ label: 'Round Off', val: fmtAmt(roundOff), bold: false });
+  }
+
+  y += 2;
+  const descCol = cols[1];
+  const descRightX = marginX + cols[0].w + descCol.w - 2;
+  const amtRightX = marginX + boxW - 1.5;
+
+  summaryRows.forEach((sr) => {
+    doc.setFont(fontFam, sr.bold ? 'bold' : 'normal');
+    doc.setFontSize(8);
+    doc.text(sr.label, descRightX, y + 3.5, { align: 'right' });
+    doc.text(sr.val, amtRightX, y + 3.5, { align: 'right' });
+    y += 5;
+  });
+
+  drawColVerts(tableStartY, y);
+
+  // Grand Total row
+  const totRowH = 7.5;
+  setStroke();
+  doc.setFillColor(248, 250, 252);
+  doc.rect(marginX, y, boxW, totRowH, 'FD');
+  let cx = marginX;
+  cols.forEach((c, idx) => {
+    if (idx > 0) doc.line(cx, y, cx, y + totRowH);
+    cx += c.w;
+  });
+  doc.setFont(fontFam, 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Total', descRightX, y + 5, { align: 'right' });
+  const totalQty = validItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+  const firstUnit = validItems[0]?.unit || '';
+  const qtyRightX = marginX + cols[0].w + cols[1].w + cols[2].w + cols[3].w - 1.5;
+  if (totalQty > 0) doc.text(`${totalQty} ${firstUnit}`, qtyRightX, y + 5, { align: 'right' });
+  doc.text(`₹ ${fmtAmt(grandTotal)}`, amtRightX, y + 5, { align: 'right' });
+  y += totRowH;
+
+  // ---- AMOUNT IN WORDS + PAN ----
+  const wordsText = wordsOf(grandTotal);
+  const wordsLines = doc.splitTextToSize(wordsText, boxW * 0.68);
+  const wordsBoxH = Math.max(11, wordsLines.length * 4 + 7);
+  setStroke();
+  doc.rect(marginX, y, boxW, wordsBoxH);
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text('Amount Chargeable (in words)', marginX + 2, y + 3.8);
+  doc.text('E. & O.E', marginX + boxW - 2, y + 3.8, { align: 'right' });
+
+  doc.setFont(fontFam, 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(wordsLines, marginX + 2, y + 8);
+
+  if (profile.pan) {
+    doc.setFont(fontFam, 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`Company's PAN: ${profile.pan}`, marginX + boxW - 2, y + wordsBoxH - 2.2, { align: 'right' });
+  }
+  y += wordsBoxH;
+
+  // ---- FOOTER: Terms & Conditions (Left, FULL auto-wrapped) + Bank/UPI & Signatory (Right) ----
+  const termsPlain = invoiceOptions.showTerms !== false ? stripHtml(customTerms) : '';
+  const notesPlain = invoiceOptions.showNotes !== false ? stripHtml(customNotes) : '';
+  const leftFooterParts = [];
+  if (termsPlain) leftFooterParts.push({ title: 'Terms & Conditions', body: termsPlain });
+  if (notesPlain) leftFooterParts.push({ title: 'Notes', body: notesPlain });
+
+  const fLeftW = boxW * 0.56;
+  const fMidX = marginX + fLeftW;
+
+  let leftFooterLines = [];
+  leftFooterParts.forEach((sec) => {
+    leftFooterLines.push({ bold: true, text: sec.title });
+    doc.splitTextToSize(sec.body, fLeftW - 4).forEach((ln) => leftFooterLines.push({ bold: false, text: ln }));
+  });
+
+  // Bank details text on right
+  const bankLines = [];
+  if (invoiceOptions.showBankDetails !== false && ps.showBankDetails !== false) {
+    const bName = acct.bankName || profile.bankName;
+    const bAcc = acct.accountNumber || profile.bankAccount || profile.accountNumber;
+    const bIfsc = acct.ifsc || profile.ifsc;
+    const bBranch = acct.branch || profile.branch;
+    if (bName || bAcc) {
+      bankLines.push("Company's Bank Details");
+      if (bName) bankLines.push(`Bank Name: ${bName}`);
+      if (bAcc) bankLines.push(`A/c No.: ${bAcc}`);
+      if (bIfsc) bankLines.push(`IFSC: ${bIfsc}${bBranch ? ` · ${bBranch}` : ''}`);
+    }
+  }
+
+  const leftNeedH = Math.max(34, leftFooterLines.length * 3.6 + 6);
+  const rightNeedH = Math.max(34, bankLines.length * 3.6 + 24);
+  const footerBoxH = Math.max(leftNeedH, rightNeedH);
+
+  if (y + footerBoxH > pageH - marginBottom - 6) {
+    doc.addPage();
+    y = marginTop;
+  }
+
+  setStroke();
+  doc.rect(marginX, y, boxW, footerBoxH);
+  doc.line(fMidX, y, fMidX, y + footerBoxH);
+
+  // Render full wrapped Terms & Notes on left (no clipping!)
+  let fy = y + 4;
+  leftFooterLines.forEach((item) => {
+    doc.setFont(fontFam, item.bold ? 'bold' : 'normal');
+    doc.setFontSize(item.bold ? 7.8 : 7.2);
+    doc.setTextColor(item.bold ? 15 : 51, item.bold ? 23 : 65, item.bold ? 42 : 85);
+    doc.text(item.text, marginX + 2, fy);
+    fy += 3.6;
+  });
+
+  // Render Bank Details + UPI QR + Authorized Signatory on right
+  let ry = y + 4;
+  bankLines.forEach((ln, idx) => {
+    doc.setFont(fontFam, idx === 0 ? 'bold' : 'normal');
+    doc.setFontSize(idx === 0 ? 7.8 : 7.2);
+    doc.setTextColor(15, 23, 42);
+    doc.text(ln, fMidX + 2, ry);
+    ry += 3.5;
+  });
+
+  // UPI QR Code
+  const upiId = acct.upiId || profile.upiId;
+  if (QRCodeMod && invoiceOptions.showUPI !== false && ps.showUPI !== false && upiId && grandTotal > 0) {
+    try {
+      const upiUri = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(profile.businessName || '')}&am=${grandTotal.toFixed(2)}&cu=INR`;
+      const qrUrl = await QRCodeMod.toDataURL(upiUri, { errorCorrectionLevel: 'M', margin: 0, width: 180 });
+      const qrSize = 15;
+      doc.addImage(qrUrl, 'PNG', fMidX + 2, y + footerBoxH - qrSize - 5, qrSize, qrSize);
+      doc.setFont(fontFam, 'normal');
+      doc.setFontSize(6.2);
+      doc.text('Scan to pay (UPI)', fMidX + 2, y + footerBoxH - 1.5);
+    } catch { /* skip QR on error */ }
+  }
+
+  // Authorized Signatory block
+  if (invoiceOptions.showSignature !== false && ps.signatureShow !== false) {
+    doc.setFont(fontFam, 'bold');
+    doc.setFontSize(7.5);
+    doc.text(`For ${profile.businessName || ''}`, marginX + boxW - 2, y + 4.5, { align: 'right' });
+
+    if (ps.signatureImage && String(ps.signatureImage).startsWith('data:image/')) {
+      try {
+        const sFmt = String(ps.signatureImage).includes('png') ? 'PNG' : 'JPEG';
+        doc.addImage(ps.signatureImage, sFmt, marginX + boxW - 28, y + footerBoxH - 16, 25, 10);
+      } catch { /* skip */ }
+    }
+    doc.setFont(fontFam, 'normal');
+    doc.setFontSize(7.2);
+    doc.text(ps.signatureName || 'Authorized Signatory', marginX + boxW - 2, y + footerBoxH - 2, { align: 'right' });
+  }
+
+  y += footerBoxH + 4;
+  doc.setFont(fontFam, 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(100, 116, 139);
+  doc.text('This is a Computer Generated Invoice', pageW / 2, y, { align: 'center' });
+
+  // Extra sections on subsequent pages if present
+  for (const sec of (extraSections || [])) {
+    const body = stripHtml(sec?.content || '');
+    if (!sec?.title && !body) continue;
+    doc.addPage();
+    let ey = marginTop + 4;
+    doc.setFont(fontFam, 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(String(sec.title || 'Annexure'), marginX, ey);
+    ey += 6;
+    doc.setFont(fontFam, 'normal');
+    doc.setFontSize(8.5);
+    const eLines = doc.splitTextToSize(body, boxW);
+    doc.text(eLines, marginX, ey);
+  }
+
+  // Page numbers
+  const totalPages = doc.getNumberOfPages();
+  if (ps.pageNumbersEnabled && totalPages > 1) {
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFont(fontFam, 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Page ${p} of ${totalPages}`, pageW - marginX, pageH - 4, { align: 'right' });
+    }
+  }
+
+  return doc;
+}

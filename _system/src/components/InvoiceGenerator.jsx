@@ -10,7 +10,7 @@ import { canInvoiceAgainstWO, woItemsToInvoiceItems } from '../utils/workOrder';
 import { getHsnMaster, addHsnCode, getUnitMaster } from '../utils/masterData';
 import { journalFromTaxInvoice, journalApplyCustomerAdvance } from '../utils/ledger';
 import { saveJournalIfLegacy } from '../utils/glClient';
-import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
+import { getPrintSettings, savePrintSettings, buildVectorInvoicePdf } from '../utils/printSettings';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction, promptAction } from './ConfirmModal';
 import PrintPreviewModal from './PrintPreviewModal';
@@ -23,6 +23,7 @@ import { getClientCredit, planCreditApplication } from '../utils/clientCredit';
 import ClientModal from './ClientModal';
 import { toast } from './Toast';
 import QRCode from 'qrcode';
+
 
 
 // Premium invoice helpers: currency-aware amount words without changing shared utils.
@@ -2674,58 +2675,112 @@ const validateForSave = useCallback(() => {
   // stuck at scale 1.0 until the user navigated away.
   
   /** A4 boxed/tally/saidurga: print via hidden iframe (vector page) — avoids html2canvas cropping. */
-  const printInvoiceViaIframe = () => {
-    try {
-      const node = printRef.current;
-      if (!node) throw new Error('Preview not ready');
-      const invNo = String(details?.invoiceNumber || invoiceType || 'Invoice').replace(/[\\/:*?"<>|]/g, '-');
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${invNo}</title>
-<style>
-  @page { size: A4 portrait; margin: 10mm; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  * { box-sizing: border-box; }
-</style></head><body>${node.outerHTML}</body></html>`;
-      let iframe = document.getElementById('sd-inv-print-frame');
-      if (!iframe) {
-        iframe = document.createElement('iframe');
-        iframe.id = 'sd-inv-print-frame';
-        iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
-        document.body.appendChild(iframe);
-      }
-      iframe.setAttribute('title', invNo);
-      const win = iframe.contentWindow;
-      const doc = iframe.contentDocument || win.document;
-      doc.open();
-      doc.write(html);
-      doc.close();
-      try { doc.title = invNo; } catch (_) {}
-      const prev = document.title;
-      try { document.title = invNo; } catch (_) {}
-      const restoreTitle = () => { try { document.title = prev; } catch (_) {} };
-      try { win.onafterprint = () => restoreTitle(); } catch (_) {}
-      try { window.addEventListener('afterprint', restoreTitle, { once: true }); } catch (_) {}
-      setTimeout(() => {
+  /** Sheet invoices (A4/A5/Letter/Legal): vector print/Save-as-PDF via hidden iframe — razor-sharp text, zero raster pixelation. */
+const printInvoiceViaIframe = async () => {
+  try {
+    const node = printRef.current;
+    if (!node) throw new Error('Preview not ready');
+    const ps = getPrintSettings();
+    const paperCfg = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
+    const invNo = String(details?.invoiceNumber || invoiceType || 'Invoice').replace(/[\\/:*?"<>|]/g, '-');
+    const mTop = Math.max(0, Number(ps.marginTop) || 6);
+    const mRight = Math.max(0, Number(ps.marginRight) || 6);
+    const mBottom = Math.max(0, Number(ps.marginBottom) || 6);
+    const mLeft = Math.max(0, Number(ps.marginLeft) || 6);
+    const pageSizeCss = `${paperCfg.widthMm}mm ${paperCfg.heightMm}mm`;
+
+    const collectStyles = () => {
+      const parts = [];
+      for (const sheet of Array.from(document.styleSheets)) {
         try {
-          win.focus();
-          win.print();
-          try { toast('In the print dialog: turn Headers and footers OFF', 'info'); } catch (_) {}
-        } catch (e) {
-          console.error(e);
-          restoreTitle();
-        }
-        setTimeout(restoreTitle, 60000);
-      }, 300);
-      return true;
-    } catch (e) {
-      console.warn('printInvoiceViaIframe failed', e);
-      return false;
+          const rules = sheet.cssRules;
+          if (!rules) continue;
+          for (const rule of Array.from(rules)) parts.push(rule.cssText);
+        } catch { /* skip cross-origin sheets */ }
+      }
+      return parts.join('\n');
+    };
+
+    const clone = node.cloneNode(true);
+    if (ps.pdfDarkenOnPrint !== false) clone.classList.add('printing-mode');
+    clone.style.width = '100%';
+    clone.style.maxWidth = 'none';
+    clone.style.minHeight = 'unset';
+    clone.style.margin = '0';
+    clone.style.border = 'none';
+    clone.style.boxShadow = 'none';
+    clone.style.borderRadius = '0';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${invNo}</title>
+<style>
+  ${collectStyles()}
+  @page { size: ${pageSizeCss}; margin: ${mTop}mm ${mRight}mm ${mBottom}mm ${mLeft}mm; }
+  html, body { margin: 0; padding: 0; background: #fff !important; color: #000; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #invoice-preview, .invoice-preview-container {
+    width: 100% !important; max-width: none !important; min-height: unset !important;
+    margin: 0 !important; border: none !important; box-shadow: none !important; border-radius: 0 !important;
+  }
+  .inv-table tr, .inv-footer-block, .inv-signature { break-inside: avoid; page-break-inside: avoid; }
+</style></head><body>${clone.outerHTML}</body></html>`;
+
+    let iframe = document.getElementById('sd-inv-print-frame');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'sd-inv-print-frame';
+      iframe.style.cssText = 'position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none';
+      document.body.appendChild(iframe);
     }
-  };
+    iframe.setAttribute('title', invNo);
+    const win = iframe.contentWindow;
+    const doc = iframe.contentDocument || win.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    try { doc.title = invNo; } catch (_) {}
+
+    const imgs = doc.querySelectorAll('img') || [];
+    await Promise.all(Array.from(imgs).map(img => (
+      img.complete ? Promise.resolve() : new Promise(r => { img.onload = r; img.onerror = r; setTimeout(r, 3000); })
+    )));
+
+    const prev = document.title;
+    try { document.title = invNo; } catch (_) {}
+    const restoreTitle = () => { try { document.title = prev; } catch (_) {} };
+    try { win.onafterprint = () => restoreTitle(); } catch (_) {}
+    try { window.addEventListener('afterprint', restoreTitle, { once: true }); } catch (_) {}
+
+    await new Promise(r => setTimeout(r, 150));
+    win.focus();
+    win.print();
+    setTimeout(restoreTitle, 60000);
+    return true;
+  } catch (e) {
+    console.warn('printInvoiceViaIframe failed', e);
+    return false;
+  }
+};
 
   const buildPDF = async () => {
-    const printSettings = getPrintSettings();
-    const scalerEl = printRef.current.closest('.preview-scaler');
+  const printSettings = getPrintSettings();
+  const paperCfg = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
+  const styleId = String(invoiceOptions.pdfStyle || printSettings.pdfTemplate || 'saidurga').toLowerCase();
+  if (paperCfg.kind !== 'thermal' && ['saidurga', 'tally', 'tally-v2', 'boxed', 'boxed-grid'].includes(styleId)) {
+    return await buildVectorInvoicePdf({
+      profile,
+      client,
+      details,
+      items,
+      totals,
+      invoiceType,
+      customTerms,
+      customNotes,
+      extraSections,
+      invoiceOptions,
+      printSettings,
+    });
+  }
+  const scalerEl = printRef.current.closest('.preview-scaler');
     if (scalerEl) scalerEl.style.transform = 'none';
     try {
       return await __buildPDFInner(printSettings);
@@ -2877,11 +2932,11 @@ const validateForSave = useCallback(() => {
     // We convert to canvas pixels below (× domToCanvasScale) once html2canvas
     // has returned and we know the true canvas.width.
     const collectRowBoundaries = (container) => {
-      const containerRect = container.getBoundingClientRect();
-      const nodes = container.querySelectorAll(
-        '.inv-table tbody tr, .inv-table thead tr, .inv-header, .inv-parties, ' +
-        '.inv-footer-block, .inv-totals, [data-pdf-page-boundary]'
-      );
+  const containerRect = container.getBoundingClientRect();
+  const nodes = container.querySelectorAll(
+    '.inv-table tbody tr, .inv-table thead tr, .inv-header, .inv-parties, ' +
+    '.inv-totals-section, .inv-totals, .inv-footer, .inv-footer-block, .inv-signature, .tally-box, [data-pdf-page-boundary]'
+		);
       const set = new Set([0]);
       nodes.forEach(el => {
         const r = el.getBoundingClientRect();
@@ -2999,11 +3054,14 @@ const validateForSave = useCallback(() => {
     // so aspect ratio stays correct after margins are applied.
     const scaledImgHeight = (mainCanvas.height * contentWidth) / mainCanvas.width;
 
-    if (scaledImgHeight <= contentHeightFull + 2) {
-      // Single-page fits — no cropping needed. Page 1 has no header/footer
-      // bands so we can use the full page height (no v1.10.45 reserve).
-      const mainImg = mainCanvas.toDataURL(imgFormat === 'PNG' ? 'image/png' : 'image/jpeg', jpegQuality);
-      const finalH = Math.min(scaledImgHeight, contentHeightFull);
+    // Auto-fit to 1 page if content only overflows A4 by ≤ 12% (avoids orphan signature pages)
+		const fitsSinglePage = scaledImgHeight <= contentHeightFull * 1.12;
+		if (fitsSinglePage) {
+		 const fitRatio = scaledImgHeight > contentHeightFull ? (contentHeightFull / scaledImgHeight) : 1;
+		 const finalW = contentWidth * fitRatio;
+		 const finalH = scaledImgHeight * fitRatio;
+		 const finalX = mLeft + (availWidth - finalW) / 2;
+		 const mainImg = mainCanvas.toDataURL(imgFormat === 'PNG' ? 'image/png' : 'image/jpeg', jpegQuality);
       // v1.10.33 — Thermal receipts: replace the padded 72×297mm page
       // with one exactly tall enough for the actual receipt content.
       // Prior behaviour: a 40-line receipt on thermal80 produced a PDF
@@ -3597,13 +3655,18 @@ const validateForSave = useCallback(() => {
           // Try the vector-HTML path first. If the browser blocks it
           // (returned false), silently fall through to the PDF path so
           // the user still gets a print — no surfaced error required.
-          if (isThermalPaper() && (getPrintSettings().thermalPrintMode || 'direct') === 'direct') {
-            const ok = await printThermalViaHtml();
-            if (ok) return;
-          }
-          const pdf = await buildPDF();
-          const blob = pdf.output('blob');
-          printViaIframe(blob);
+          if (isThermalPaper()) {
+		  if ((getPrintSettings().thermalPrintMode || 'direct') === 'direct') {
+			const ok = await printThermalViaHtml();
+			if (ok) return;
+		  }
+		} else {
+		  const ok = await printInvoiceViaIframe();
+		  if (ok) return;
+		}
+		const pdf = await buildPDF();
+		const blob = pdf.output('blob');
+		printViaIframe(blob);
         } catch (err) {
           console.error('Print failed', err);
           toast('Print failed — try Download PDF instead', 'error');
