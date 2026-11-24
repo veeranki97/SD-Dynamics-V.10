@@ -2764,8 +2764,7 @@ const printInvoiceViaIframe = async () => {
   const buildPDF = async () => {
   const printSettings = getPrintSettings();
   const paperCfg = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
-  const styleId = String(invoiceOptions.pdfStyle || printSettings.pdfTemplate || 'saidurga').toLowerCase();
-  if (paperCfg.kind !== 'thermal' && ['saidurga', 'tally', 'tally-v2', 'boxed', 'boxed-grid'].includes(styleId)) {
+  if (paperCfg.kind !== 'thermal') {
     return await buildVectorInvoicePdf({
       profile,
       client,
@@ -3656,17 +3655,14 @@ const printInvoiceViaIframe = async () => {
           // (returned false), silently fall through to the PDF path so
           // the user still gets a print — no surfaced error required.
           if (isThermalPaper()) {
-		  if ((getPrintSettings().thermalPrintMode || 'direct') === 'direct') {
-			const ok = await printThermalViaHtml();
-			if (ok) return;
-		  }
-		} else {
-		  const ok = await printInvoiceViaIframe();
-		  if (ok) return;
-		}
-		const pdf = await buildPDF();
-		const blob = pdf.output('blob');
-		printViaIframe(blob);
+			  if ((getPrintSettings().thermalPrintMode || 'direct') === 'direct') {
+				const ok = await printThermalViaHtml();
+				if (ok) return;
+			  }
+			}
+			const pdf = await buildPDF();
+			const blob = pdf.output('blob');
+			printViaIframe(blob);
         } catch (err) {
           console.error('Print failed', err);
           toast('Print failed — try Download PDF instead', 'error');

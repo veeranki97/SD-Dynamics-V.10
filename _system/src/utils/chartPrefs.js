@@ -45,7 +45,11 @@ export function getChartPrefs() {
   }
 }
 
-/** Used by ChartSettingsPanel.jsx — must remain exported */
+/**
+ * Save chart prefs to localStorage AND server meta.
+ * Server copy is required so settings survive port changes (each port is a
+ * different browser origin → empty localStorage).
+ */
 export function setChartPrefs(patch) {
   const next = { ...getChartPrefs(), ...patch };
   try {
@@ -53,6 +57,15 @@ export function setChartPrefs(patch) {
   } catch { /* ignore */ }
   try {
     window.dispatchEvent(new CustomEvent('sd-chart-prefs-changed', { detail: next }));
+  } catch { /* ignore */ }
+  // Persist to SQLite/meta so a new port can rehydrate
+  try {
+    fetch('/api/meta/chartPrefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ value: next }),
+    }).catch(() => {});
   } catch { /* ignore */ }
   return next;
 }
@@ -69,4 +82,25 @@ export function chartColor(nameOrTheme) {
   if (Array.isArray(v)) return v[0];
   if (typeof v === 'string') return v;
   return '#3b82f6';
+}
+
+/** Load chart prefs from server meta into localStorage (same KEY as get/set). */
+export async function hydrateChartPrefsFromServer() {
+  try {
+    const res = await fetch('/api/meta/chartPrefs', { cache: 'no-store', credentials: 'same-origin' });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const value = body && body.value;
+    if (!value || typeof value !== 'object') return null;
+    let local = {};
+    try { local = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (_) {}
+    // Server wins for known keys so port-hop restores last saved settings
+    const merged = { ...DEFAULTS, ...local, ...value };
+    localStorage.setItem(KEY, JSON.stringify(merged));
+    try { window.dispatchEvent(new CustomEvent('sd-chart-prefs-hydrated', { detail: merged })); } catch (_) {}
+    try { window.dispatchEvent(new CustomEvent('sd-chart-prefs-changed', { detail: merged })); } catch (_) {}
+    return merged;
+  } catch (_) {
+    return null;
+  }
 }

@@ -17,7 +17,7 @@ import { toast } from './Toast';
 import ActionMenu from './ActionMenu';
 import { sendMailSmart, loadEmailTemplates, resolveEmailTemplate } from '../utils/openMail';
 import { getHsnMaster, getUnitMaster } from '../utils/masterData';
-import { getPrintSettings } from '../utils/printSettings';
+import { getPrintSettings, buildVectorPurchaseOrderPdf } from '../utils/printSettings';
 
 
 /** React cannot render objects as children — site/vendor may be {name,address,gstin}. */
@@ -109,6 +109,42 @@ async function sha256Hex(text) {
 }
 
 const DEFAULT_PO_TERMS = '1. Please quote PO number on all invoices and delivery challans.\n2. Goods/services subject to inspection and approval.\n3. Payment as per agreed terms.';
+
+async function downloadVectorPO(po, profile, clientsList) {
+  const list = Array.isArray(clientsList) ? clientsList : [];
+  const vKey = String(po.vendorId || po.vendorName || po.vendor || '').toLowerCase().trim();
+  const vMatch = list.find(c =>
+    String(c.id || '').toLowerCase() === vKey ||
+    String(c.name || c.businessName || '').toLowerCase() === vKey
+  ) || {};
+
+  const cKey = String(po.clientId || po.shipToName || po.clientName || '').toLowerCase().trim();
+  const cMatch = list.find(c =>
+    String(c.id || '').toLowerCase() === cKey ||
+    String(c.name || c.businessName || '').toLowerCase() === cKey
+  ) || {};
+
+  const t = calcPOTotals(po.items, po.taxRate, po.vendorState || vMatch.state, profile?.state);
+  const enrichedPo = {
+    ...po,
+    vendorName: po.vendorName || po.vendor || vMatch.name || vMatch.businessName || '',
+    vendorGstin: po.vendorGstin || vMatch.gstin || '',
+    vendorPhone: po.vendorPhone || vMatch.phone || vMatch.mobile || '',
+    vendorAddress: po.vendorAddress || [vMatch.address, vMatch.city, vMatch.state, vMatch.pin || vMatch.pincode].filter(Boolean).join(', '),
+    shipToName: po.shipToName || po.clientName || cMatch.name || profile?.businessName || '',
+    site: asText(po.shipToSite) || asText(po.site) || 'Main Site',
+    deliveryAddress: po.deliveryAddress || po.shipToAddress || [cMatch.address, cMatch.city, cMatch.state, cMatch.pin || cMatch.pincode].filter(Boolean).join(', '),
+    subject: po.subject || po.title || (po.items?.[0]?.description || ''),
+    terms: (po.terms && String(po.terms).trim()) ? po.terms : (profile?.defaultTerms || DEFAULT_PO_TERMS),
+    subtotal: t.sub,
+    taxAmount: t.gst,
+    totalAmount: t.total,
+  };
+
+  const doc = await buildVectorPurchaseOrderPdf({ po: enrichedPo, profile: profile || {}, printSettings: getPrintSettings() });
+  const fileName = `${String(po.poNumber || po.id || 'PO').replace(/[/\\:*?"<>|]+/g, '-')}.pdf`;
+  doc.save(fileName);
+}
 
 function printPO(po, profile, fingerprint, clientsList) {
   let sigSrc = '';
@@ -711,10 +747,6 @@ useEffect(() => {
       toast('Subcontract PO requires a linked Work Order', 'error');
       return;
     }
-    if (false && form.isSubcontract && !(form.workOrderId || form.workOrderNumber)) {
-      toast('Subcontract PO must link a client Work Order / Project', 'error');
-      return;
-    }
 
       await savePurchaseOrder(payload, { overwrite: true, action: isNewPo ? 'create' : 'update' });
       try {
@@ -1141,7 +1173,6 @@ useEffect(() => {
         </thead>
         <tbody>
           {filteredList.map(po => {
-            // Compute billing status using the same calcWOUsage-style pattern
             const poNum = (po.poNumber || '').trim().toLowerCase();
             const matchingPurchases = (purchases || []).filter(p => {
               const lp = String(p.linkedPO ?? '').trim().toLowerCase();
@@ -1160,7 +1191,6 @@ useEffect(() => {
             }
 
             const handleCreateBill = () => {
-              // Map PO items to Purchase Bill items schema: { name, hsn, quantity, rate, taxPercent, cessPercent }
               const billItems = (po.items || []).map(it => ({
                 name: it.description || it.name || '',
                 hsn: it.hsn || '',
@@ -1209,7 +1239,8 @@ useEffect(() => {
                     { label: 'Create Bill', onClick: handleCreateBill },
                     { label: 'Edit', onClick: () => setForm({ ...po, terms: po.terms || DEFAULT_PO_TERMS, subject: po.subject || po.title || '' }) },
                     { label: 'Copy', onClick: () => setForm({ ...po, id: undefined, poNumber: '' }) },
-                    { label: 'Print / PDF', onClick: () => { try { printPO(po, profile || {}, po.fingerprint, clients); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
+                    { label: 'Download PDF', onClick: async () => { try { await downloadVectorPO(po, profile || {}, clients); toast('PO PDF downloaded', 'success'); } catch (err) { console.error(err); toast('Failed to generate PO PDF', 'error'); } } },
+                    { label: 'Print (Browser)', onClick: () => { try { printPO(po, profile || {}, po.fingerprint, clients); } catch (err) { console.error(err); try { toast('Print failed', 'error'); } catch (_) {} } } },
                     { label: 'Email vendor', onClick: async () => {
                       const v = (vendors || []).find(x => x.id === po.vendorId || x.name === po.vendorName) || {};
                       const to = (v.email || po.vendorEmail || '').trim();
@@ -1244,7 +1275,7 @@ ${vars.companyName}`,
                         subject: resolved.subject,
                         body: resolved.body,
                         allowGmailFallback: true,
-                      })
+                      });
                       if (r?.ok) toast(r.via === 'smtp' ? 'Email sent' : 'Mail client opened', 'success');
                       else if (!r?.cancelled) toast(r?.error || 'Email failed', 'error');
                     } },

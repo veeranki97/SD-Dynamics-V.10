@@ -1,8 +1,4 @@
-import { useState, useEffect, useMemo, createElement } from 'react';
-import { createRoot } from 'react-dom/client';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
-import InvoicePreview from './InvoicePreview';
+import { useState, useEffect, useMemo } from 'react';
 import DashboardCharts from './DashboardCharts';
 import DashboardHomeExtras from './DashboardHomeExtras';
 import DashboardHomeLayout from './DashboardHomeLayout';
@@ -22,6 +18,7 @@ import { createSesFollowUpFromBill } from '../utils/sesTasks';
 import { runWorkflowRules } from './WorkflowRulesView';
 import { billsToSdCsv, downloadSdExport } from '../utils/sdExport';
 import { confirmAction, promptAction } from './ConfirmModal';
+import { buildVectorInvoicePdf, getPrintSettings } from '../utils/printSettings';
 
 // v1.10.13 — `bg` values switched from opaque tints (#fffbeb / #f5f3ff /
 // etc.) to translucent alpha versions of the accent color. Reason:
@@ -1308,10 +1305,30 @@ const openPaymentModal = (bill) => {
     toast(`Exported ${sel.length} invoice${sel.length !== 1 ? 's' : ''} as JSON`, 'success');
   };
 
+  // VECTOR PDF (selectable text, sharp at any zoom, ~30-80 KB instead of a 300 KB+ photo).
+  // Replaces the old InvoicePreview -> html2canvas -> addImage pipeline, which produced a PDF that
+  // was just one picture of the page. Pass `doc` to append to an existing jsPDF (bulk export).
+  const buildBillVectorDoc = async (bill, doc = null) => {
+    const data = bill.data || {};
+    return buildVectorInvoicePdf({
+      profile: data.profile || profile || {},
+      client: data.client || { name: bill.clientName },
+      details: data.details || { invoiceNumber: bill.invoiceNumber },
+      items: data.items || [],
+      totals: data.totals || { total: bill.totalAmount, grandTotal: bill.totalAmount },
+      invoiceType: data.invoiceType || bill.invoiceType || 'tax-invoice',
+      customTerms: data.customTerms,
+      customNotes: data.customNotes,
+      extraSections: data.extraSections || [],
+      invoiceOptions: { ...(data.invoiceOptions || {}), paidAmount: Number(bill?.paidAmount ?? data.paidAmount ?? 0) || 0 },
+      printSettings: getPrintSettings(),
+      doc,
+    });
+  };
+
   // Bulk PDF export — feature C from the v1.6.7 audit ("All March invoices
-   // as one zip"). Renders each selected bill through the existing
-   // InvoicePreview → jsPDF pipeline (see openBillPDF in this file's edit
-   // handler) and stitches them into a single multi-page PDF. Zip would be
+   // as one zip"). Builds each selected bill with the native vector builder
+   // (buildVectorInvoicePdf) and stitches them into a single multi-page PDF. Zip would be
    // cleaner but pulling in JSZip inflates the bundle by ~140KB; one big
    // PDF is what CAs want anyway (one file to archive).
   // v1.10.35 — `billsOverride` skips the selectedIds read entirely. Used
@@ -1333,67 +1350,30 @@ const openPaymentModal = (bill) => {
     })) return;
     setBulkBusy(true);
     try {
-      /* jsPDF static */
-      /* html2canvas static */
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-      // Build each bill in a hidden container, snap it, add as a page.
-      // Reuses InvoicePreview via a dynamic import so its CSS + fonts
-      // are hydrated once, then reused for each iteration.
-      const InvoicePreviewMod = { default: InvoicePreview };
-      /* createRoot static */
-      /* createElement static */
-      const container = document.createElement('div');
-      container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
-      document.body.appendChild(container);
-      const root = createRoot(container);
-      // v1.10.3 — Audit H18/H19: bulk export used to freeze the tab
-      // silently (no progress UI). On a 3× DPR Android, scale went to
-      // 4.5× → 16MP canvas per invoice × 50 invoices retained as JPEG
-      // data URLs = OOM before doc.save() fired. Now: capped scale,
-      // per-invoice progress toast, immediate abort via
-      // window.__fgsbBulkAbort.
-      const capScale = Math.min(4, Math.max(2, Math.round((window.devicePixelRatio || 1) * 1.2)));
-      if (document.fonts && document.fonts.ready) {
-        try { await document.fonts.ready; } catch { /* non-fatal */ }
-      }
+      // One vector PDF; every invoice is appended as its own page(s).
+      let doc = null;
+      let firstErr = null;
       window.__fgsbBulkAbort = false;
       let ok = 0;
       for (let i = 0; i < sel.length; i++) {
         if (window.__fgsbBulkAbort) break;
         const bill = sel[i];
-        const data = bill.data || {};
-        // Progress every 5 invoices (or every one for very small batches).
         if (sel.length > 5 && (i % 5 === 0)) {
           toast(`Exporting ${i + 1} of ${sel.length}…`, 'info', 1500);
         }
-        await new Promise((resolve) => {
-          root.render(createElement(InvoicePreviewMod.default, {
-            profile: data.profile, client: data.client, details: data.details, items: data.items,
-            totals: data.totals, invoiceType: data.invoiceType, customTerms: data.customTerms,
-            customNotes: data.customNotes, extraSections: data.extraSections, options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
-          }));
-          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
-        });
         try {
-          const canvas = await html2canvas(container.firstElementChild || container, {
-            scale: capScale,
-            backgroundColor: '#ffffff', useCORS: false, logging: false,
-          });
-          const img = canvas.toDataURL('image/png');
-          const w = 210, h = (canvas.height * 210) / canvas.width;
-          if (ok > 0) doc.addPage();
-          doc.addImage(img, 'PNG', 0, 0, w, Math.min(h, 297), undefined, 'FAST');
+          doc = await buildBillVectorDoc(bill, doc);
           ok++;
-        } catch (e) { /* skip broken bill silently */ }
-        // Yield to the event loop between invoices so the browser can
-        // paint the progress toast and handle any user click on Abort.
+        } catch (e) {
+          if (!firstErr) firstErr = e;
+          console.error('bulkExportPDF: skipped', bill?.invoiceNumber || bill?.id, e);
+        }
+        // Yield so the progress toast can paint and Abort can be clicked.
         await new Promise(r => setTimeout(r, 0));
       }
-      root.unmount();
-      document.body.removeChild(container);
       if (window.__fgsbBulkAbort) { toast(`Aborted after ${ok} of ${sel.length}`, 'warning'); }
       window.__fgsbBulkAbort = false;
-      if (ok === 0) { toast('Could not generate any PDFs', 'error'); return; }
+      if (ok === 0) { toast('Could not generate any PDFs' + (firstErr ? ': ' + (firstErr.message || firstErr) : ''), 'error', 8000); return; }
       const safeInv = (b) => String((b && (b.invoiceNumber || b.data?.details?.invoiceNumber || b.id)) || 'invoice').replace(/[/\\]+/g, '-');
       let filename;
       if (ok === 1 && sel.length >= 1) {
@@ -1436,38 +1416,8 @@ const openPaymentModal = (bill) => {
   // actual PDF via navigator.share (with a text-only URL fallback on
   // desktop / browsers that don't support file sharing yet).
   const generateSingleBillPdfBlob = async (bill) => {
-    const data = bill.data || {};
-    /* jsPDF static */
-    /* html2canvas static */
-    const InvoicePreviewMod = { default: InvoicePreview };
-    /* createRoot static */
-    /* createElement static */
-    const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;';
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    try {
-      await new Promise((resolve) => {
-        root.render(createElement(InvoicePreviewMod.default, {
-          profile: data.profile, client: data.client, details: data.details, items: data.items,
-          totals: data.totals, invoiceType: data.invoiceType, customTerms: data.customTerms,
-          customNotes: data.customNotes, extraSections: data.extraSections, options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
-        }));
-        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
-      });
-      const capScale = Math.min(4, Math.max(2, Math.round((window.devicePixelRatio || 1) * 1.2)));
-      const canvas = await html2canvas(container.firstElementChild || container, {
-        scale: Math.min(capScale || 3, 4), backgroundColor: '#ffffff', useCORS: false, logging: false, imageTimeout: 0,
-      });
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-      const img = canvas.toDataURL('image/png');
-      const h = (canvas.height * 210) / canvas.width;
-      doc.addImage(img, 'PNG', 0, 0, 210, Math.min(h, 297), undefined, 'FAST');
-      return doc.output('blob');
-    } finally {
-      root.unmount();
-      document.body.removeChild(container);
-    }
+    const doc = await buildBillVectorDoc(bill);
+    return doc.output('blob');
   };
 
   // v1.10.24 — Build a rich WhatsApp / Email caption that carries the full
@@ -1555,58 +1505,17 @@ const openPaymentModal = (bill) => {
   const generateInvoicePdfBase64 = async (bill) => {
     if (!bill) return null;
     const data = bill.data || {};
-    const container = document.createElement('div');
-    container.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;z-index:-1;';
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    try {
-      if (document.fonts && document.fonts.ready) {
-        try { await document.fonts.ready; } catch { /* */ }
-      }
-      await new Promise((resolve) => {
-        root.render(createElement(InvoicePreview, {
-          profile: data.profile || {},
-          client: data.client || { name: bill.clientName },
-          details: data.details || { invoiceNumber: bill.invoiceNumber },
-          items: data.items || [],
-          totals: data.totals || { grandTotal: bill.totalAmount },
-          invoiceType: data.invoiceType || bill.invoiceType || 'tax-invoice',
-          customTerms: data.customTerms,
-          customNotes: data.customNotes,
-          extraSections: data.extraSections,
-          options: { ...(data.invoiceOptions || {}), paidAmount: Number((typeof bill !== 'undefined' && bill?.paidAmount) ?? data.paidAmount ?? 0) || 0 },
-        }));
-        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 450)));
-      });
-      const el = container.firstElementChild || container;
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-        windowWidth: 794,
-      });
-      if (!canvas || canvas.width < 10) throw new Error('PDF canvas empty');
-      const img = canvas.toDataURL('image/jpeg', 0.82);
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-      const w = 210;
-      const h = (canvas.height * 210) / canvas.width;
-      doc.addImage(img, 'JPEG', 0, 0, w, Math.min(h, 297), undefined, 'MEDIUM');
-      const ab = doc.output('arraybuffer');
-      const bytes = new Uint8Array(ab);
-      let binary = '';
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-      }
-      const b64 = btoa(binary);
-      if (!b64 || b64.length < 200) throw new Error('PDF base64 too small (' + (b64 || '').length + ')');
-      const inv = String(bill.invoiceNumber || data.details?.invoiceNumber || bill.id || 'invoice').replace(/[\/\\?%*:|"<>]+/g, '-');
-      return { base64: b64, filename: inv + '.pdf', bytes: bytes.length };
-    } finally {
-      try { root.unmount(); } catch { /* */ }
-      try { document.body.removeChild(container); } catch { /* */ }
+    const doc = await buildBillVectorDoc(bill);
+    const bytes = new Uint8Array(doc.output('arraybuffer'));
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
     }
+    const b64 = btoa(binary);
+    if (!b64 || b64.length < 200) throw new Error('PDF base64 too small (' + (b64 || '').length + ')');
+    const inv = String(bill.invoiceNumber || data.details?.invoiceNumber || bill.id || 'invoice').replace(/[\/\\?%*:|"<>]+/g, '-');
+    return { base64: b64, filename: inv + '.pdf', bytes: bytes.length };
   };
 
     const shareEmail = async (bill) => {

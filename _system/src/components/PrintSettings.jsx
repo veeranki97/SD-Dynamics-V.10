@@ -267,6 +267,23 @@ export default function PrintSettings() {
 
   useEffect(() => { getProfile().then(setProfile).catch(() => {}); }, []);
 
+  useEffect(() => {
+    const onHydrated = (e) => {
+      if (e?.detail) {
+        setSettings(prev => ({
+          ...prev,
+          ...e.detail,
+          customPrefixes: {
+            ...(prev.customPrefixes || {}),
+            ...(e.detail.customPrefixes || {}),
+          },
+        }));
+      }
+    };
+    window.addEventListener('sd-print-settings-hydrated', onHydrated);
+    return () => window.removeEventListener('sd-print-settings-hydrated', onHydrated);
+  }, []);
+
   const set = (patch) => {
     const next = { ...settings, ...patch };
     setSettings(next);

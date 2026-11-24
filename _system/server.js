@@ -2219,6 +2219,18 @@ globalThis.__sdEnforceAppLock = function sdEnforceAppLock(req, res, next) {
       return next();
     }
   }
+  // Allow READ of non-secret UI prefs before PIN unlock so a new browser
+  // origin (port change) can rehydrate print/chart settings from disk.
+  // Writes still require unlock when lock is active.
+  if (req.method === 'GET' && (
+    p === '/api/meta/printSettings' ||
+    p === '/api/meta/chartPrefs' ||
+    p === '/api/meta/email-templates' ||
+    p === '/api/meta/emailTemplates' ||
+    p === '/api/meta/invoiceNumberSettings'
+  )) {
+    return next();
+  }
   if (!isAppLockActive()) return next();
   const token = readSessionToken(req);
   if (token && touchSession(token)) return next();

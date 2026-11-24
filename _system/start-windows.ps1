@@ -82,9 +82,13 @@ if (Test-Path $portFile) {
 # Is our server already up on that port?
 function TestServerUp {
   param([int]$p)
+  # IMPORTANT: use /api/health (public). /api/profile returns 401 when PIN lock
+  # is enabled and there is no session cookie — that made the launcher think
+  # the server was down, spawn a second node, and jump ports.
   try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:$p/api/profile" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop | Out-Null
-    return $true
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:$p/api/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+    if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 500) { return $true }
+    return $false
   } catch { return $false }
 }
 

@@ -1,5 +1,6 @@
 import { loadMasterDataFromServer } from './utils/masterData';
 import { hydratePrintSettingsFromServer } from './utils/printSettings';
+import { hydrateChartPrefsFromServer } from './utils/chartPrefs';
 import HrmView from './components/HrmView';
 import DataExportView from './components/DataExportView';
 import ActivityLogView from './components/ActivityLogView';
@@ -354,8 +355,14 @@ function App() {
   const setUnlocked = (v) => {
     setAppUnlocked(!!v);
     try {
-      if (v) sessionStorage.setItem(PIN_SESSION_KEY, '1');
-      else {
+      if (v) {
+        sessionStorage.setItem(PIN_SESSION_KEY, '1');
+        // After unlock (or new port + PIN), pull settings from disk meta into this origin's localStorage
+        setTimeout(() => {
+          hydratePrintSettingsFromServer().catch(() => {});
+          hydrateChartPrefsFromServer().catch(() => {});
+        }, 50);
+      } else {
         sessionStorage.removeItem(PIN_SESSION_KEY);
         sessionStorage.removeItem('sd_session_token');
         fetch('/api/app-lock/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
@@ -729,6 +736,7 @@ function App() {
 
   useEffect(() => {
     hydratePrintSettingsFromServer().catch(() => {});
+    hydrateChartPrefsFromServer().catch(() => {});
     try { loadMasterDataFromServer && loadMasterDataFromServer(); } catch (e) { }
   }, []);
 

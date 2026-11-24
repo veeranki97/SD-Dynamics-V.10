@@ -570,11 +570,13 @@ export default function SettingsView({ onSaved }) {
   };
 
   useEffect(() => {
-    getProfile().then((p) => {
-      setProfile(p);
-      savedProfileRef.current = JSON.stringify(p);
-    }).catch(() => {}).finally(() => setProfileLoaded(true));
-    loadTemplates();
+  import('../utils/printSettings').then(m => m.hydratePrintSettingsFromServer?.()).catch(() => {});
+  import('../utils/chartPrefs').then(m => m.hydrateChartPrefsFromServer?.()).catch(() => {});
+  getProfile().then((p) => {
+    setProfile(p);
+    savedProfileRef.current = JSON.stringify(p);
+  }).catch(() => {}).finally(() => setProfileLoaded(true));
+  loadTemplates();
     loadBusinessProfiles();
     setDriveConnected(isConnected());
     getInvoiceNumberSettings().then((v) => {

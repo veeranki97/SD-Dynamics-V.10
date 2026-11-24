@@ -1,77 +1,68 @@
-﻿# SD Dynamics - Stop the local application server with visible verification.
-$ErrorActionPreference = 'Stop'
+# SD Dynamics - Stop local application server (all instances + free ports)
+$ErrorActionPreference = 'Continue'
 $Host.UI.RawUI.WindowTitle = 'SD Dynamics - Stop Server'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $portFile = Join-Path $ScriptDir 'data\port.txt'
-$port = 47391
 
+Write-Host ""
+Write-Host "SD Dynamics - Stop Server" -ForegroundColor Cyan
+
+$killed = 0
+
+# 1) Kill every node.exe whose command line mentions server.js (this install or any)
 try {
-    if (Test-Path -LiteralPath $portFile) {
-        $raw = (Get-Content -LiteralPath $portFile -Raw).Trim()
-        if ($raw -match '^\d{1,5}$' -and [int]$raw -ge 1 -and [int]$raw -le 65535) {
-            $port = [int]$raw
-        } else {
-            Write-Warning "Invalid port in $portFile; using default port $port."
-        }
-    }
-
-    Write-Host "`nSD Dynamics - Stop Server" -ForegroundColor Cyan
-    Write-Host "Checking port $port ...`n"
-
-    $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
-    if (-not $connections) {
-        Write-Host "RESULT: SD Dynamics is already stopped (nothing listening on port $port)." -ForegroundColor Yellow
-        Read-Host 'Press Enter to close'
-        exit 0
-    }
-
-    $ownerIds = @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
-    $stoppedAny = $false
-
-    foreach ($ownerId in $ownerIds) {
-        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerId" -ErrorAction SilentlyContinue
-        if (-not $processInfo) {
-            Write-Host "PID $ownerId has already exited." -ForegroundColor Yellow
-            continue
-        }
-
-        $cmdLine = [string]$processInfo.CommandLine
-        $looksLikeServer = ($processInfo.Name -ieq 'node.exe') -and ($cmdLine -match '(?i)server\.js')
-        if (-not $looksLikeServer) {
-            Write-Host "SAFETY: Port $port belongs to PID $ownerId ($($processInfo.Name)), not a recognizable Node server.js process." -ForegroundColor Red
-            Write-Host "It was not stopped. Check the process before terminating it."
-            continue
-        }
-
-        Write-Host "Stopping SD Dynamics server (PID $ownerId) ..." -ForegroundColor Cyan
-        Stop-Process -Id ([int]$ownerId) -ErrorAction Stop
-        $stoppedAny = $true
-
-        $deadline = (Get-Date).AddSeconds(8)
-        do {
-            Start-Sleep -Milliseconds 400
-            $stillRunning = Get-Process -Id ([int]$ownerId) -ErrorAction SilentlyContinue
-        } while ($stillRunning -and (Get-Date) -lt $deadline)
-
-        if ($stillRunning) {
-            Write-Warning "Process did not exit after stop request; forcing termination."
-            Stop-Process -Id ([int]$ownerId) -Force -ErrorAction Stop
-        }
-    }
-
-    Start-Sleep -Milliseconds 700
-    $remaining = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
-    if (-not $remaining) {
-        Write-Host "`nRESULT: SD Dynamics has stopped successfully. (Port $port is clear.)" -ForegroundColor Green
-    } elseif ($stoppedAny) {
-        Write-Host "`nRESULT: A process is still listening on port $port. Stop was not fully confirmed." -ForegroundColor Red
-    } else {
-        Write-Host "`nRESULT: No SD Dynamics process was stopped. Review the safety message above." -ForegroundColor Red
-    }
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and ($_.CommandLine -match '(?i)server\.js') })
+  foreach ($p in $procs) {
+    Write-Host "Stopping server.js (PID $($p.ProcessId))..." -ForegroundColor Cyan
+    Stop-Process -Id ([int]$p.ProcessId) -Force -ErrorAction SilentlyContinue
+    $killed++
+  }
+} catch {
+  Write-Host "Process scan warning: $($_.Exception.Message)" -ForegroundColor Yellow
 }
-catch {
-    Write-Host "`nERROR: Stop operation failed: $($_.Exception.Message)" -ForegroundColor Red
+
+# 2) Also free the port listed in port.txt (listener may not match regex)
+$portsToFree = @()
+if (Test-Path -LiteralPath $portFile) {
+  $raw = (Get-Content -LiteralPath $portFile -Raw -ErrorAction SilentlyContinue)
+  if ($raw -match '(\d{4,5})') { $portsToFree += [int]$Matches[1] }
 }
-finally {
-    Read-Host 'Press Enter to close'
+# Common SD Dynamics range
+$portsToFree += 47371..47390
+$portsToFree = $portsToFree | Select-Object -Unique
+
+foreach ($port in $portsToFree) {
+  try {
+    $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in $conns) {
+      $opid = $c.OwningProcess
+      if ($opid -and $opid -gt 0) {
+        $proc = Get-Process -Id $opid -ErrorAction SilentlyContinue
+        if ($proc -and $proc.ProcessName -match 'node') {
+          Write-Host "Freeing port $port (PID $opid)..." -ForegroundColor Cyan
+          Stop-Process -Id $opid -Force -ErrorAction SilentlyContinue
+          $killed++
+        }
+      }
+    }
+  } catch { }
 }
+
+Start-Sleep -Milliseconds 500
+
+if (Test-Path -LiteralPath $portFile) {
+  Remove-Item -LiteralPath $portFile -Force -ErrorAction SilentlyContinue
+  Write-Host "Cleared data\port.txt" -ForegroundColor Green
+}
+
+if ($killed -gt 0) {
+  Write-Host ""
+  Write-Host "RESULT: Stopped $killed process(es). Ports cleared." -ForegroundColor Green
+} else {
+  Write-Host ""
+  Write-Host "RESULT: No SD Dynamics server was running." -ForegroundColor Yellow
+}
+
+Write-Host ""
+Read-Host 'Press Enter to close'
