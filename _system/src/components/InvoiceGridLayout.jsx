@@ -40,7 +40,7 @@ export function filledOrderDetails(details = {}) {
   return fields.filter((f) => f.value != null && String(f.value).trim() !== '');
 }
 
-const LINE = '#1f2937';
+const LINE = '#111827'; // darker so vector/print borders stay visible
 const B = `1px solid ${LINE}`;
 const cell = { border: B, padding: '4px 6px', verticalAlign: 'top' };
 const th = { ...cell, fontWeight: 700, textAlign: 'center', background: '#f3f4f6' };

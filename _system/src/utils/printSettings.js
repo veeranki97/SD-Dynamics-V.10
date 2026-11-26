@@ -672,9 +672,11 @@ export async function buildVectorInvoicePdf({
     }
   } catch { /* fallback empty */ }
 
-  const setStroke = (w = 0.28) => {
-    doc.setDrawColor(30, 41, 59);
-    doc.setLineWidth(w);
+  // Always reset stroke colour before any line/rect (jsPDF keeps last drawColour —
+  // signature block uses green and used to leave later borders invisible/wrong).
+  const setStroke = (w = 0.35) => {
+    doc.setDrawColor(31, 41, 55); // #1f2937 — matches on-screen InvoiceGridLayout LINE
+    doc.setLineWidth(Math.max(0.25, Number(w) || 0.35));
   };
 
   // Helper: Draw Signature + Digital Verification Box
@@ -721,6 +723,8 @@ export async function buildVectorInvoicePdf({
       doc.setTextColor(15, 23, 42);
       doc.text(ps.signatureName || 'Authorised Signatory', rightX, sigBoxY + sigBoxH + 3.8, { align: 'right' });
     }
+    // Green digital-signature box leaves drawColour green; restore for following borders
+    setStroke(0.35);
   };
 
   // Helper: Draw UPI QR Code
@@ -737,6 +741,7 @@ export async function buildVectorInvoicePdf({
       doc.setTextColor(51, 65, 85);
       doc.text(`UPI: ${upiId}`, x + size + 2, yPos + 5);
       doc.text(`Scan to pay (${curSym} ${fmtAmt(grandTotal)})`, x + size + 2, yPos + 9);
+      setStroke(0.35);
       return true;
     } catch { return false; }
   };
@@ -756,7 +761,7 @@ export async function buildVectorInvoicePdf({
   // TEMPLATE 1: SAI DURGA & BOXED GRID (Matches InvoicePreview Sai Durga / Boxed)
   // ==========================================================================
   if (style === 'saidurga' || style === 'boxed') {
-    const borderW = style === 'boxed' ? 0.45 : 0.35;
+    const borderW = style === 'boxed' ? 0.55 : 0.42;
 
     // 1. Centered Company + Document Banner Box
     let bannerH = 9;
@@ -1047,7 +1052,7 @@ export async function buildVectorInvoicePdf({
       };
 
       let cx = marginX;
-      setStroke(0.2);
+      setStroke(borderW * 0.75);
       doc.line(marginX, y + rH, marginX + boxW, y + rH);
       cols.forEach((c) => {
         doc.setFont(fontFam, c.key === 'total' ? 'bold' : 'normal');
@@ -1063,7 +1068,7 @@ export async function buildVectorInvoicePdf({
     if (style === 'boxed' && validItems.length < 4) {
       const fillCount = 4 - validItems.length;
       for (let f = 0; f < fillCount; f++) {
-        setStroke(0.2);
+        setStroke(borderW * 0.75);
         doc.line(marginX, y + 6, marginX + boxW, y + 6);
         y += 6;
       }
@@ -1435,7 +1440,7 @@ export async function buildVectorInvoicePdf({
         x0 += c.w;
       });
       if (!style.includes('tally')) {
-        doc.setDrawColor(226, 232, 240);
+        setStroke(0.28);
         doc.line(marginX, y + rH, marginX + boxW, y + rH);
       }
       y += rH;

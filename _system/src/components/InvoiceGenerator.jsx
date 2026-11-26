@@ -2721,6 +2721,21 @@ const printInvoiceViaIframe = async () => {
     width: 100% !important; max-width: none !important; min-height: unset !important;
     margin: 0 !important; border: none !important; box-shadow: none !important; border-radius: 0 !important;
   }
+  /* Vector print: keep ruled borders (screen layout uses inline borders; some
+     browsers drop light/theme borders without print-color-adjust). */
+  .grid-inv, .grid-inv-boxed, .grid-inv-tally {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .grid-inv table, .grid-inv td, .grid-inv th,
+  .inv-table, .inv-table td, .inv-table th {
+    border-color: #1f2937 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .grid-inv [style*="border"] {
+    border-color: #1f2937 !important;
+  }
   .inv-table tr, .inv-footer-block, .inv-signature { break-inside: avoid; page-break-inside: avoid; }
 </style></head><body>${clone.outerHTML}</body></html>`;
 
