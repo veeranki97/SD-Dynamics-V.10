@@ -243,7 +243,7 @@ const DEFAULT_OPTIONS = {
   selectedAccountId: null,   // null ⇒ resolve via last-used / default / first-active at render time
   showAccountLabel: false,   // when true, prints "Pay via: <account label>" above the bank block
   accentColor: '',
-  pdfStyle: 'saidurga',
+  pdfStyle: '',  // empty → Print Settings pdfTemplate (boxed/tally)
   // v1.10.22 — invoice-level (whole-bill) discount. Treated as a cash
   // discount / trade allowance applied AFTER tax. Doesn't affect the
   // GSTR-1 taxable value (which per Section 15(3) requires pre-supply
@@ -2777,24 +2777,29 @@ const printInvoiceViaIframe = async () => {
 };
 
   const buildPDF = async () => {
-  const printSettings = getPrintSettings();
-  const paperCfg = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
-  if (paperCfg.kind !== 'thermal') {
-    return await buildVectorInvoicePdf({
-      profile,
-      client,
-      details,
-      items,
-      totals,
-      invoiceType,
-      customTerms,
-      customNotes,
-      extraSections,
-      invoiceOptions,
-      printSettings,
-    });
-  }
-  const scalerEl = printRef.current.closest('.preview-scaler');
+    const printSettings = getPrintSettings();
+    const paperCfg = getPaperSize(invoiceOptions.paperSize, invoiceOptions);
+    // Sheet invoices: pure vector PDF (buildVectorInvoicePdf now draws full
+    // Tally / Boxed / Sai Durga grids matching InvoiceGridLayout structure).
+    // Thermal still uses the receipt path via __buildPDFInner.
+    if (paperCfg.kind !== 'thermal') {
+      return await buildVectorInvoicePdf({
+        profile,
+        client,
+        details,
+        items,
+        totals,
+        invoiceType,
+        customTerms,
+        customNotes,
+        extraSections,
+        invoiceOptions,
+        printSettings,
+      });
+    }
+    const scalerEl = printRef.current && printRef.current.closest
+      ? printRef.current.closest('.preview-scaler')
+      : null;
     if (scalerEl) scalerEl.style.transform = 'none';
     try {
       return await __buildPDFInner(printSettings);

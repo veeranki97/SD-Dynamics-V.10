@@ -467,7 +467,8 @@ function pdfCurrencySymbol(code) {
   return map[c] || c;
 }
 
-export async function buildVectorInvoicePdf({
+export async function buildVectorInvoicePdf({ // SD_VECTOR_GRID_V3
+
   profile = {},
   client = {},
   details = {},
@@ -506,8 +507,12 @@ export async function buildVectorInvoicePdf({
   const boxW = pageW - marginX * 2;
   const fontFam = ['helvetica', 'times', 'courier'].includes(ps.pdfFontFamily) ? ps.pdfFontFamily : 'helvetica';
 
-  // Resolve active template style
-  const rawStyle = String(invoiceOptions.pdfStyle || ps.pdfTemplate || 'saidurga').toLowerCase();
+  // Resolve active template style — each of the 6 UI templates maps to its own layout.
+  // Per-invoice Customize (pdfStyle) wins when set; else Print Settings pdfTemplate.
+  const invStyle = String(invoiceOptions.pdfStyle || invoiceOptions.pdfTemplate || '').toLowerCase();
+  const settingsStyle = String(ps.pdfTemplate || '').toLowerCase();
+  const allKnown = ['saidurga', 'tally', 'tally-v2', 'boxed', 'boxed-grid', 'classic', 'modern', 'minimal', 'corporate', 'minimalist'];
+  const rawStyle = (allKnown.includes(invStyle) ? invStyle : (allKnown.includes(settingsStyle) ? settingsStyle : 'saidurga')).toLowerCase();
   const style = (rawStyle === 'boxed-grid' || rawStyle === 'boxed') ? 'boxed'
     : (rawStyle === 'tally-v2' || rawStyle === 'tally') ? 'tally'
     : (rawStyle === 'corporate') ? 'classic'
@@ -674,9 +679,10 @@ export async function buildVectorInvoicePdf({
 
   // Always reset stroke colour before any line/rect (jsPDF keeps last drawColour —
   // signature block uses green and used to leave later borders invisible/wrong).
-  const setStroke = (w = 0.35) => {
-    doc.setDrawColor(31, 41, 55); // #1f2937 — matches on-screen InvoiceGridLayout LINE
-    doc.setLineWidth(Math.max(0.25, Number(w) || 0.35));
+  // PO-style thin rules (was 0.4–0.65 → looked double/thick on invoice)
+  const setStroke = (w = 0.28) => {
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(Math.max(0.22, Math.min(0.4, Number(w) || 0.28)));
   };
 
   // Helper: Draw Signature + Digital Verification Box
@@ -724,7 +730,7 @@ export async function buildVectorInvoicePdf({
       doc.text(ps.signatureName || 'Authorised Signatory', rightX, sigBoxY + sigBoxH + 3.8, { align: 'right' });
     }
     // Green digital-signature box leaves drawColour green; restore for following borders
-    setStroke(0.35);
+    setStroke(0.28);
   };
 
   // Helper: Draw UPI QR Code
@@ -741,7 +747,7 @@ export async function buildVectorInvoicePdf({
       doc.setTextColor(51, 65, 85);
       doc.text(`UPI: ${upiId}`, x + size + 2, yPos + 5);
       doc.text(`Scan to pay (${curSym} ${fmtAmt(grandTotal)})`, x + size + 2, yPos + 9);
-      setStroke(0.35);
+      setStroke(0.28);
       return true;
     } catch { return false; }
   };
@@ -757,765 +763,727 @@ export async function buildVectorInvoicePdf({
 
   let y = marginTop;
 
-  // ==========================================================================
-  // TEMPLATE 1: SAI DURGA & BOXED GRID (Matches InvoicePreview Sai Durga / Boxed)
-  // ==========================================================================
-  if (style === 'saidurga' || style === 'boxed') {
-    const borderW = style === 'boxed' ? 0.55 : 0.42;
+  const LINE = [30, 41, 59];
+  const stroke = (w = 0.28) => { doc.setDrawColor(...LINE); doc.setLineWidth(Math.max(0.22, Math.min(0.35, Number(w) || 0.28))); };
+  const cellText = (txt, x, yy, opts = {}) => {
+    doc.setFont(fontFam, opts.bold ? 'bold' : 'normal');
+    doc.setFontSize(opts.size || 7.6);
+    doc.setTextColor(...(opts.color || [15, 23, 42]));
+    const o = {};
+    if (opts.align) o.align = opts.align;
+    doc.text(String(txt ?? ''), x, yy, Object.keys(o).length ? o : undefined);
+  };
+  const shortDate = (d) => formatDate(d, ps);
+  const shipTo = invoiceOptions.shipTo || details.shipTo || null;
+  const orderFields = [
+    ['deliveryNote', details.deliveryNote],
+    ['paymentTerms', details.paymentTerms || details.modeOfPayment],
+    ['referenceNo', details.referenceNo || details.reference],
+    ['otherReferences', details.otherReferences],
+    ['buyerOrderNo', details.buyerOrderNo || details.poNumber],
+    ['buyerOrderDate', details.buyerOrderDate || details.poDate],
+    ['dispatchDocNo', details.dispatchDocNo],
+    ['deliveryNoteDate', details.deliveryNoteDate],
+    ['dispatchedThrough', details.dispatchedThrough || details.transporterName],
+    ['destination', details.destination],
+    ['vehicleNo', details.vehicleNo],
+    ['workDetails', details.workDetails],
+    ['deliveryTerms', details.deliveryTerms],
+    ['periodFrom', details.periodStart || details.periodFrom],
+    ['periodTo', details.periodEnd || details.periodTo],
+  ].filter(([, v]) => v != null && String(v).trim() !== '');
+  const orderMap = Object.fromEntries(orderFields);
 
-    // 1. Centered Company + Document Banner Box
-    let bannerH = 9;
-    let logoOffset = 0;
-    if (showLogo && profile.logo && String(profile.logo).startsWith('data:image/')) {
-      bannerH = 14;
-      logoOffset = 18;
-    }
-    if (showBusinessName) bannerH += 5;
+  // isInterstate already resolved once at top of buildVectorInvoicePdf (do not redeclare)
 
-    setStroke(borderW);
-    if (style === 'boxed') {
-      doc.setFillColor(...headerBgRgb);
-      doc.rect(marginX, y, boxW, bannerH, 'FD');
-    } else {
-      doc.rect(marginX, y, boxW, bannerH);
-    }
-
-    let by = y + 5.5;
-    if (logoOffset > 0) {
-      try {
-        const fmt = String(profile.logo).includes('png') ? 'PNG' : 'JPEG';
-        doc.addImage(profile.logo, fmt, marginX + 3, y + 2, 16, 11);
-      } catch { /* skip */ }
-    }
-    if (showBusinessName) {
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(13.5);
-      doc.setTextColor(...(style === 'boxed' ? accentRgb : [15, 23, 42]));
-      doc.text(String(profile.businessName || 'SAI DURGA'), pageW / 2, by, { align: 'center' });
-      by += 5.5;
-    }
-    doc.setFont(fontFam, 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(...(invoiceType === 'credit-note' ? [185, 28, 28] : accentRgb));
-    doc.text(docTitle, pageW / 2, by, { align: 'center' });
-    doc.setTextColor(15, 23, 42);
-    y += bannerH;
-
-    // 2. Seller (Left 55%) + Invoice Meta (Right 45%)
-    const metaStart = y;
-    const splitX = marginX + boxW * 0.55;
-    let sy = y + 4.2;
-    const sx = marginX + 2.5;
-    const sMaxW = boxW * 0.55 - 5;
-
-    if (showBusinessName) {
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(9);
-      doc.text(`M/s ${profile.businessName || ''}`, sx, sy);
-      sy += 3.8;
-    }
-    doc.setFont(fontFam, 'normal');
-    doc.setFontSize(7.8);
-    if (showBusinessAddress) {
-      const sAddr = [profile.address, [profile.city, profile.state, profile.pin].filter(Boolean).join(', ')].filter(Boolean).join(', ');
-      if (sAddr) {
-        const lines = doc.splitTextToSize(sAddr, sMaxW);
-        doc.text(lines, sx, sy);
-        sy += lines.length * 3.5;
-      }
-    }
-    if (showGSTIN && profile.gstin) {
-      doc.setFont(fontFam, 'bold');
-      doc.text(`GSTIN: ${profile.gstin}`, sx, sy);
-      sy += 3.5;
-      doc.setFont(fontFam, 'normal');
-    }
-    if (profile.pan && isIndia) { doc.text(`PAN: ${profile.pan}`, sx, sy); sy += 3.5; }
-    const sContact = [
-      showBusinessPhone && profile.phone ? `Mobile: ${profile.phone}` : '',
-      showBusinessEmail && profile.email ? `E-Mail: ${profile.email}` : '',
-    ].filter(Boolean).join(' | ');
-    if (sContact) { doc.text(sContact, sx, sy); sy += 3.5; }
-
-    // Right side metadata rows
-    const metaItems = [];
-    if (showInvoiceDate && details.invoiceDate) metaItems.push(['Date:', formatDate(details.invoiceDate, ps)]);
-    if (showInvoiceNumber && details.invoiceNumber) metaItems.push([invoiceType.includes('credit') ? 'No:' : 'Invoice No:', details.invoiceNumber]);
-    if (showDueDate && details.dueDate) metaItems.push(['Due Date:', formatDate(details.dueDate, ps)]);
-    if (details.periodStart || details.periodEnd) metaItems.push(['Bill Period:', `${details.periodStart || '—'} to ${details.periodEnd || '—'}`]);
-    if (details.workOrderNo || details.orderNo) metaItems.push(['Order No:', details.workOrderNo || details.orderNo]);
-    if (isIndia && showGST && (invoiceType === 'tax-invoice' || invoiceType === 'credit-note')) {
-      metaItems.push(['Reverse Charge:', invoiceOptions.reverseCharge ? 'Yes' : 'No']);
-    }
-    if (metaItems.length === 0) metaItems.push(['Date:', formatDate(details.invoiceDate, ps)]);
-
-    const mRowH = 5.4;
-    const metaBoxH = Math.max(sy - metaStart + 2, metaItems.length * mRowH);
-    const actualMRowH = metaBoxH / metaItems.length;
-
-    setStroke(borderW);
-    doc.rect(marginX, metaStart, boxW, metaBoxH);
-    doc.line(splitX, metaStart, splitX, metaStart + metaBoxH);
-
-    metaItems.forEach(([k, v], idx) => {
-      const ry = metaStart + idx * actualMRowH;
-      if (idx > 0) doc.line(splitX, ry, marginX + boxW, ry);
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(7.8);
-      doc.text(k, splitX + 2.5, ry + actualMRowH * 0.68);
-      doc.setFont(fontFam, idx <= 1 ? 'bold' : 'normal');
-      doc.text(String(v || ''), splitX + 26, ry + actualMRowH * 0.68);
+  // HSN summary (India GST) — matches InvoiceGridLayout HsnSummaryTable
+  const drawHsnSummary = (startY) => {
+    if (invoiceOptions.hideHsnSummary === true || !showHSN || !showGST || !isIndia || isDeliveryChallan) return startY;
+    const map = {};
+    validItems.forEach((it) => {
+      const hsn = String(it.hsn || '-');
+      const rate = Number(it.taxPercent) || 0;
+      const qty = Number(it.quantity) || 0;
+      const line = qty * (Number(it.rate) || 0);
+      const taxable = totals.taxInclusive ? line / (1 + rate / 100) : line;
+      const tax = totals.taxInclusive ? line - taxable : taxable * rate / 100;
+      const key = hsn + '|' + rate;
+      if (!map[key]) map[key] = { hsn, rate, taxable: 0, tax: 0 };
+      map[key].taxable += taxable;
+      map[key].tax += tax;
     });
-    y = metaStart + metaBoxH;
-
-    // 3. Billing To (Left 50%) & Shipping To (Right 50%)
-    const partyStart = y;
-    const pMidX = marginX + boxW * 0.50;
-    const pColW = boxW * 0.50 - 5;
-
-    setStroke(borderW);
+    const rows = Object.values(map);
+    if (!rows.length) return startY;
+    let yy = startY;
+    const colW = isInterstate
+      ? [boxW * 0.22, boxW * 0.22, boxW * 0.14, boxW * 0.20, boxW * 0.22]
+      : [boxW * 0.18, boxW * 0.18, boxW * 0.10, boxW * 0.14, boxW * 0.10, boxW * 0.14, boxW * 0.16];
+    const headers = isInterstate
+      ? ['HSN/SAC', 'Taxable Value', 'Rate', 'IGST Amt', 'Total Tax']
+      : ['HSN/SAC', 'Taxable Value', 'CGST %', 'CGST Amt', 'SGST %', 'SGST Amt', 'Total Tax'];
+    const rh = 6.2;
+    stroke(0.28);
     doc.setFillColor(...headerBgRgb);
-    doc.rect(marginX, partyStart, boxW * 0.50, 5.5, 'FD');
-    doc.rect(pMidX, partyStart, boxW * 0.50, 5.5, 'FD');
-    doc.setFont(fontFam, 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...accentRgb);
-    doc.text(`${getLabel(ps, 'billTo') || 'Billing To'}:`, marginX + 2.5, partyStart + 3.8);
-    doc.text(`${getLabel(ps, 'shipTo') || 'Shipping To'}:`, pMidX + 2.5, partyStart + 3.8);
-    doc.setTextColor(15, 23, 42);
+    doc.rect(marginX, yy, boxW, rh, 'FD');
+    let x = marginX;
+    headers.forEach((h, i) => {
+      if (i > 0) doc.line(x, yy, x, yy + rh);
+      cellText(h, x + 1.2, yy + 4.2, { bold: true, size: 6.5 });
+      x += colW[i];
+    });
+    yy += rh;
+    const body0 = yy;
+    rows.forEach((r) => {
+      stroke(0.3);
+      doc.line(marginX, yy + rh, marginX + boxW, yy + rh);
+      const vals = isInterstate
+        ? [r.hsn, fmtAmt(r.taxable), r.rate + '%', fmtAmt(r.tax), fmtAmt(r.tax)]
+        : [r.hsn, fmtAmt(r.taxable), (r.rate / 2) + '%', fmtAmt(r.tax / 2), (r.rate / 2) + '%', fmtAmt(r.tax / 2), fmtAmt(r.tax)];
+      x = marginX;
+      vals.forEach((v, i) => {
+        cellText(v, x + 1.2, yy + 4.2, { size: 6.5 });
+        x += colW[i];
+      });
+      yy += rh;
+    });
+    stroke(0.28);
+    doc.rect(marginX, body0 - rh, boxW, yy - (body0 - rh));
+    x = marginX;
+    colW.forEach((w, i) => { if (i > 0) doc.line(x, body0 - rh, x, yy); x += w; });
+    return yy + 2;
+  };
 
-    let bY = partyStart + 9.2;
-    doc.setFont(fontFam, 'bold');
-    doc.setFontSize(8.8);
-    doc.text(String(client.name || '—'), marginX + 2.5, bY);
-    bY += 3.8;
-    doc.setFont(fontFam, 'normal');
-    doc.setFontSize(7.8);
-    if (showClientAddress) {
-      const bAddr = [client.address, [client.city, client.pin].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
-      if (bAddr) {
-        const lines = doc.splitTextToSize(bAddr, pColW);
-        doc.text(lines, marginX + 2.5, bY);
-        bY += lines.length * 3.5;
+  // ==========================================================================
+
+  // Single-edge boxes: avoid double lines where sections stack (shared edge drawn twice).
+  // Only internal horizontal rules. Outer left/right/top/bottom drawn once at end.
+  const sectionFrame = (x, yy, w, h, { drawTop = false, drawBottom = true } = {}) => {
+    stroke(0.28);
+    if (drawTop) doc.line(x, yy, x + w, yy);
+    if (drawBottom) doc.line(x, yy + h, x + w, yy + h);
+  };
+  const hRule = (yy, x0 = marginX, x1 = marginX + boxW) => { stroke(0.28); doc.line(x0, yy, x1, yy); };
+  const vRule = (xx, y0, y1) => { stroke(0.28); doc.line(xx, y0, xx, y1); };
+
+  // SAIDURGA — traditional Indian tax invoice (GST columns in items table)
+  // Matches InvoicePreview saidurga / live preview structure in QUO samples
+  // ==========================================================================
+  if (style === 'saidurga') {
+    const borderW = 0.28;
+    stroke(borderW);
+    const outerTop = y;
+
+    // Banner
+    let bannerH = 14;
+    stroke(borderW);
+    doc.setFillColor(232, 240, 254);
+    doc.rect(marginX, y, boxW, bannerH, 'F'); // fill only — stroke from outer frame
+    if (showBusinessName) {
+      cellText(profile.businessName || 'Company', pageW / 2, y + 5.5, { bold: true, size: 13, color: accentRgb, align: 'center' });
+    }
+    cellText(docTitle, pageW / 2, y + 11, { bold: true, size: 10, color: accentRgb, align: 'center' });
+    y += bannerH;
+    hRule(y); // single line under banner
+
+    // Seller | Meta
+    const metaStart = y;
+    const splitX = marginX + boxW * 0.58;
+    let sy = y + 4;
+    const sx = marginX + 2.5;
+    if (showBusinessName) { cellText(`M/s ${profile.businessName || ''}`, sx, sy, { bold: true, size: 9 }); sy += 3.6; }
+    if (showBusinessAddress) {
+      const addr = [profile.address, [profile.city, profile.state, profile.pin].filter(Boolean).join(', ')].filter(Boolean).join(', ');
+      const al = doc.splitTextToSize(addr, boxW * 0.55 - 5);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.setTextColor(15, 23, 42);
+      doc.text(al, sx, sy); sy += al.length * 3.3;
+    }
+    if (showGSTIN && profile.gstin) { cellText(`GSTIN: ${profile.gstin}`, sx, sy, { bold: true, size: 7.4 }); sy += 3.3; }
+    if (profile.pan && isIndia) { cellText(`PAN: ${profile.pan}`, sx, sy, { size: 7.4 }); sy += 3.3; }
+    if (showBusinessPhone && profile.phone) { cellText(`Mobile: ${profile.phone}`, sx, sy, { size: 7.3 }); sy += 3.2; }
+    if (showBusinessEmail && profile.email) { cellText(`E-Mail: ${profile.email}`, sx, sy, { size: 7.3 }); sy += 3.2; }
+
+    const metaRows = [];
+    if (showInvoiceDate) metaRows.push(['Date', shortDate(details.invoiceDate)]);
+    if (showInvoiceNumber) metaRows.push(['Invoice No', details.invoiceNumber || '']);
+    if (showDueDate && details.dueDate) metaRows.push(['Due Date', shortDate(details.dueDate)]);
+    if (details.orderNo || details.workOrderNo) metaRows.push(['Order / Ref No', details.orderNo || details.workOrderNo]);
+    let my = y;
+    metaRows.forEach(([k, v], i) => {
+      if (i > 0) { stroke(0.28); doc.line(splitX, my, marginX + boxW, my); }
+      cellText(k + ':', splitX + 2, my + 3.2, { bold: true, size: 7 });
+      cellText(String(v || ''), splitX + 2, my + 6.8, { size: 8 });
+      my += 9;
+    });
+    const metaH = Math.max(sy - metaStart + 2, my - metaStart, 20);
+    sectionFrame(marginX, metaStart, boxW, metaH, { drawTop: false }); // shared top edge skipped
+    doc.line(splitX, metaStart, splitX, metaStart + metaH);
+    y = metaStart + metaH;
+
+    // BILL TO | SHIP TO
+    const partyStart = y;
+    const midX = marginX + boxW * 0.5;
+    stroke(borderW);
+    doc.setFillColor(...headerBgRgb);
+    doc.rect(marginX, y, boxW * 0.5, 5, 'F');
+    doc.rect(midX, y, boxW * 0.5, 5, 'F');
+    cellText('BILL TO:', marginX + 2.5, y + 3.5, { bold: true, size: 7.5, color: accentRgb });
+    cellText('SHIP TO:', midX + 2.5, y + 3.5, { bold: true, size: 7.5, color: accentRgb });
+    let py = y + 8, qy = y + 8;
+    cellText(client.name || '', marginX + 2.5, py, { bold: true, size: 9 }); py += 3.5;
+    if (showClientAddress && client.address) {
+      const cl = doc.splitTextToSize(String(client.address), boxW * 0.48 - 4);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(cl, marginX + 2.5, py); py += cl.length * 3.2;
+    }
+    if (client.city || client.pin) { cellText([client.city, client.pin].filter(Boolean).join(' - '), marginX + 2.5, py, { size: 7.4 }); py += 3.2; }
+    if (showState && client.state) { cellText(`State: ${client.state}`, marginX + 2.5, py, { size: 7.3 }); py += 3.2; }
+    if (showGSTIN && client.gstin) { cellText(`GSTIN: ${client.gstin}`, marginX + 2.5, py, { bold: true, size: 7.3 }); py += 3.2; }
+
+    if (shipTo && (shipTo.name || shipTo.address)) {
+      cellText(shipTo.name || client.name || '', midX + 2.5, qy, { bold: true, size: 8.5 }); qy += 3.5;
+      if (shipTo.address) {
+        const sl = doc.splitTextToSize(String(shipTo.address), boxW * 0.48 - 4);
+        doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(sl, midX + 2.5, qy); qy += sl.length * 3.2;
+      }
+      if (shipTo.state) { cellText(`State: ${shipTo.state}`, midX + 2.5, qy, { size: 7.3 }); qy += 3.2; }
+    } else {
+      cellText('Same as billing address', midX + 2.5, qy, { size: 7.5 }); qy += 3.5;
+    }
+    if (showPlaceOfSupply && details.placeOfSupply) {
+      cellText(`Place of Supply: ${details.placeOfSupply}`, midX + 2.5, qy, { bold: true, size: 7.3 }); qy += 3.5;
+    }
+    const partyH = Math.max(py, qy) - partyStart + 2;
+    sectionFrame(marginX, partyStart, boxW, partyH, { drawTop: false }); // shared top edge skipped
+    doc.line(midX, partyStart, midX, partyStart + partyH);
+    y = partyStart + partyH;
+
+    if (orderMap.workDetails) {
+      sectionFrame(marginX, y, boxW, 7, { drawTop: false }); // shared top edge skipped
+      cellText(`Work Details: ${orderMap.workDetails}`, marginX + 2.5, y + 4.5, { size: 7.8 });
+      y += 7;
+    }
+
+    // GST item columns (saidurga hallmark)
+    const cols = [{ key: 'sno', label: '#', w: 8, align: 'center' }, { key: 'desc', label: 'Description of Goods / Services', w: 48, align: 'left' }];
+    if (showHSN) cols.push({ key: 'hsn', label: 'HSN/SAC', w: 16, align: 'center' });
+    if (showItemQty) cols.push({ key: 'qty', label: 'Qty', w: 14, align: 'right' });
+    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 16, align: 'right' });
+    if (showAmountCol) cols.push({ key: 'taxable', label: 'Taxable', w: 18, align: 'right' });
+    if (showGST && showAmountCol) {
+      if (isInterstate) {
+        cols.push({ key: 'igstPct', label: 'IGST%', w: 12, align: 'center' });
+        cols.push({ key: 'igstAmt', label: 'IGST Amt', w: 16, align: 'right' });
+      } else {
+        cols.push({ key: 'cgstPct', label: 'CGST%', w: 11, align: 'center' });
+        cols.push({ key: 'cgstAmt', label: 'CGST', w: 14, align: 'right' });
+        cols.push({ key: 'sgstPct', label: 'SGST%', w: 11, align: 'center' });
+        cols.push({ key: 'sgstAmt', label: 'SGST', w: 14, align: 'right' });
       }
     }
-    if (showState && client.state) {
-      const bCode = stateCodeOf(client.state, client.gstin);
-      doc.text(`State: ${client.state}${bCode ? `, Code: ${bCode}` : ''}`, marginX + 2.5, bY);
-      bY += 3.5;
-    }
-    if (showGSTIN && client.gstin) {
-      doc.setFont(fontFam, 'bold');
-      doc.text(`GSTIN: ${client.gstin}`, marginX + 2.5, bY);
-      bY += 3.5;
-      doc.setFont(fontFam, 'normal');
-    }
-    if (showClientPhone && client.phone) { doc.text(`Mobile: ${client.phone}`, marginX + 2.5, bY); bY += 3.5; }
-    if (showClientEmail && client.email) { doc.text(`E-Mail: ${client.email}`, marginX + 2.5, bY); bY += 3.5; }
-
-    // Shipping To column
-    let shY = partyStart + 9.2;
-    const shipDiff = details.shipToSameAsBilling === false && (details.shippingAddress || details.shippingCity || details.shippingState);
-    doc.setFont(fontFam, 'bold');
-    doc.setFontSize(8.8);
-    doc.text(String(shipDiff ? (details.shippingName || client.name || '—') : (client.name || '—')), pMidX + 2.5, shY);
-    shY += 3.8;
-    doc.setFont(fontFam, 'normal');
-    doc.setFontSize(7.8);
-    if (shipDiff) {
-      const shAddr = [details.shippingAddress, [details.shippingCity, details.shippingPin].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
-      if (shAddr) {
-        const lines = doc.splitTextToSize(shAddr, pColW);
-        doc.text(lines, pMidX + 2.5, shY);
-        shY += lines.length * 3.5;
-      }
-      if (details.shippingState) { doc.text(`State: ${details.shippingState}`, pMidX + 2.5, shY); shY += 3.5; }
-    } else if (showClientAddress) {
-      const bAddr = [client.address, [client.city, client.pin].filter(Boolean).join(' - ')].filter(Boolean).join(', ');
-      if (bAddr) {
-        const lines = doc.splitTextToSize(bAddr, pColW);
-        doc.text(lines, pMidX + 2.5, shY);
-        shY += lines.length * 3.5;
-      }
-      if (showState && client.state) { doc.text(`State: ${client.state}`, pMidX + 2.5, shY); shY += 3.5; }
-    }
-    if (showPlaceOfSupply) {
-      const pos = details.placeOfSupply || client.state || '—';
-      const pCode = stateCodeOf(pos, client.gstin);
-      doc.setFont(fontFam, 'bold');
-      doc.text(`Place of Supply: ${pos}${pCode ? ` (Code: ${pCode})` : ''}`, pMidX + 2.5, shY);
-      shY += 3.5;
-      doc.setFont(fontFam, 'normal');
-    }
-
-    const partyBoxH = Math.max(bY - partyStart + 2, shY - partyStart + 2, 22);
-    setStroke(borderW);
-    doc.rect(marginX, partyStart, boxW, partyBoxH);
-    doc.line(pMidX, partyStart, pMidX, partyStart + partyBoxH);
-    y = partyStart + partyBoxH;
-
-    // Work Details bar (if filled)
-    if (details.workDetails) {
-      const wdLines = doc.splitTextToSize(`Work Details: ${details.workDetails}`, boxW - 5);
-      const wdH = Math.max(6.5, wdLines.length * 3.6 + 2.5);
-      setStroke(borderW);
-      doc.rect(marginX, y, boxW, wdH);
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(7.8);
-      doc.text(wdLines, marginX + 2.5, y + 4.2);
-      y += wdH;
-    }
-
-    // 4. Itemized GST Table (Dynamically respects Customize toggles!)
-    const cols = [{ key: 'sno', label: '#', w: 8, align: 'center' }];
-    cols.push({ key: 'desc', label: 'Description of Goods / Services', w: 54, align: 'left' });
-    if (showHSN) cols.push({ key: 'hsn', label: 'HSN/SAC', w: 17, align: 'center' });
-    if (showItemQty) cols.push({ key: 'qty', label: 'Qty', w: 16, align: 'center' });
-    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 20, align: 'right' });
-    if (showAmountCol) cols.push({ key: 'taxable', label: 'Taxable', w: 21, align: 'right' });
-    if (showGST && isIndia && !isInterstate) {
-      cols.push({ key: 'cgstPct', label: 'CGST%', w: 12, align: 'center' });
-      cols.push({ key: 'cgstAmt', label: 'CGST', w: 16, align: 'right' });
-      cols.push({ key: 'sgstPct', label: 'SGST%', w: 12, align: 'center' });
-      cols.push({ key: 'sgstAmt', label: 'SGST', w: 16, align: 'right' });
-    } else if (showGST) {
-      cols.push({ key: 'igstPct', label: isIndia ? 'IGST%' : 'Tax%', w: 13, align: 'center' });
-      cols.push({ key: 'igstAmt', label: isIndia ? 'IGST Amt' : 'Tax Amt', w: 19, align: 'right' });
-    }
-    if (showAmountCol) cols.push({ key: 'total', label: 'Amount', w: 22, align: 'right' });
-
+    if (showAmountCol) cols.push({ key: 'amt', label: 'Amount', w: 18, align: 'right' });
     const sumW = cols.reduce((s, c) => s + c.w, 0);
     cols.forEach(c => { c.w = (c.w / sumW) * boxW; });
 
-    const drawHeader = (startY) => {
-      const hH = 7;
-      setStroke(borderW);
-      doc.setFillColor(...headerBgRgb);
-      doc.rect(marginX, startY, boxW, hH, 'FD');
-      let cx = marginX;
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(7.2);
-      doc.setTextColor(...accentRgb);
-      cols.forEach((c, idx) => {
-        if (idx > 0) doc.line(cx, startY, cx, startY + hH);
-        const tx = c.align === 'right' ? cx + c.w - 1.2 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
-        doc.text(c.label, tx, startY + 4.6, { align: c.align });
-        cx += c.w;
-      });
-      doc.setTextColor(15, 23, 42);
-      return startY + hH;
-    };
-
-    y = drawHeader(y);
-    let tblStart = y;
-
-    validItems.forEach((item, idx) => {
-      const qty = Number(item.quantity) || 0;
-      const rate = Number(item.rate) || 0;
-      const lineAmt = qty * rate;
-      const taxRate = Number(item.taxPercent) || 0;
-      const isTaxInc = totals.taxInclusive;
-      const taxable = isTaxInc && showGST ? lineAmt / (1 + taxRate / 100) : lineAmt;
-      const taxAmt = isTaxInc && showGST ? lineAmt - taxable : taxable * taxRate / 100;
-      const lineTot = taxable + (showGST ? taxAmt : 0);
-
-      const descCol = cols.find(c => c.key === 'desc');
-      const fullDesc = item.description ? `${item.name || ''}\n${item.description}` : String(item.name || '');
-      const descLines = doc.splitTextToSize(fullDesc, descCol.w - 2.5);
-      const rH = Math.max(6.2, descLines.length * 3.5 + 2.4);
-
-      if (y + rH > pageH - marginBottom - 62) {
-        setStroke(borderW);
-        doc.rect(marginX, tblStart, boxW, y - tblStart);
-        let vx = marginX;
-        cols.forEach((c, i) => { if (i > 0) doc.line(vx, tblStart, vx, y); vx += c.w; });
-        doc.addPage();
-        y = marginTop + 5;
-        y = drawHeader(y);
-        tblStart = y;
-      }
-
-      const cellMap = {
-        sno: String(idx + 1),
-        desc: descLines,
-        hsn: String(item.hsn || '-'),
-        qty: `${qty}${showItemUnit && item.unit ? ` ${item.unit}` : ''}`,
-        rate: fmtAmt(rate),
-        taxable: fmtAmt(taxable),
-        cgstPct: `${taxRate / 2}%`,
-        cgstAmt: fmtAmt(taxAmt / 2),
-        sgstPct: `${taxRate / 2}%`,
-        sgstAmt: fmtAmt(taxAmt / 2),
-        igstPct: `${taxRate}%`,
-        igstAmt: fmtAmt(taxAmt),
-        total: fmtAmt(lineTot),
-      };
-
-      let cx = marginX;
-      setStroke(borderW * 0.75);
-      doc.line(marginX, y + rH, marginX + boxW, y + rH);
-      cols.forEach((c) => {
-        doc.setFont(fontFam, c.key === 'total' ? 'bold' : 'normal');
-        doc.setFontSize(7.4);
-        const tx = c.align === 'right' ? cx + c.w - 1.2 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
-        doc.text(cellMap[c.key] ?? '', tx, y + 4.1, { align: c.align });
-        cx += c.w;
-      });
-      y += rH;
-    });
-
-    // Empty filler rows for 'boxed' pad style
-    if (style === 'boxed' && validItems.length < 4) {
-      const fillCount = 4 - validItems.length;
-      for (let f = 0; f < fillCount; f++) {
-        setStroke(borderW * 0.75);
-        doc.line(marginX, y + 6, marginX + boxW, y + 6);
-        y += 6;
-      }
-    }
-
-    setStroke(borderW);
-    doc.rect(marginX, tblStart, boxW, y - tblStart);
-    let vx = marginX;
-    cols.forEach((c, i) => { if (i > 0) doc.line(vx, tblStart, vx, y); vx += c.w; });
-
-    // 5. Totals + Amount in Words Box
-    const totStart = y;
-    const tSplitX = marginX + boxW * 0.58;
-    const tRows = [];
-    if (showSubtotal && showAmountCol) tRows.push(['Taxable Value', fmtAmt(subTotal), false]);
-    if (showGST && isIndia && isInterstate) {
-      tRows.push(['IGST', `${curSym} ${fmtAmt(igst)}`, false]);
-    } else if (showGST && isIndia) {
-      tRows.push(['CGST', `${curSym} ${fmtAmt(cgst)}`, false]);
-      tRows.push(['SGST', `${curSym} ${fmtAmt(sgst)}`, false]);
-    } else if (showGST) {
-      tRows.push(['Tax', `${curSym} ${fmtAmt(cgst + sgst + igst)}`, false]);
-    }
-    if (cess > 0) tRows.push(['GST Cess', `${curSym} ${fmtAmt(cess)}`, false]);
-    if (showRoundOff && Math.abs(roundOff) >= 0.005) tRows.push(['Round Off', `${curSym} ${fmtAmt(roundOff)}`, false]);
-    if (showAmountCol) tRows.push([invoiceType === 'credit-note' ? 'Credit Amount' : 'Grand Total', `${curSym} ${fmtAmt(grandTotal)}`, true]);
-    if (tRows.length === 0) tRows.push(['Status', '— End of list —', true]);
-
-    const wordsLines = showAmountWords ? doc.splitTextToSize(wordsOf(grandTotal), boxW * 0.58 - 5) : [];
-    const leftTotH = (showAmountWords ? (wordsLines.length * 3.8 + 8) : 6) + (showUPI && !isDeliveryChallan ? 18 : 0);
-    const rightTotH = tRows.length * 5.8;
-    const totBoxH = Math.max(leftTotH, rightTotH, 16);
-    const tStep = totBoxH / tRows.length;
-
-    setStroke(borderW);
-    doc.rect(marginX, totStart, boxW, totBoxH);
-    doc.line(tSplitX, totStart, tSplitX, totStart + totBoxH);
-
-    if (showAmountWords) {
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(7.5);
-      doc.text(`${getLabel(ps, 'amountInWords') || 'Amount in Words'}:`, marginX + 2.5, totStart + 4);
-      doc.setFont(fontFam, 'italic');
-      doc.setFontSize(7.8);
-      doc.text(wordsLines, marginX + 2.5, totStart + 8);
-    }
-
-    if (showUPI && !isDeliveryChallan) {
-      await drawUpiQr(marginX + 2.5, totStart + totBoxH - 16.5, 14.5);
-    }
-
-    tRows.forEach(([lbl, val, isBold], idx) => {
-      const ry = totStart + idx * tStep;
-      if (idx > 0) doc.line(tSplitX, ry, marginX + boxW, ry);
-      if (isBold) {
-        doc.setFillColor(...headerBgRgb);
-        doc.rect(tSplitX, ry, boxW * 0.42, tStep, 'F');
-        doc.rect(tSplitX, ry, boxW * 0.42, tStep, 'S');
-      }
-      doc.setFont(fontFam, isBold ? 'bold' : 'normal');
-      doc.setFontSize(isBold ? 8.5 : 7.8);
-      doc.setTextColor(isBold ? accentRgb[0] : 15, isBold ? accentRgb[1] : 23, isBold ? accentRgb[2] : 42);
-      doc.text(lbl, tSplitX + 2.5, ry + tStep * 0.68);
-      doc.text(val, marginX + boxW - 2, ry + tStep * 0.68, { align: 'right' });
-    });
-    doc.setTextColor(15, 23, 42);
-    y = totStart + totBoxH;
-
-    // 6. Bank Details Box (if enabled)
-    if (showBankDetails && ps.showBankDetails !== false && (acct.bankName || profile.bankName)) {
-      const bStart = y;
-      const bLines = [];
-      if (showAccountLabel && acct.label) bLines.push(`Pay via: ${acct.label}`);
-      bLines.push(`A/C Name: ${acct.accountHolderName || profile.businessName || ''}`);
-      bLines.push(`Bank: ${acct.bankName || profile.bankName || ''}  ·  A/C No: ${acct.accountNumber || profile.accountNumber || ''}`);
-      const ifscStr = [
-        (acct.ifsc || profile.ifsc) ? `IFSC: ${acct.ifsc || profile.ifsc}` : '',
-        (profile.pan && isIndia) ? `PAN: ${profile.pan}` : '',
-      ].filter(Boolean).join('  ·  ');
-      if (ifscStr) bLines.push(ifscStr);
-
-      const bBoxH = bLines.length * 3.6 + 6.5;
-      setStroke(borderW);
-      doc.rect(marginX, bStart, boxW, bBoxH);
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(7.6);
-      doc.setTextColor(...accentRgb);
-      doc.text(getLabel(ps, 'bankDetails') || 'Bank Details', marginX + 2.5, bStart + 4);
-      doc.setFont(fontFam, 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(15, 23, 42);
-      bLines.forEach((ln, i) => doc.text(ln, marginX + 2.5, bStart + 7.8 + i * 3.6));
-      y = bStart + bBoxH;
-    }
-
-    // 7. Terms, Notes, Declaration & Signature Box
-    const termsPlain = showTerms ? stripHtml(customTerms) : '';
-    const notesPlain = showNotes ? stripHtml(customNotes) : '';
-    const fStart = y;
-    const fSplitX = marginX + boxW * 0.62;
-    const fLeftW = boxW * 0.62 - 5;
-
-    const leftLines = [];
-    if (termsPlain) {
-      leftLines.push({ bold: true, text: `${getLabel(ps, 'terms') || 'Terms & Conditions'}:` });
-      doc.splitTextToSize(termsPlain, fLeftW).forEach(l => leftLines.push({ bold: false, text: l }));
-    }
-    if (notesPlain) {
-      leftLines.push({ bold: true, text: `${getLabel(ps, 'notes') || 'Notes'}:` });
-      doc.splitTextToSize(notesPlain, fLeftW).forEach(l => leftLines.push({ bold: false, text: l }));
-    }
-    if (isIndia && showGST) {
-      leftLines.push({ bold: true, text: 'Declaration:' });
-      doc.splitTextToSize('Certified that the particulars given above are true and correct and the amount indicated represents the price actually charged.', fLeftW)
-        .forEach(l => leftLines.push({ bold: false, text: l }));
-    }
-
-    const leftH = Math.max(36, leftLines.length * 3.4 + 10);
-    const fBoxH = Math.max(leftH, 36);
-
-    if (y + fBoxH > pageH - marginBottom - 6) {
-      doc.addPage();
-      y = marginTop + 5;
-    }
-
-    const actualFStart = y;
-    setStroke(borderW);
-    doc.rect(marginX, actualFStart, boxW, fBoxH);
-    doc.line(fSplitX, actualFStart, fSplitX, actualFStart + fBoxH);
-
-    let lyPos = actualFStart + 4;
-    leftLines.forEach(item => {
-      doc.setFont(fontFam, item.bold ? 'bold' : 'normal');
-      doc.setFontSize(item.bold ? 7.4 : 6.9);
-      doc.setTextColor(item.bold ? accentRgb[0] : 51, item.bold ? accentRgb[1] : 65, item.bold ? accentRgb[2] : 85);
-      doc.text(item.text, marginX + 2.5, lyPos);
-      lyPos += 3.4;
-    });
-
-    if (shaHex) {
-      doc.setFont(fontFam, 'normal');
-      doc.setFontSize(5.8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`SHA-256: ${shaHex}`, marginX + 2.5, actualFStart + fBoxH - 2);
-    }
-
-    drawSignatureBlock(marginX + boxW - 2.5, actualFStart, fBoxH);
-    y = actualFStart + fBoxH + 3.5;
-
-    doc.setFont(fontFam, 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Not a certificate-based digital signature. This is a Computer Generated ${typeConfig.label || 'Document'}.`, pageW / 2, y, { align: 'center' });
-
-  } else {
-    // ==========================================================================
-    // TEMPLATE 2: TALLY / CLASSIC / MODERN / MINIMAL
-    // ==========================================================================
-    const isModern = style === 'modern';
-    const isMinimal = style === 'minimal';
-    const isClassic = style === 'classic';
-
-    if (isModern) {
-      doc.setFillColor(...accentRgb);
-      doc.rect(marginX, y, boxW, 20, 'F');
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(255, 255, 255);
-      doc.text(docTitle, marginX + 4, y + 9);
-      if (showBusinessName) {
-        doc.setFontSize(10.5);
-        doc.text(String(profile.businessName || ''), marginX + boxW - 4, y + 7, { align: 'right' });
-      }
-      doc.setFont(fontFam, 'normal');
-      doc.setFontSize(7.5);
-      const sSub = [
-        showBusinessAddress ? [profile.address, profile.city, profile.pin].filter(Boolean).join(', ') : '',
-        showGSTIN && profile.gstin ? `GSTIN: ${profile.gstin}` : '',
-      ].filter(Boolean);
-      sSub.forEach((ln, i) => doc.text(ln, marginX + boxW - 4, y + 11.5 + i * 3.6, { align: 'right' }));
-      y += 22;
-    } else if (isClassic) {
-      doc.setFillColor(...accentRgb);
-      doc.rect(marginX, y, boxW, 2, 'F');
-      y += 4;
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(...accentRgb);
-      doc.text(docTitle, marginX, y + 4);
-      if (showBusinessName) {
-        doc.setFontSize(10.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text(String(profile.businessName || ''), marginX + boxW, y + 4, { align: 'right' });
-      }
-      y += 7;
-      doc.setFont(fontFam, 'normal');
-      doc.setFontSize(7.8);
-      if (showInvoiceNumber) { doc.text(`No: ${details.invoiceNumber || ''}`, marginX, y + 3); }
-      if (showInvoiceDate) { doc.text(`Date: ${formatDate(details.invoiceDate, ps)}`, marginX, y + 7); }
-      if (showBusinessAddress) {
-        doc.text([profile.address, profile.city, profile.state, profile.pin].filter(Boolean).join(', '), marginX + boxW, y + 3, { align: 'right' });
-      }
-      if (showGSTIN && profile.gstin) {
-        doc.text(`GSTIN: ${profile.gstin}`, marginX + boxW, y + 7, { align: 'right' });
-      }
-      y += 11;
-      doc.setDrawColor(...accentRgb);
-      doc.setLineWidth(0.35);
-      doc.line(marginX, y, marginX + boxW, y);
-      y += 3;
-    } else if (isMinimal) {
-      if (showBusinessName) {
-        doc.setFont(fontFam, 'bold');
-        doc.setFontSize(10.5);
-        doc.setTextColor(15, 23, 42);
-        doc.text(String(profile.businessName || ''), marginX, y + 4);
-      }
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(...accentRgb);
-      doc.text(docTitle, marginX + boxW, y + 4, { align: 'right' });
-      y += 7;
-      doc.setFont(fontFam, 'normal');
-      doc.setFontSize(7.8);
-      doc.setTextColor(71, 85, 105);
-      if (showBusinessAddress) doc.text([profile.address, profile.city, profile.pin].filter(Boolean).join(', '), marginX, y + 3);
-      if (showInvoiceNumber) doc.text(`${details.invoiceNumber || ''} · ${formatDate(details.invoiceDate, ps)}`, marginX + boxW, y + 3, { align: 'right' });
-      y += 6;
-      doc.setDrawColor(...accentRgb);
-      doc.setLineWidth(0.4);
-      doc.line(marginX, y, marginX + boxW, y);
-      y += 4;
-    } else {
-      // TALLY ruled-grid style
-      doc.setFont(fontFam, 'bold');
-      doc.setFontSize(11.5);
-      doc.setTextColor(...accentRgb);
-      doc.text(docTitle, pageW / 2, y + 4, { align: 'center' });
-      y += 6.5;
-
-      const tStart = y;
-      const midX = marginX + boxW * 0.52;
-      let ly = y + 4.5;
-      if (showBusinessName) {
-        doc.setFont(fontFam, 'bold'); doc.setFontSize(10); doc.setTextColor(15, 23, 42);
-        doc.text(String(profile.businessName || ''), marginX + 2.5, ly);
-        ly += 4.5;
-      }
-      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.8);
-      if (showBusinessAddress) {
-        const lines = doc.splitTextToSize([profile.address, profile.city, profile.pin].filter(Boolean).join(', '), boxW * 0.52 - 5);
-        doc.text(lines, marginX + 2.5, ly);
-        ly += lines.length * 3.5;
-      }
-      if (showGSTIN && profile.gstin) { doc.setFont(fontFam, 'bold'); doc.text(`GSTIN/UIN: ${profile.gstin}`, marginX + 2.5, ly); ly += 3.5; doc.setFont(fontFam, 'normal'); }
-      if (showState && profile.state) { doc.text(`State Name: ${profile.state}`, marginX + 2.5, ly); ly += 3.5; }
-
-      const divY = ly + 1;
-      ly = divY + 4;
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...accentRgb);
-      doc.text(getLabel(ps, 'billTo') || 'Buyer (Bill to)', marginX + 2.5, ly);
-      ly += 3.8;
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(9); doc.setTextColor(15, 23, 42);
-      doc.text(String(client.name || ''), marginX + 2.5, ly);
-      ly += 4;
-      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.8);
-      if (showClientAddress) {
-        const bLines = doc.splitTextToSize([client.address, client.city, client.pin].filter(Boolean).join(', '), boxW * 0.52 - 5);
-        doc.text(bLines, marginX + 2.5, ly);
-        ly += bLines.length * 3.5;
-      }
-      if (showGSTIN && client.gstin) { doc.setFont(fontFam, 'bold'); doc.text(`GSTIN/UIN: ${client.gstin}`, marginX + 2.5, ly); ly += 3.5; doc.setFont(fontFam, 'normal'); }
-
-      const rRows = [
-        ['Invoice No.', showInvoiceNumber ? (details.invoiceNumber || '') : ''],
-        ['Dated', showInvoiceDate ? formatDate(details.invoiceDate, ps) : ''],
-        ['Order / Ref No.', details.workOrderNo || details.referenceNo || ''],
-        ['Due Date', showDueDate && details.dueDate ? formatDate(details.dueDate, ps) : ''],
-        ['Place of Supply', showPlaceOfSupply ? (details.placeOfSupply || client.state || '') : ''],
-      ];
-      const topH = Math.max(ly - tStart + 2, rRows.length * 8.5);
-      const rStep = topH / rRows.length;
-      setStroke(0.28);
-      doc.rect(marginX, tStart, boxW, topH);
-      doc.line(midX, tStart, midX, tStart + topH);
-      doc.line(marginX, divY, midX, divY);
-      rRows.forEach(([k, v], idx) => {
-        const ry = tStart + idx * rStep;
-        if (idx > 0) doc.line(midX, ry, marginX + boxW, ry);
-        doc.setFont(fontFam, 'normal'); doc.setFontSize(7); doc.setTextColor(71, 85, 105);
-        doc.text(k, midX + 2, ry + 3.2);
-        doc.setFont(fontFam, 'bold'); doc.setFontSize(8); doc.setTextColor(15, 23, 42);
-        doc.text(String(v), midX + 2, ry + 6.8);
-      });
-      y = tStart + topH;
-    }
-
-    // Parties block for Classic / Modern / Minimal
-    if (!style.includes('tally')) {
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...accentRgb);
-      doc.text(getLabel(ps, 'billTo') || 'BILL TO', marginX, y + 3.5);
-      if (showPlaceOfSupply) doc.text(getLabel(ps, 'placeOfSupply') || 'PLACE OF SUPPLY', marginX + boxW, y + 3.5, { align: 'right' });
-      y += 7;
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(9.5); doc.setTextColor(15, 23, 42);
-      doc.text(String(client.name || ''), marginX, y);
-      if (showPlaceOfSupply) doc.text(String(details.placeOfSupply || client.state || '—'), marginX + boxW, y, { align: 'right' });
-      y += 4;
-      doc.setFont(fontFam, 'normal'); doc.setFontSize(8);
-      if (showClientAddress) {
-        const bAddr = [client.address, client.city, client.state, client.pin].filter(Boolean).join(', ');
-        if (bAddr) { doc.text(bAddr, marginX, y); y += 3.8; }
-      }
-      if (showGSTIN && client.gstin) { doc.text(`GSTIN: ${client.gstin}`, marginX, y); y += 3.8; }
-      y += 3;
-    }
-
-    // Items table (Tally / Classic / Modern / Minimal)
-    const cols = [{ key: 'sno', label: 'SI', w: 10, align: 'center' }];
-    cols.push({ key: 'desc', label: 'Description', w: 80, align: 'left' });
-    if (showHSN) cols.push({ key: 'hsn', label: 'HSN/SAC', w: 20, align: 'center' });
-    if (showItemQty) cols.push({ key: 'qty', label: 'Qty', w: 22, align: 'right' });
-    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 24, align: 'right' });
-    if (showAmountCol) cols.push({ key: 'amt', label: 'Amount', w: 26, align: 'right' });
-    const sumW = cols.reduce((s, c) => s + c.w, 0);
-    cols.forEach(c => { c.w = (c.w / sumW) * boxW; });
-
-    setStroke(0.28);
-    if (isModern) {
-      doc.setFillColor(...accentRgb);
-      doc.rect(marginX, y, boxW, 7.5, 'F');
-      doc.setTextColor(255, 255, 255);
-    } else {
-      doc.setFillColor(...headerBgRgb);
-      doc.rect(marginX, y, boxW, 7.5, isMinimal ? 'F' : 'FD');
-      doc.setTextColor(...accentRgb);
-    }
+    const hH = 7;
+    doc.setFillColor(...headerBgRgb);
+    doc.rect(marginX, y, boxW, hH, 'F');
     let cx = marginX;
-    doc.setFont(fontFam, 'bold'); doc.setFontSize(7.5);
     cols.forEach((c, i) => {
-      if (!isMinimal && !isModern && i > 0) doc.line(cx, y, cx, y + 7.5);
-      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
-      doc.text(c.label, tx, y + 4.8, { align: c.align });
+      if (i > 0) doc.line(cx, y, cx, y + hH);
+      const tx = c.align === 'right' ? cx + c.w - 1.2 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.2);
+      cellText(c.label, tx, y + 4.6, { bold: true, size: 6.5, color: accentRgb, align: c.align });
       cx += c.w;
     });
-    doc.setTextColor(15, 23, 42);
-    y += 7.5;
-    const bodyStart = y;
+    y += hH;
+    const tblStart = y;
 
     validItems.forEach((it, idx) => {
       const qty = Number(it.quantity) || 0;
       const rate = Number(it.rate) || 0;
+      const taxRate = Number(it.taxPercent) || 0;
+      const line = qty * rate;
+      const taxable = totals.taxInclusive && showGST ? line / (1 + taxRate / 100) : line;
+      const taxAmt = totals.taxInclusive && showGST ? line - taxable : taxable * taxRate / 100;
+      const lineTot = taxable + (showGST ? taxAmt : 0);
       const dCol = cols.find(c => c.key === 'desc');
-      const dLines = doc.splitTextToSize(String(it.name || ''), dCol.w - 3);
-      const rH = Math.max(6.5, dLines.length * 3.8 + 2.4);
+      const full = it.description ? `${it.name || ''}\n${it.description}` : String(it.name || '');
+      const dLines = doc.splitTextToSize(full, dCol.w - 2.5);
+      const rH = Math.max(6.5, dLines.length * 3.4 + 2);
       const map = {
-        sno: String(idx + 1),
-        desc: dLines,
-        hsn: String(it.hsn || ''),
+        sno: String(idx + 1), desc: dLines, hsn: String(it.hsn || ''),
         qty: `${qty}${showItemUnit && it.unit ? ` ${it.unit}` : ''}`,
-        rate: fmtAmt(rate),
-        amt: fmtAmt(qty * rate),
+        rate: fmtAmt(rate), taxable: fmtAmt(taxable),
+        igstPct: `${taxRate}%`, igstAmt: fmtAmt(taxAmt),
+        cgstPct: `${taxRate / 2}%`, cgstAmt: fmtAmt(taxAmt / 2),
+        sgstPct: `${taxRate / 2}%`, sgstAmt: fmtAmt(taxAmt / 2),
+        amt: fmtAmt(lineTot),
       };
       let x0 = marginX;
       cols.forEach(c => {
-        doc.setFont(fontFam, c.key === 'amt' ? 'bold' : 'normal');
-        doc.setFontSize(8);
-        const tx = c.align === 'right' ? x0 + c.w - 1.5 : (c.align === 'center' ? x0 + c.w / 2 : x0 + 1.5);
-        doc.text(map[c.key] ?? '', tx, y + 4.2, { align: c.align });
+        const tx = c.align === 'right' ? x0 + c.w - 1.2 : (c.align === 'center' ? x0 + c.w / 2 : x0 + 1.2);
+        cellText(map[c.key] ?? '', tx, y + 4.2, { bold: c.key === 'amt', size: 7, align: c.align });
         x0 += c.w;
       });
-      if (!style.includes('tally')) {
-        setStroke(0.28);
-        doc.line(marginX, y + rH, marginX + boxW, y + rH);
-      }
+      stroke(0.3);
+      doc.line(marginX, y + rH, marginX + boxW, y + rH);
       y += rH;
     });
+    sectionFrame(marginX, tblStart, boxW, y - tblStart, { drawTop: false }); // shared top edge skipped
+    let vx = marginX;
+    cols.forEach((c, i) => { if (i > 0) doc.line(vx, tblStart, vx, y); vx += c.w; });
 
-    if (style === 'tally') {
-      setStroke(0.28);
-      doc.rect(marginX, bodyStart, boxW, y - bodyStart);
-      let vx = marginX;
-      cols.forEach((c, i) => { if (i > 0) doc.line(vx, bodyStart, vx, y); vx += c.w; });
-    }
-
-    // Totals
-    y += 2;
-    const tX = marginX + boxW * 0.58;
+    // Amount words + totals
+    const totStart = y;
+    const tSplit = marginX + boxW * 0.55;
     const tRows = [];
-    if (showSubtotal && showAmountCol) tRows.push(['Subtotal', fmtAmt(subTotal), false]);
+    if (showSubtotal) tRows.push(['Taxable Value', fmtAmt(subTotal), false]);
     if (showGST && igst > 0) tRows.push(['IGST', fmtAmt(igst), false]);
     if (showGST && cgst > 0) tRows.push(['CGST', fmtAmt(cgst), false]);
     if (showGST && sgst > 0) tRows.push(['SGST', fmtAmt(sgst), false]);
-    if (showRoundOff && Math.abs(roundOff) >= 0.005) tRows.push(['Round Off', fmtAmt(roundOff), false]);
     if (showAmountCol) tRows.push(['Grand Total', `${curSym} ${fmtAmt(grandTotal)}`, true]);
-
-    tRows.forEach(([k, v, bold]) => {
-      if (bold) {
-        doc.setFillColor(...headerBgRgb);
-        doc.rect(tX, y, boxW * 0.42, 7, 'F');
-      }
-      doc.setFont(fontFam, bold ? 'bold' : 'normal');
-      doc.setFontSize(bold ? 9 : 8);
-      doc.setTextColor(bold ? accentRgb[0] : 15, bold ? accentRgb[1] : 23, bold ? accentRgb[2] : 42);
-      doc.text(k, tX + 2, y + 4.8);
-      doc.text(v, marginX + boxW - 2, y + 4.8, { align: 'right' });
-      y += bold ? 7.5 : 5.2;
-    });
-    doc.setTextColor(15, 23, 42);
-
+    const wordsLines = showAmountWords ? doc.splitTextToSize(wordsOf(grandTotal), boxW * 0.52 - 4) : [];
+    const totH = Math.max((showAmountWords ? wordsLines.length * 3.5 + 8 : 6), tRows.length * 6.2, 14);
+    sectionFrame(marginX, totStart, boxW, totH, { drawTop: false }); // shared top edge skipped
+    doc.line(tSplit, totStart, tSplit, totStart + totH);
     if (showAmountWords) {
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(7.5);
-      doc.text(`${getLabel(ps, 'amountInWords') || 'Amount in Words'}: `, marginX, y + 4);
-      doc.setFont(fontFam, 'italic');
-      doc.text(wordsOf(grandTotal), marginX + 32, y + 4);
-      y += 7;
+      cellText('AMOUNT IN WORDS:', marginX + 2.5, totStart + 4, { bold: true, size: 7 });
+      doc.setFont(fontFam, 'italic'); doc.setFontSize(7.5); doc.setTextColor(15, 23, 42);
+      doc.text(wordsLines, marginX + 2.5, totStart + 8);
     }
+    const step = totH / Math.max(tRows.length, 1);
+    tRows.forEach(([k, v, bold], idx) => {
+      const ry = totStart + idx * step;
+      if (idx > 0) { stroke(0.3); doc.line(tSplit, ry, marginX + boxW, ry); }
+      if (bold) { doc.setFillColor(...headerBgRgb); doc.rect(tSplit, ry, boxW * 0.45, step, 'F'); }
+      cellText(k, tSplit + 2, ry + step * 0.65, { bold, size: bold ? 8.2 : 7.4 });
+      cellText(v, marginX + boxW - 2, ry + step * 0.65, { bold, size: bold ? 8.2 : 7.4, align: 'right' });
+    });
+    y = totStart + totH;
+    y = drawHsnSummary(y);
 
-    // Footer: Bank + Terms + Signature
-    const fY = y + 2;
-    let lY = fY;
+    // Bank
     if (showBankDetails && (acct.bankName || profile.bankName)) {
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(7.8); doc.setTextColor(...accentRgb);
-      doc.text(getLabel(ps, 'bankDetails') || 'Bank Details', marginX, lY + 3);
-      lY += 4.2;
-      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.5); doc.setTextColor(15, 23, 42);
-      doc.text(`Bank: ${acct.bankName || profile.bankName} · A/C: ${acct.accountNumber || profile.accountNumber || ''} · IFSC: ${acct.ifsc || profile.ifsc || ''}`, marginX, lY + 3);
-      lY += 5;
-    }
-    if (showTerms && stripHtml(customTerms)) {
-      doc.setFont(fontFam, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...accentRgb);
-      doc.text(getLabel(ps, 'terms') || 'Terms & Conditions', marginX, lY + 3);
-      lY += 4;
-      doc.setFont(fontFam, 'normal'); doc.setFontSize(7); doc.setTextColor(51, 65, 85);
-      const tLines = doc.splitTextToSize(stripHtml(customTerms), boxW * 0.6);
-      doc.text(tLines, marginX, lY + 3);
-      lY += tLines.length * 3.4 + 3;
-    }
-    if (showUPI && !isDeliveryChallan) {
-      await drawUpiQr(marginX, lY + 1, 14);
-      lY += 17;
+      const bH = 14;
+      sectionFrame(marginX, y, boxW, bH, { drawTop: false });
+      cellText('BANK DETAILS', marginX + 2.5, y + 4, { bold: true, size: 7.4, color: accentRgb });
+      cellText(`A/C Name: ${acct.accountHolderName || profile.businessName || ''}   Bank: ${acct.bankName || profile.bankName || ''}`, marginX + 2.5, y + 8, { size: 7.2 });
+      cellText(`A/C No: ${acct.accountNumber || profile.accountNumber || ''}   IFSC: ${acct.ifsc || profile.ifsc || ''}${profile.pan && isIndia ? `   PAN: ${profile.pan}` : ''}`, marginX + 2.5, y + 11.5, { size: 7.2 });
+      y += bH;
     }
 
-    drawSignatureBlock(marginX + boxW, fY, Math.max(36, lY - fY));
-    y = Math.max(lY, fY + 38) + 4;
-    doc.setFont(fontFam, 'normal'); doc.setFontSize(6.5); doc.setTextColor(100, 116, 139);
-    doc.text(`Not a certificate-based digital signature. This is a Computer Generated ${typeConfig.label || 'Document'}.`, pageW / 2, y, { align: 'center' });
+    // Terms | Signature + customer seal
+    const fStart = y;
+    const fH = 38;
+    sectionFrame(marginX, fStart, boxW, fH, { drawTop: false }); // shared top edge skipped
+    doc.line(marginX + boxW * 0.58, fStart, marginX + boxW * 0.58, fStart + fH);
+    if (showTerms && stripHtml(customTerms)) {
+      cellText('TERMS & CONDITIONS:', marginX + 2.5, fStart + 4, { bold: true, size: 7.2, color: accentRgb });
+      const tl = doc.splitTextToSize(stripHtml(customTerms), boxW * 0.55);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(6.5); doc.setTextColor(51, 65, 85);
+      doc.text(tl.slice(0, 8), marginX + 2.5, fStart + 8);
+    }
+    cellText("Customer's Seal and Signature", marginX + 2.5, fStart + fH - 4, { size: 6.8, color: [100, 116, 139] });
+    drawSignatureBlock(marginX + boxW - 2, fStart + 2, fH - 4);
+    if (showUPI && !isDeliveryChallan) {
+      await drawUpiQr(marginX + 2.5, fStart + fH - 18, 12);
+    }
+    y = fStart + fH + 3;
+    y += 2;
+    // One outer border only (sections use shared edges — no double lines)
+    stroke(0.28);
+    doc.rect(marginX, outerTop, boxW, Math.max(4, y - outerTop));
+    // Page footer (PO style): thin rule + disclaimer + SHA at bottom of page — not mid-body
+    const footY = pageH - Math.max(8, marginBottom);
+    setStroke(0.22);
+    doc.line(marginX, footY - 5, marginX + boxW, footY - 5);
+    cellText(`Not a certificate-based digital signature. This is a Computer Generated ${typeConfig.label || 'Document'}.`, pageW / 2, footY - 2.2, { size: 6.0, color: [100, 116, 139], align: 'center' });
+    if (shaHex) cellText(`SHA-256: ${shaHex}`, pageW / 2, footY + 1.2, { size: 5.5, color: [100, 116, 139], align: 'center' });
+    // Single section borders only — no second outer frame (was causing double/thick borders)
   }
+
+  // ==========================================================================
+  // BOXED — InvoiceGridLayout BoxedLayout columns (UNIT / QTY, filler rows)
+  // ==========================================================================
+  else if (style === 'boxed') {
+    const borderW = 0.28;
+    stroke(borderW);
+    const outerTop = y;
+    let bannerH = 12;
+    if (showBusinessName) bannerH += 4;
+    doc.setFillColor(...headerBgRgb);
+    doc.rect(marginX, y, boxW, bannerH, 'FD');
+    if (showBusinessName) cellText(profile.businessName || 'Company', pageW / 2, y + 5.5, { bold: true, size: 14, color: accentRgb, align: 'center' });
+    cellText(docTitle, pageW / 2, y + bannerH - 3, { bold: true, size: 10, align: 'center' });
+    y += bannerH;
+
+    // Seller | Meta (same structure as before)
+    const metaStart = y;
+    const splitX = marginX + boxW * 0.55;
+    let sy = y + 4;
+    if (showBusinessName) { cellText(profile.businessName || '', marginX + 2.5, sy, { bold: true, size: 9 }); sy += 3.5; }
+    if (showBusinessAddress) {
+      const al = doc.splitTextToSize([profile.address, profile.city, profile.pin].filter(Boolean).join(', '), boxW * 0.52);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(al, marginX + 2.5, sy); sy += al.length * 3.2;
+    }
+    if (showGSTIN && profile.gstin) { cellText(`GSTIN: ${profile.gstin}`, marginX + 2.5, sy, { bold: true, size: 7.4 }); sy += 3.2; }
+    const metaRows = [];
+    if (showInvoiceDate) metaRows.push(['Date', shortDate(details.invoiceDate)]);
+    if (showInvoiceNumber) metaRows.push([`${typeConfig.label || 'Doc'} No`, details.invoiceNumber || '']);
+    if (showDueDate && details.dueDate) metaRows.push(['Due Date', shortDate(details.dueDate)]);
+    let my = y;
+    metaRows.forEach(([k, v], i) => {
+      if (i) { stroke(0.28); doc.line(splitX, my, marginX + boxW, my); }
+      cellText(`${k}: ${v}`, splitX + 2, my + 4.5, { size: 7.5 });
+      my += 8;
+    });
+    const metaH = Math.max(sy - metaStart + 2, my - metaStart, 18);
+    stroke(borderW); doc.rect(marginX, metaStart, boxW, metaH); doc.line(splitX, metaStart, splitX, metaStart + metaH);
+    y = metaStart + metaH;
+
+    // BILL TO | SHIP TO
+    const partyStart = y; const midX = marginX + boxW * 0.5;
+    stroke(borderW); doc.setFillColor(...headerBgRgb);
+    doc.rect(marginX, y, boxW * 0.5, 5, 'FD'); doc.rect(midX, y, boxW * 0.5, 5, 'FD');
+    cellText('Billing To:', marginX + 2.5, y + 3.5, { bold: true, size: 7.5, color: accentRgb });
+    cellText('Shipping To:', midX + 2.5, y + 3.5, { bold: true, size: 7.5, color: accentRgb });
+    let py = y + 8, qy = y + 8;
+    cellText(client.name || '', marginX + 2.5, py, { bold: true, size: 9 }); py += 3.5;
+    if (showClientAddress && client.address) {
+      const cl = doc.splitTextToSize(String(client.address), boxW * 0.48);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(cl, marginX + 2.5, py); py += cl.length * 3.2;
+    }
+    if (showGSTIN && client.gstin) { cellText(`GSTIN: ${client.gstin}`, marginX + 2.5, py, { bold: true, size: 7.3 }); py += 3.2; }
+    cellText(shipTo?.name || 'Same as billing address', midX + 2.5, qy, { size: 8 }); qy += 3.5;
+    if (showPlaceOfSupply && details.placeOfSupply) { cellText(`Place of Supply: ${details.placeOfSupply}`, midX + 2.5, qy, { bold: true, size: 7.3 }); qy += 3.5; }
+    const partyH = Math.max(py, qy) - partyStart + 2;
+    stroke(borderW); doc.rect(marginX, partyStart, boxW, partyH); doc.line(midX, partyStart, midX, partyStart + partyH);
+    y = partyStart + partyH;
+    if (orderMap.workDetails) {
+      stroke(borderW); doc.rect(marginX, y, boxW, 7);
+      cellText(`Work Details: ${orderMap.workDetails}`, marginX + 2.5, y + 4.5, { size: 7.8 }); y += 7;
+    }
+
+    // Columns: SI Description HSN UNIT QTY Rate Amount
+    const cols = [{ key: 'sno', label: 'SI', w: 10, align: 'center' }, { key: 'desc', label: 'Description', w: 70, align: 'left' }];
+    if (showHSN) cols.push({ key: 'hsn', label: 'HSN/SAC', w: 20, align: 'center' });
+    if (showItemQty) { cols.push({ key: 'unit', label: 'UNIT', w: 16, align: 'center' }); cols.push({ key: 'qty', label: 'QTY', w: 16, align: 'center' }); }
+    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 22, align: 'right' });
+    if (showAmountCol) cols.push({ key: 'amt', label: 'Amount', w: 26, align: 'right' });
+    const sumW = cols.reduce((s, c) => s + c.w, 0); cols.forEach(c => { c.w = (c.w / sumW) * boxW; });
+    const hH = 7.5;
+    stroke(borderW); doc.setFillColor(...headerBgRgb); doc.rect(marginX, y, boxW, hH, 'FD');
+    let cx = marginX;
+    cols.forEach((c, i) => {
+      if (i) doc.line(cx, y, cx, y + hH);
+      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
+      cellText(c.label, tx, y + 5, { bold: true, size: 7.2, color: accentRgb, align: c.align });
+      cx += c.w;
+    });
+    y += hH; const tblStart = y;
+    validItems.forEach((it, idx) => {
+      const qty = Number(it.quantity) || 0, rate = Number(it.rate) || 0;
+      const dCol = cols.find(c => c.key === 'desc');
+      const dLines = doc.splitTextToSize(String(it.name || ''), dCol.w - 3);
+      const rH = Math.max(6.5, dLines.length * 3.5 + 2);
+      const map = { sno: String(idx + 1), desc: dLines, hsn: String(it.hsn || ''), unit: String(it.unit || ''), qty: String(qty), rate: fmtAmt(rate), amt: fmtAmt(qty * rate) };
+      let x0 = marginX;
+      cols.forEach(c => {
+        const tx = c.align === 'right' ? x0 + c.w - 1.5 : (c.align === 'center' ? x0 + c.w / 2 : x0 + 1.5);
+        cellText(map[c.key] ?? '', tx, y + 4.2, { bold: c.key === 'amt', size: 7.6, align: c.align });
+        x0 += c.w;
+      });
+      stroke(0.28); doc.line(marginX, y + rH, marginX + boxW, y + rH); y += rH;
+    });
+    if (validItems.length < 4) {
+      for (let f = 0; f < 4 - validItems.length; f++) { stroke(0.3); doc.line(marginX, y + 6, marginX + boxW, y + 6); y += 6; }
+    }
+    stroke(borderW); doc.rect(marginX, tblStart, boxW, y - tblStart);
+    let vx = marginX; cols.forEach((c, i) => { if (i) doc.line(vx, tblStart, vx, y); vx += c.w; });
+
+    // Bank left + totals right
+    const totStart = y; const tSplit = marginX + boxW * 0.58;
+    const tRows = [];
+    if (showSubtotal) tRows.push(['Subtotal', fmtAmt(subTotal), false]);
+    if (showGST && igst > 0) tRows.push(['IGST', fmtAmt(igst), false]);
+    if (showGST && cgst > 0) tRows.push(['CGST', fmtAmt(cgst), false]);
+    if (showGST && sgst > 0) tRows.push(['SGST', fmtAmt(sgst), false]);
+    if (showAmountCol) tRows.push(['Grand Total', `${curSym} ${fmtAmt(grandTotal)}`, true]);
+    const bankLines = (showBankDetails && (acct.bankName || profile.bankName)) ? 4 : 0;
+    const leftH = bankLines * 3.8 + 6 + (showUPI && !isDeliveryChallan ? 16 : 0);
+    const totH = Math.max(leftH, tRows.length * 6.2, 16);
+    stroke(borderW); doc.rect(marginX, totStart, boxW, totH); doc.line(tSplit, totStart, tSplit, totStart + totH);
+    if (bankLines) {
+      cellText('Bank Details', marginX + 2.5, totStart + 4, { bold: true, size: 7.5, color: accentRgb });
+      cellText(`Bank: ${acct.bankName || profile.bankName || ''}`, marginX + 2.5, totStart + 8, { size: 7.2 });
+      cellText(`A/C: ${acct.accountNumber || profile.accountNumber || ''}`, marginX + 2.5, totStart + 11.5, { size: 7.2 });
+      cellText(`IFSC: ${acct.ifsc || profile.ifsc || ''}`, marginX + 2.5, totStart + 15, { size: 7.2 });
+    }
+    if (showUPI && !isDeliveryChallan) await drawUpiQr(marginX + 2.5, totStart + totH - 15, 13);
+    const step = totH / Math.max(tRows.length, 1);
+    tRows.forEach(([k, v, bold], idx) => {
+      const ry = totStart + idx * step;
+      if (idx) { stroke(0.3); doc.line(tSplit, ry, marginX + boxW, ry); }
+      if (bold) { doc.setFillColor(...headerBgRgb); doc.rect(tSplit, ry, boxW * 0.42, step, 'F'); }
+      cellText(k, tSplit + 2, ry + step * 0.65, { bold, size: bold ? 8.5 : 7.6 });
+      cellText(v, marginX + boxW - 2, ry + step * 0.65, { bold, size: bold ? 8.5 : 7.6, align: 'right' });
+    });
+    y = totStart + totH;
+    if (showAmountWords) {
+      stroke(borderW); doc.rect(marginX, y, boxW, 8);
+      cellText('Amount in words: ' + wordsOf(grandTotal), marginX + 2.5, y + 5, { size: 7.5 }); y += 8;
+    }
+    y = drawHsnSummary(y);
+    const fStart = y; const fH = 36;
+    stroke(borderW); doc.rect(marginX, fStart, boxW, fH);
+    doc.line(marginX + boxW * 0.55, fStart, marginX + boxW * 0.55, fStart + fH);
+    if (showTerms && stripHtml(customTerms)) {
+      cellText('Terms & Conditions:', marginX + 2.5, fStart + 4, { bold: true, size: 7.2, color: accentRgb });
+      const tl = doc.splitTextToSize(stripHtml(customTerms), boxW * 0.5);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(6.5); doc.setTextColor(51, 65, 85);
+      doc.text(tl.slice(0, 7), marginX + 2.5, fStart + 8);
+    }
+    cellText("Customer's Seal and Signature", marginX + 2.5, fStart + fH - 3, { size: 6.8, color: [100, 116, 139] });
+    drawSignatureBlock(marginX + boxW - 2, fStart + 2, fH - 4);
+    y = fStart + fH + 3;
+    // Page footer (thin, single — match PO; no double outer frame)
+    const footY = pageH - Math.max(8, marginBottom);
+    setStroke(0.22);
+    doc.line(marginX, footY - 5, marginX + boxW, footY - 5);
+    cellText('This is a computer generated document.', pageW / 2, footY - 2.2, { size: 6.0, color: [100, 116, 139], align: 'center' });
+    if (typeof shaHex === 'string' && shaHex) cellText('SHA-256: ' + shaHex, pageW / 2, footY + 1.2, { size: 5.5, color: [100, 116, 139], align: 'center' });
+  }
+
+  // ==========================================================================
+  // TALLY — ref/dispatch grid (InvoiceGridLayout TallyLayout)
+  // ==========================================================================
+  else if (style === 'tally') {
+    const borderW = 0.28;
+    stroke(borderW);
+    cellText(docTitle, pageW / 2, y + 4, { bold: true, size: 12, color: accentRgb, align: 'center' });
+    y += 7;
+    const tStart = y; const midX = marginX + boxW * 0.5; const refW = boxW * 0.25;
+    let ly = y + 4;
+    if (showBusinessName) { cellText(profile.businessName || '', marginX + 2.5, ly, { bold: true, size: 10 }); ly += 4; }
+    if (showBusinessAddress && profile.address) {
+      const al = doc.splitTextToSize(String(profile.address), boxW * 0.48 - 4);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(al, marginX + 2.5, ly); ly += al.length * 3.2;
+    }
+    if (showGSTIN && profile.gstin) { cellText(`GSTIN/UIN: ${profile.gstin}`, marginX + 2.5, ly, { bold: true, size: 7.4 }); ly += 3.2; }
+    if (showState && profile.state) { cellText(`State Name: ${profile.state}`, marginX + 2.5, ly, { size: 7.4 }); ly += 3.2; }
+    if (showBusinessPhone && profile.phone) { cellText(`Mobile: ${profile.phone}${profile.pan ? ` | PAN: ${profile.pan}` : ''}`, marginX + 2.5, ly, { size: 7.3 }); ly += 3.2; }
+    const refPairs = [
+      ['Invoice No.', details.invoiceNumber || '', 'Dated', shortDate(details.invoiceDate)],
+      ['Delivery Note', orderMap.deliveryNote || '', 'Mode/Terms of Payment', orderMap.paymentTerms || ''],
+      ['Reference No. & Date.', orderMap.referenceNo || '', 'Other References', orderMap.otherReferences || ''],
+      ["Buyer's Order No.", orderMap.buyerOrderNo || '', 'Dated', orderMap.buyerOrderDate ? shortDate(orderMap.buyerOrderDate) : ''],
+      ['Dispatch Doc No.', orderMap.dispatchDocNo || '', 'Delivery Note Date', orderMap.deliveryNoteDate ? shortDate(orderMap.deliveryNoteDate) : ''],
+      ['Dispatched through', orderMap.dispatchedThrough || '', 'Destination', orderMap.destination || ''],
+    ];
+    const headerRows = 4; const headerH = Math.max(ly - tStart + 2, headerRows * 9);
+    stroke(borderW); doc.rect(marginX, tStart, boxW * 0.5, headerH);
+    for (let r = 0; r < headerRows; r++) {
+      const ry = tStart + r * (headerH / headerRows); const cellH = headerH / headerRows;
+      const [k1, v1, k2, v2] = refPairs[r];
+      stroke(0.4); doc.rect(midX, ry, refW, cellH); doc.rect(midX + refW, ry, refW, cellH);
+      cellText(k1, midX + 1.5, ry + 3, { size: 6.5, color: [71, 85, 105] });
+      cellText(v1 || '', midX + 1.5, ry + 6.5, { bold: true, size: 7.5 });
+      cellText(k2, midX + refW + 1.5, ry + 3, { size: 6.5, color: [71, 85, 105] });
+      cellText(v2 || '', midX + refW + 1.5, ry + 6.5, { bold: true, size: 7.5 });
+    }
+    y = tStart + headerH;
+    const bStart = y; let by = y + 4;
+    cellText('Buyer (Bill to)', marginX + 2.5, by, { bold: true, size: 7.5, color: accentRgb }); by += 3.5;
+    cellText(client.name || '', marginX + 2.5, by, { bold: true, size: 9 }); by += 3.5;
+    if (showClientAddress && client.address) {
+      const cl = doc.splitTextToSize(String(client.address), boxW * 0.48 - 4);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7.4); doc.text(cl, marginX + 2.5, by); by += cl.length * 3.2;
+    }
+    if (showGSTIN && client.gstin) { cellText(`GSTIN/UIN: ${client.gstin}`, marginX + 2.5, by, { bold: true, size: 7.3 }); by += 3.2; }
+    const buyerH = Math.max(by - bStart + 2, 18);
+    for (let r = 0; r < 2; r++) {
+      const ry = bStart + r * (buyerH / 2); const cellH = buyerH / 2;
+      const [k1, v1, k2, v2] = refPairs[4 + r];
+      stroke(0.4); doc.rect(midX, ry, refW, cellH); doc.rect(midX + refW, ry, refW, cellH);
+      cellText(k1, midX + 1.5, ry + 3, { size: 6.5, color: [71, 85, 105] });
+      cellText(v1 || '', midX + 1.5, ry + 6.5, { bold: true, size: 7.4 });
+      cellText(k2, midX + refW + 1.5, ry + 3, { size: 6.5, color: [71, 85, 105] });
+      cellText(v2 || '', midX + refW + 1.5, ry + 6.5, { bold: true, size: 7.4 });
+    }
+    stroke(borderW); doc.rect(marginX, bStart, boxW * 0.5, buyerH);
+    y = bStart + buyerH;
+    if (orderMap.workDetails) {
+      stroke(borderW); doc.rect(marginX, y, boxW, 7);
+      cellText(`Work Details: ${orderMap.workDetails}`, marginX + 2.5, y + 4.5, { size: 7.6 }); y += 7;
+    }
+    // Items
+    const cols = [{ key: 'sno', label: 'Sl No.', w: 12, align: 'center' }, { key: 'desc', label: 'Description of Services / Goods', w: 72, align: 'left' }];
+    if (showHSN) cols.push({ key: 'hsn', label: 'HSN/SAC', w: 22, align: 'center' });
+    if (showItemQty) cols.push({ key: 'qty', label: 'Quantity', w: 22, align: 'right' });
+    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 24, align: 'right' });
+    if (showAmountCol) cols.push({ key: 'amt', label: 'Amount', w: 28, align: 'right' });
+    const sumW = cols.reduce((s, c) => s + c.w, 0); cols.forEach(c => { c.w = (c.w / sumW) * boxW; });
+    const hH = 7.5;
+    stroke(borderW); doc.setFillColor(...headerBgRgb); doc.rect(marginX, y, boxW, hH, 'FD');
+    let cx = marginX;
+    cols.forEach((c, i) => {
+      if (i) doc.line(cx, y, cx, y + hH);
+      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
+      cellText(c.label, tx, y + 5, { bold: true, size: 7.2, align: c.align });
+      cx += c.w;
+    });
+    y += hH; const bodyStart = y;
+    validItems.forEach((it, idx) => {
+      const qty = Number(it.quantity) || 0, rate = Number(it.rate) || 0;
+      const dCol = cols.find(c => c.key === 'desc');
+      const dLines = doc.splitTextToSize(String(it.name || ''), dCol.w - 3);
+      const rH = Math.max(7, dLines.length * 3.5 + 2.5);
+      const map = { sno: String(idx + 1), desc: dLines, hsn: String(it.hsn || ''), qty: `${qty}${showItemUnit && it.unit ? ` ${it.unit}` : ''}`, rate: fmtAmt(rate), amt: fmtAmt(qty * rate) };
+      let x0 = marginX;
+      cols.forEach(c => {
+        const tx = c.align === 'right' ? x0 + c.w - 1.5 : (c.align === 'center' ? x0 + c.w / 2 : x0 + 1.5);
+        cellText(map[c.key] ?? '', tx, y + 4.5, { bold: c.key === 'amt' || c.key === 'desc', size: 7.6, align: c.align });
+        x0 += c.w;
+      });
+      y += rH;
+    });
+    if (showAmountCol && !isDeliveryChallan) {
+      const taxLines = [['', fmtAmt(subTotal)]];
+      if (showGST && igst > 0) taxLines.push(['IGST', fmtAmt(igst)]);
+      if (showGST && cgst > 0) taxLines.push(['CGST', fmtAmt(cgst)]);
+      if (showGST && sgst > 0) taxLines.push(['SGST', fmtAmt(sgst)]);
+      taxLines.forEach(([lab, val]) => {
+        if (lab) cellText(lab, marginX + cols[0].w + cols[1].w - 2, y + 4.5, { bold: true, size: 7.5, align: 'right' });
+        cellText(val, marginX + boxW - 2, y + 4.5, { bold: true, size: 7.6, align: 'right' });
+        y += 6.5;
+      });
+      stroke(0.28); doc.line(marginX, y, marginX + boxW, y);
+      cellText('Total', marginX + cols[0].w + cols[1].w - 2, y + 5, { bold: true, size: 8.5, align: 'right' });
+      cellText(`${curSym} ${fmtAmt(grandTotal)}`, marginX + boxW - 2, y + 5, { bold: true, size: 9, align: 'right' });
+      y += 8;
+    }
+    stroke(borderW); doc.rect(marginX, bodyStart, boxW, y - bodyStart);
+    let vx = marginX; cols.forEach((c, i) => { if (i) doc.line(vx, bodyStart, vx, y); vx += c.w; });
+    if (showAmountWords) {
+      stroke(borderW); doc.rect(marginX, y, boxW, 9);
+      cellText('Amount Chargeable (in words)', marginX + 2.5, y + 3.5, { size: 6.8, color: [71, 85, 105] });
+      cellText(wordsOf(grandTotal), marginX + 2.5, y + 7, { bold: true, size: 8 });
+      cellText('E. & O.E', marginX + boxW - 2, y + 7, { size: 7, align: 'right' });
+      y += 9;
+    }
+    y = drawHsnSummary(y);
+    const fStart = y; const fH = 40;
+    stroke(borderW); doc.rect(marginX, fStart, boxW, fH);
+    doc.line(marginX + boxW * 0.5, fStart, marginX + boxW * 0.5, fStart + fH);
+    doc.line(marginX, fStart + fH * 0.55, marginX + boxW, fStart + fH * 0.55);
+    if (showBankDetails && (acct.bankName || profile.bankName)) {
+      cellText("Company's Bank Details", marginX + boxW * 0.5 + 2, fStart + 3.5, { bold: true, size: 7.4, color: accentRgb });
+      cellText(`Bank Name: ${acct.bankName || profile.bankName}`, marginX + boxW * 0.5 + 2, fStart + 7.5, { size: 7.2 });
+      cellText(`A/c No.: ${acct.accountNumber || profile.accountNumber || ''}`, marginX + boxW * 0.5 + 2, fStart + 11, { size: 7.2 });
+      cellText(`Branch & IFS: ${acct.ifsc || profile.ifsc || ''}`, marginX + boxW * 0.5 + 2, fStart + 14.5, { size: 7.2 });
+    }
+    if (showUPI && !isDeliveryChallan) await drawUpiQr(marginX + boxW * 0.5 + 2, fStart + 17, 12);
+    if (showTerms && stripHtml(customTerms)) {
+      cellText('Terms & Conditions', marginX + 2.5, fStart + 3.5, { bold: true, size: 7.4, color: accentRgb });
+      const tl = doc.splitTextToSize(stripHtml(customTerms), boxW * 0.48 - 4);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(6.6); doc.setTextColor(51, 65, 85);
+      doc.text(tl.slice(0, 6), marginX + 2.5, fStart + 7.5);
+    }
+    cellText("Customer's Seal and Signature", marginX + 2.5, fStart + fH * 0.55 + 4, { size: 7.2 });
+    drawSignatureBlock(marginX + boxW - 2, fStart + fH * 0.55 + 1, fH * 0.45 - 2);
+    y = fStart + fH + 3;
+    cellText('This is a Computer Generated Invoice', pageW / 2, y, { size: 6.5, color: [100, 116, 139], align: 'center' });
+  }
+
+  // ==========================================================================
+  // CLASSIC / MODERN / MINIMAL
+  // ==========================================================================
+  else {
+    const isModern = style === 'modern';
+    const isMinimal = style === 'minimal';
+    if (isModern) {
+      doc.setFillColor(...accentRgb); doc.rect(0, 0, pageW, 28, 'F');
+      cellText(docTitle, marginX, 12, { bold: true, size: 14, color: [255, 255, 255] });
+      if (showBusinessName) cellText(profile.businessName || '', pageW - marginX, 10, { bold: true, size: 10, color: [255, 255, 255], align: 'right' });
+      y = 32;
+    } else if (isMinimal) {
+      if (showBusinessName) cellText(profile.businessName || '', marginX, y + 4, { bold: true, size: 11 });
+      cellText(docTitle, marginX + boxW, y + 4, { bold: true, size: 11, color: accentRgb, align: 'right' });
+      y += 8; stroke(0.5); doc.line(marginX, y, marginX + boxW, y); y += 4;
+    } else {
+      doc.setFillColor(...accentRgb); doc.rect(marginX, y, boxW, 2.2, 'F'); y += 5;
+      if (showBusinessName) cellText(profile.businessName || '', marginX, y + 3, { bold: true, size: 12 });
+      cellText(docTitle, marginX + boxW, y + 3, { bold: true, size: 11, color: accentRgb, align: 'right' });
+      y += 8;
+      if (showBusinessAddress) { cellText([profile.address, profile.city, profile.pin].filter(Boolean).join(', '), marginX, y, { size: 7.5 }); y += 4; }
+      if (showGSTIN && profile.gstin) { cellText(`GSTIN: ${profile.gstin}`, marginX, y, { size: 7.5 }); y += 4; }
+      y += 2; stroke(0.28); doc.line(marginX, y, marginX + boxW, y); y += 4;
+    }
+    const metaBits = [];
+    if (showInvoiceNumber) metaBits.push(`No: ${details.invoiceNumber || ''}`);
+    if (showInvoiceDate) metaBits.push(`Date: ${shortDate(details.invoiceDate)}`);
+    cellText(metaBits.join('   ·   '), marginX, y + 3, { size: 8 }); y += 7;
+    cellText(`Bill To: ${client.name || ''}`, marginX, y + 3, { bold: true, size: 9 }); y += 6;
+    const cols = [{ key: 'sno', label: 'SI', w: 10, align: 'center' }, { key: 'desc', label: 'Description', w: 80, align: 'left' }];
+    if (showHSN) cols.push({ key: 'hsn', label: 'HSN', w: 20, align: 'center' });
+    if (showItemQty) cols.push({ key: 'qty', label: 'Qty', w: 20, align: 'right' });
+    if (showRateColumn) cols.push({ key: 'rate', label: 'Rate', w: 24, align: 'right' });
+    if (showAmountCol) cols.push({ key: 'amt', label: 'Amount', w: 26, align: 'right' });
+    const sumW = cols.reduce((s, c) => s + c.w, 0); cols.forEach(c => { c.w = (c.w / sumW) * boxW; });
+    stroke(0.5);
+    if (isModern) { doc.setFillColor(...accentRgb); doc.rect(marginX, y, boxW, 7, 'F'); }
+    else { doc.setFillColor(...headerBgRgb); doc.rect(marginX, y, boxW, 7, 'FD'); }
+    let cx = marginX;
+    cols.forEach((c, i) => {
+      if (i) doc.line(cx, y, cx, y + 7);
+      const tx = c.align === 'right' ? cx + c.w - 1.5 : (c.align === 'center' ? cx + c.w / 2 : cx + 1.5);
+      cellText(c.label, tx, y + 4.6, { bold: true, size: 7.4, color: isModern ? [255, 255, 255] : accentRgb, align: c.align });
+      cx += c.w;
+    });
+    y += 7; const bodyStart = y;
+    validItems.forEach((it, idx) => {
+      const qty = Number(it.quantity) || 0, rate = Number(it.rate) || 0;
+      const dCol = cols.find(c => c.key === 'desc');
+      const dLines = doc.splitTextToSize(String(it.name || ''), dCol.w - 3);
+      const rH = Math.max(6.5, dLines.length * 3.6 + 2);
+      const map = { sno: String(idx + 1), desc: dLines, hsn: String(it.hsn || ''), qty: String(qty), rate: fmtAmt(rate), amt: fmtAmt(qty * rate) };
+      let x0 = marginX;
+      cols.forEach(c => {
+        const tx = c.align === 'right' ? x0 + c.w - 1.5 : (c.align === 'center' ? x0 + c.w / 2 : x0 + 1.5);
+        cellText(map[c.key] ?? '', tx, y + 4, { size: 7.6, align: c.align, bold: c.key === 'amt' });
+        x0 += c.w;
+      });
+      stroke(0.3); doc.line(marginX, y + rH, marginX + boxW, y + rH); y += rH;
+    });
+    stroke(0.5); doc.rect(marginX, bodyStart, boxW, y - bodyStart);
+    let vx = marginX; cols.forEach((c, i) => { if (i) doc.line(vx, bodyStart, vx, y); vx += c.w; });
+    y += 3;
+    const tX = marginX + boxW * 0.58;
+    const tRows = [];
+    if (showSubtotal) tRows.push(['Subtotal', fmtAmt(subTotal), false]);
+    if (showGST && igst > 0) tRows.push(['IGST', fmtAmt(igst), false]);
+    if (showGST && cgst > 0) tRows.push(['CGST', fmtAmt(cgst), false]);
+    if (showGST && sgst > 0) tRows.push(['SGST', fmtAmt(sgst), false]);
+    if (showAmountCol) tRows.push(['Grand Total', `${curSym} ${fmtAmt(grandTotal)}`, true]);
+    const totH = tRows.length * 6.5;
+    stroke(0.5); doc.rect(tX, y, boxW * 0.42, totH);
+    tRows.forEach(([k, v, bold], idx) => {
+      const ry = y + idx * 6.5;
+      if (idx) doc.line(tX, ry, marginX + boxW, ry);
+      if (bold) { doc.setFillColor(...headerBgRgb); doc.rect(tX, ry, boxW * 0.42, 6.5, 'F'); }
+      cellText(k, tX + 2, ry + 4.3, { bold, size: bold ? 8.5 : 7.6 });
+      cellText(v, marginX + boxW - 2, ry + 4.3, { bold, size: bold ? 8.5 : 7.6, align: 'right' });
+    });
+    y += totH + 3;
+    if (showAmountWords) { cellText(`Amount in Words: ${wordsOf(grandTotal)}`, marginX, y + 3, { size: 7.5 }); y += 7; }
+    if (showTerms && stripHtml(customTerms)) {
+      cellText('Terms & Conditions', marginX, y + 3, { bold: true, size: 7.5, color: accentRgb });
+      const tl = doc.splitTextToSize(stripHtml(customTerms), boxW * 0.55);
+      doc.setFont(fontFam, 'normal'); doc.setFontSize(7); doc.setTextColor(51, 65, 85);
+      doc.text(tl.slice(0, 8), marginX, y + 7); y += Math.min(tl.length, 8) * 3.2 + 8;
+    }
+    drawSignatureBlock(marginX + boxW, y, 36); y += 40;
+    cellText(`Computer Generated ${typeConfig.label || 'Document'}`, pageW / 2, y, { size: 6.5, color: [100, 116, 139], align: 'center' });
+  }
+
 
   // Extra sections on subsequent pages
   for (const sec of (extraSections || [])) {
